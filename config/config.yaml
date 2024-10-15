@@ -1,0 +1,12 @@
+data:
+  file_name: 'NW_Ovary_16/Scan1/NW_1_Scan1.qptiff'
+  antibodies_file: 'NW_Ovary_16/Scan1/extras/antibodies.tsv'
+channels:
+  nuclear_channel: 'DAPI'
+  wholecell_channel: ['CD4']
+patching:
+  patch_height: 1440
+  patch_width: 1920
+  overlap: 0.1
+visualization:
+  visualize_patches: True
