@@ -9,6 +9,7 @@ from aegle.preprocessing import preprocess_image
 from aegle.patching import generate_image_patches
 from aegle.visualization import save_patches_rgb
 from aegle.metadata import generate_and_save_patch_metadata
+from aegle.segment import run_cell_segmentation
 
 
 def run_pipeline(config, args):
@@ -36,18 +37,20 @@ def run_pipeline(config, args):
         image_ndarray_target_channel, config, args
     )
 
+    # Generate and save metadata for the patches
+    patches_metadata_df = generate_and_save_patch_metadata(
+        all_patches_ndarray, config, args
+    )
+
     # Optional: Visualize patches
     if config.get("visualization", {}).get("visualize_patches", False):
-        save_patches_rgb(all_patches_ndarray, config, args)
+        save_patches_rgb(all_patches_ndarray, patches_metadata_df, config, args)
 
-    # Generate and save metadata for the patches
-    generate_and_save_patch_metadata(all_patches_ndarray, config, args)
-
+    # Cell Segmentation and Post-Segmentation Repairs
+    run_cell_segmentation(all_patches_ndarray, patches_metadata_df, config, args)
     # ---------------------------------
     # Future Steps (Placeholders)
     # ---------------------------------
-    # Cell Segmentation
-    # Post-Segmentation Repairs
     # Segmentation Evaluation
     # Cell Profiling
     # TODO: Implement these steps as needed

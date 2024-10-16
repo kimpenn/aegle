@@ -5,15 +5,45 @@ from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 
 
-def save_patches_rgb(all_patches_ndarray, config, args, max_workers=10):
-    output_dir = os.path.join(args.output_dir, "patches_visualizations")
-    os.makedirs(output_dir, exist_ok=True)
-    logging.info(f"Visualizing and saving patches to {output_dir}...")
+def save_patches_rgb(
+    all_patches_ndarray, patches_metadata_df, config, args, max_workers=10
+):
+    """
+    Save patches as RGB images into 'good_patches' and 'bad_patches' directories.
+
+    Args:
+        all_patches_ndarray (np.ndarray): Array of image patches.
+        patches_metadata_df (pd.DataFrame): DataFrame with patch metadata and QC info.
+        config (dict): Configuration parameters.
+        args (Namespace): Command-line arguments.
+        max_workers (int): Maximum number of threads for parallel processing.
+    """
+    good_patches_dir = os.path.join(
+        args.output_dir, "patches_visualizations", "good_patches"
+    )
+    bad_patches_dir = os.path.join(
+        args.output_dir, "patches_visualizations", "bad_patches"
+    )
+
+    # Create directories if they don't exist
+    os.makedirs(good_patches_dir, exist_ok=True)
+    os.makedirs(bad_patches_dir, exist_ok=True)
+
+    logging.info(
+        f"Visualizing and saving patches to {good_patches_dir} and {bad_patches_dir}..."
+    )
 
     # Use ThreadPoolExecutor to save patches in parallel
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for patch_id, patch in enumerate(all_patches_ndarray):
-            executor.submit(save_patch_rgb, patch, patch_id, output_dir)
+            # Check if the patch is bad or good
+            is_bad_patch = patches_metadata_df.loc[patch_id, "is_bad_patch"]
+
+            # Choose output directory based on QC result
+            patch_vis_dir = bad_patches_dir if is_bad_patch else good_patches_dir
+
+            # Submit the task to save the patch
+            executor.submit(save_patch_rgb, patch, patch_id, patch_vis_dir)
 
 
 def save_patch_rgb(patch, patch_id, patch_vis_dir):
@@ -39,12 +69,14 @@ def save_patch_rgb(patch, patch_id, patch_vis_dir):
     elif patch.shape[-1] == 2:
         # Two channels, create a composite RGB image
         composite = np.zeros((patch.shape[0], patch.shape[1], 3), dtype=np.uint8)
-        composite[:, :, 0] = (
+        # Map first channel to Green
+        composite[:, :, 1] = (
             np.uint8(patch[:, :, 0] / np.max(patch[:, :, 0]) * 255)
             if np.max(patch[:, :, 0]) != 0
             else 0
         )
-        composite[:, :, 1] = (
+        # Map second channel to Blue
+        composite[:, :, 2] = (
             np.uint8(patch[:, :, 1] / np.max(patch[:, :, 1]) * 255)
             if np.max(patch[:, :, 1]) != 0
             else 0

@@ -24,9 +24,55 @@ def generate_and_save_patch_metadata(all_patches_ndarray, config, args):
         all_patches_ndarray, patch_height, patch_width
     )
 
+    patch_metadata = qc_patch_metadata(patch_metadata, config, args)
     # Save the metadata
     metadata_file_name = os.path.join(args.output_dir, "patches_metadata.csv")
     save_metadata(patch_metadata, metadata_file_name)
+    return patch_metadata
+
+
+def qc_patch_metadata(patch_metadata, config, args):
+    """
+    Perform quality control on the patch metadata by marking empty or noisy patches.
+
+    Args:
+        patch_metadata (pd.DataFrame): DataFrame containing patch metadata.
+        config (dict): Configuration parameters.
+        args (Namespace): Command-line arguments.
+
+    Returns:
+        pd.DataFrame: DataFrame containing QC'd patch metadata.
+    """
+    logging.info("Performing quality control on patch metadata...")
+
+    # Get QC parameters from config
+    qc_config = config.get("qc", {})
+    non_zero_perc_threshold = qc_config.get("non_zero_perc_threshold", 0.05)
+    mean_intensity_threshold = qc_config.get("mean_intensity_threshold", 1)
+    std_intensity_threshold = qc_config.get("std_intensity_threshold", 1)
+
+    # Identify patches that are empty or noisy
+    patch_metadata["is_empty"] = (
+        patch_metadata["nuclear_non_zero_perc"] < non_zero_perc_threshold
+    )
+
+    patch_metadata["is_noisy"] = (
+        patch_metadata["nuclear_mean"] < mean_intensity_threshold
+    ) & (patch_metadata["nuclear_std"] < std_intensity_threshold)
+
+    # Mark patches as bad (either empty or noisy)
+    patch_metadata["is_bad_patch"] = (
+        patch_metadata["is_empty"] | patch_metadata["is_noisy"]
+    )
+
+    num_bad_patches = patch_metadata["is_bad_patch"].sum()
+    total_patches = len(patch_metadata)
+
+    logging.info(
+        f"Identified {num_bad_patches} bad patches out of {total_patches} total patches."
+    )
+
+    return patch_metadata
 
 
 def generate_patch_metadata(all_patches_ndarray, patch_height, patch_width):
