@@ -10,6 +10,7 @@ from aegle.patching import generate_image_patches
 from aegle.visualization import save_patches_rgb
 from aegle.metadata import generate_and_save_patch_metadata
 from aegle.segment import run_cell_segmentation
+from aegle.seg_eval import run_segmentation_evaluation
 
 
 def run_pipeline(config, args):
@@ -47,10 +48,13 @@ def run_pipeline(config, args):
         save_patches_rgb(all_patches_ndarray, patches_metadata_df, config, args)
 
     # Cell Segmentation and Post-Segmentation Repairs
-    run_cell_segmentation(all_patches_ndarray, patches_metadata_df, config, args)
+    matched_seg_res, fraction_matched, seg_res = run_cell_segmentation(
+        all_patches_ndarray, patches_metadata_df, config, args
+    )
+
+    # Segmentation Evaluation
+    run_segmentation_evaluation(all_patches_ndarray, matched_seg_res, config, args)
     # ---------------------------------
     # Future Steps (Placeholders)
     # ---------------------------------
-    # Segmentation Evaluation
     # Cell Profiling
-    # TODO: Implement these steps as needed

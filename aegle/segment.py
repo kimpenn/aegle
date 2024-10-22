@@ -5,14 +5,20 @@ from tensorflow.keras.models import load_model
 from skimage.segmentation import find_boundaries
 from skimage.measure import regionprops
 import numpy as np
-from typing import List, Tuple, Dict
+import pandas as pd
+from typing import List, Tuple, Dict, Optional
 import logging
 from scipy.sparse import csr_matrix
 
 Image = np.ndarray
 
 
-def run_cell_segmentation(all_patches_ndarray, patches_metadata_df, config, args):
+def run_cell_segmentation(
+    all_patches_ndarray: np.ndarray,
+    patches_metadata_df: pd.DataFrame,
+    config: dict,
+    args: Optional[dict] = None,
+):
     """
     Main function to run the cell segmentation module.
 
@@ -31,7 +37,10 @@ def run_cell_segmentation(all_patches_ndarray, patches_metadata_df, config, args
 
 
 def segment(
-    all_patches_ndarray: np.ndarray, patches_metadata_df, config: dict, args
+    all_patches_ndarray: np.ndarray,
+    patches_metadata_df: pd.DataFrame,
+    config: dict,
+    args: Optional[dict] = None,
 ) -> List[dict]:
     """
     Segment cells and nuclei in the input image patches.
@@ -121,22 +130,26 @@ def get_matched_masks(
         cell_membrane_mask = patch_segmentation["cell_boundary"]
 
         # Extract coordinates for cell, nucleus, and cell membrane
-        cell_coords = _get_mask_coordinates(whole_cell_mask)
-        nucleus_coords = _get_mask_coordinates(nuclear_mask)
-        cell_membrane_coords = _get_mask_coordinates(cell_membrane_mask)
+        cell_coords_dict = _get_mask_coordinates(whole_cell_mask)
+        nucleus_coords_dict = _get_mask_coordinates(nuclear_mask)
+        cell_membrane_coords_dict = _get_mask_coordinates(cell_membrane_mask)
 
         # Perform matching between cells and nuclei
         cell_matched_list, nucleus_matched_list = _match_cells_to_nuclei(
-            cell_coords,
-            nucleus_coords,
-            cell_membrane_coords,
+            cell_coords_dict,
+            nucleus_coords_dict,
+            cell_membrane_coords_dict,
             nuclear_mask,
             do_mismatch_repair,
         )
 
         # Create new masks with matched cells and nuclei
-        cell_matched_mask = get_mask(cell_matched_list, whole_cell_mask.shape)
-        nuclear_matched_mask = get_mask(nucleus_matched_list, nuclear_mask.shape)
+        cell_matched_mask = get_mask_from_labels(
+            cell_matched_list, whole_cell_mask.shape
+        )
+        nuclear_matched_mask = get_mask_from_labels(
+            nucleus_matched_list, nuclear_mask.shape
+        )
         cell_membrane_matched_mask = get_boundary(cell_matched_mask)
         nuclear_membrane_matched_mask = get_boundary(nuclear_matched_mask)
 
@@ -323,32 +336,6 @@ def get_mask_from_labels(
     return mask
 
 
-def get_mask(cell_list: List[np.ndarray], shape: Tuple[int]) -> np.ndarray:
-    """
-    Create a mask from a list of cell coordinates, handling out-of-bounds coordinates.
-
-    Args:
-        cell_list (List[np.ndarray]): List of cell coordinates.
-        shape (Tuple[int]): Shape of the output mask.
-
-    Returns:
-        np.ndarray: Mask with cell labels.
-    """
-    mask = np.zeros(shape, dtype=int)
-    max_row, max_col = shape
-
-    for cell_num, cell in enumerate(cell_list):
-        # Filter out out-of-bounds coordinates
-        valid_coords = cell[
-            (cell[:, 0] >= 0)
-            & (cell[:, 0] < max_row)
-            & (cell[:, 1] >= 0)
-            & (cell[:, 1] < max_col)
-        ]
-        mask[valid_coords[:, 0], valid_coords[:, 1]] = cell_num + 1
-    return mask
-
-
 def _match_cells_to_nuclei(
     cell_coords: Dict[int, np.ndarray],
     nucleus_coords: Dict[int, np.ndarray],
@@ -368,6 +355,7 @@ def _match_cells_to_nuclei(
         if len(cell_coord) == 0:
             raise ValueError("Empty cell coordinates detected.")
 
+        # The label of the cell membrane is the same as the cell
         cell_membrane_coord = cell_membrane_coords.get(cell_label, np.array([]))
 
         # Find candidate nuclei overlapping with the current cell
@@ -379,30 +367,37 @@ def _match_cells_to_nuclei(
             if nucleus_id == 0 or nucleus_id in nucleus_matched_labels:
                 continue
 
-            if cell_label in cell_matched_labels:
-                break
-
-            current_nucleus_coords = nucleus_coords.get(nucleus_id, None)
+            current_nucleus_coords = nucleus_coords.get(nucleus_id)
             if current_nucleus_coords is None:
                 continue
 
-            whole_cell, nucleus, mismatch_fraction = get_matched_cells(
+            match_result = get_matched_cells(
                 cell_coord,
                 cell_membrane_coord,
                 current_nucleus_coords,
                 mismatch_repair=do_mismatch_repair,
             )
 
-            if whole_cell is not False and mismatch_fraction < best_mismatch_fraction:
-                best_mismatch_fraction = mismatch_fraction
-                best_match = {
-                    "cell": whole_cell,
-                    "nucleus": nucleus,
-                    "cell_label": cell_label,
-                    "nucleus_label": nucleus_id,
-                }
+            if match_result is not None:
+                whole_cell, nucleus, mismatch_fraction = match_result
+                if mismatch_fraction == 0:
+                    # Perfect match found; add and break
+                    cell_matched_list.append((cell_label, whole_cell))
+                    nucleus_matched_list.append((nucleus_id, nucleus))
+                    cell_matched_labels.add(cell_label)
+                    nucleus_matched_labels.add(nucleus_id)
+                    break
+                elif mismatch_fraction < best_mismatch_fraction:
+                    best_mismatch_fraction = mismatch_fraction
+                    best_match = {
+                        "cell": whole_cell,
+                        "nucleus": nucleus,
+                        "cell_label": cell_label,
+                        "nucleus_label": nucleus_id,
+                    }
 
-        if best_match:
+        # If no perfect match was found, add the best match (if any)
+        if best_match and cell_label not in cell_matched_labels:
             cell_matched_list.append((best_match["cell_label"], best_match["cell"]))
             nucleus_matched_list.append(
                 (best_match["nucleus_label"], best_match["nucleus"])
@@ -418,7 +413,7 @@ def get_matched_cells(
     cell_membrane_arr: np.ndarray,
     nuclear_arr: np.ndarray,
     mismatch_repair: bool,
-) -> Tuple[np.ndarray, np.ndarray, float]:
+) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
     """
     Determine if a cell and nucleus match based on overlap, optionally performing mismatch repair.
 
@@ -429,10 +424,12 @@ def get_matched_cells(
         mismatch_repair (bool): Whether to apply mismatch repair.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray, float]:
-            - whole_cell (np.ndarray): Coordinates of the whole cell.
-            - nucleus (np.ndarray): Coordinates of the nucleus.
-            - mismatch_fraction (float): Fraction of mismatched pixels.
+        Optional[Tuple[np.ndarray, np.ndarray, float]]:
+            - If a match is found, returns a tuple containing:
+                - whole_cell (np.ndarray): Coordinates of the whole cell.
+                - nucleus (np.ndarray): Coordinates of the nucleus.
+                - mismatch_fraction (float): Fraction of mismatched pixels.
+            - If no match is found, returns None.
     """
     cell_set = set(map(tuple, cell_arr))
     membrane_set = set(map(tuple, cell_membrane_arr))
@@ -450,7 +447,7 @@ def get_matched_cells(
                 mismatch_fraction,
             )
         else:
-            return False, False, mismatch_fraction
+            return None
     else:
         if len(mismatched_pixels) < len(nucleus_set):
             matched_nucleus = nucleus_set & cell_interior
@@ -460,4 +457,80 @@ def get_matched_cells(
                 mismatch_fraction,
             )
         else:
-            return False, False, mismatch_fraction
+            return None
+
+
+# def get_matched_cells(
+#     cell_arr: np.ndarray,
+#     cell_membrane_arr: np.ndarray,
+#     nuclear_arr: np.ndarray,
+#     mismatch_repair: bool,
+# ) -> Tuple[np.ndarray, np.ndarray, float]:
+#     """
+#     Determine if a cell and nucleus match based on overlap, optionally performing mismatch repair.
+
+#     Args:
+#         cell_arr (np.ndarray): Coordinates of the cell.
+#         cell_membrane_arr (np.ndarray): Coordinates of the cell membrane.
+#         nuclear_arr (np.ndarray): Coordinates of the nucleus.
+#         mismatch_repair (bool): Whether to apply mismatch repair.
+
+#     Returns:
+#         Tuple[np.ndarray, np.ndarray, float]:
+#             - whole_cell (np.ndarray): Coordinates of the whole cell.
+#             - nucleus (np.ndarray): Coordinates of the nucleus.
+#             - mismatch_fraction (float): Fraction of mismatched pixels.
+#     """
+#     cell_set = set(map(tuple, cell_arr))
+#     membrane_set = set(map(tuple, cell_membrane_arr))
+#     nucleus_set = set(map(tuple, nuclear_arr))
+
+#     cell_interior = cell_set - membrane_set
+#     mismatched_pixels = nucleus_set - cell_interior
+#     mismatch_fraction = len(mismatched_pixels) / len(nucleus_set) if nucleus_set else 1
+
+#     if not mismatch_repair:
+#         if len(mismatched_pixels) == 0:
+#             return (
+#                 np.array(list(cell_set)),
+#                 np.array(list(nucleus_set)),
+#                 mismatch_fraction,
+#             )
+#         else:
+#             return False, False, mismatch_fraction
+#     else:
+#         if len(mismatched_pixels) < len(nucleus_set):
+#             matched_nucleus = nucleus_set & cell_interior
+#             return (
+#                 np.array(list(cell_set)),
+#                 np.array(list(matched_nucleus)),
+#                 mismatch_fraction,
+#             )
+#         else:
+#             return False, False, mismatch_fraction
+
+
+# def get_mask(cell_list: List[np.ndarray], shape: Tuple[int]) -> np.ndarray:
+#     """
+#     Create a mask from a list of cell coordinates, handling out-of-bounds coordinates.
+
+#     Args:
+#         cell_list (List[np.ndarray]): List of cell coordinates.
+#         shape (Tuple[int]): Shape of the output mask.
+
+#     Returns:
+#         np.ndarray: Mask with cell labels.
+#     """
+#     mask = np.zeros(shape, dtype=int)
+#     max_row, max_col = shape
+
+#     for cell_num, cell in enumerate(cell_list):
+#         # Filter out out-of-bounds coordinates
+#         valid_coords = cell[
+#             (cell[:, 0] >= 0)
+#             & (cell[:, 0] < max_row)
+#             & (cell[:, 1] >= 0)
+#             & (cell[:, 1] < max_col)
+#         ]
+#         mask[valid_coords[:, 0], valid_coords[:, 1]] = cell_num + 1
+#     return mask
