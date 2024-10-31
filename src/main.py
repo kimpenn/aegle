@@ -2,10 +2,20 @@
 
 import argparse
 import yaml  # For reading YAML configuration files
+import logging
 
 # Import custom modules from the installed 'aegle' package
 from aegle.pipeline import run_pipeline
-from aegle.logging_config import setup_logging
+
+# from aegle.logging_config import setup_logging
+
+
+def setup_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
 
 def parse_args():
@@ -34,20 +44,25 @@ def parse_args():
 
 
 def load_config(config_file):
+    logging.info(f"Loading configuration from {config_file}")
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
+    logging.info("Configuration loaded successfully.")
     return config
 
 
 def main():
-    args = parse_args()
     setup_logging()
+    logging.info("Starting main function.")
+    args = parse_args()
 
     # Load configuration from the YAML file
     config = load_config(args.config_file)
 
     # Run the pipeline
+    logging.info("Running the CODEX image analysis pipeline.")
     run_pipeline(config, args)
+    logging.info("Pipeline execution completed.")
 
 
 if __name__ == "__main__":

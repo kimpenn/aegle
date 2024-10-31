@@ -22,7 +22,7 @@ def load_data(config, args):
         target_channels_dict (dict): Dictionary containing nuclear and wholecell channels.
     """
     data_config = config.get("data", {})
-    file_name = data_config.get("file_name", "NW_Ovary_16/Scan1/NW_1_Scan1.qptiff")
+    file_name = data_config.get("file_name", "NW_Ovary_16/Scan1/NW_1_Scan1_dev.qptiff")
     antibodies_file = data_config.get(
         "antibodies_file", "NW_Ovary_16/Scan1/extras/antibodies.tsv"
     )

@@ -1,5 +1,5 @@
 data:
-  file_name: 'NW_Ovary_16/Scan1/NW_1_Scan1.qptiff'
+  file_name: 'NW_Ovary_16/Scan1/NW_1_Scan1_dev.tiff'
   antibodies_file: 'NW_Ovary_16/Scan1/extras/antibodies.tsv'
   image_mpp: 0.5  # Microns per pixel for the image during segmentation
 
