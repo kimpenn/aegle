@@ -1,15 +1,17 @@
 # codex_patches.py
 
 import os
+import sys
 import logging
 import numpy as np
 import pandas as pd
 import cv2
 from skimage.io import imsave
+from aegle.codex_image import CodexImage
 
 
 class CodexPatches:
-    def __init__(self, codex_image, config, args):
+    def __init__(self, codex_image: CodexImage, config, args):
         """
         Initialize the CodexPatches object and generate patches from CodexImage.
 
@@ -18,17 +20,41 @@ class CodexPatches:
             config (dict): Configuration parameters.
             args (Namespace): Command-line arguments.
         """
-        self.codex_image = codex_image
         self.config = config
         self.args = args
+
+        # Set up logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            handlers=[logging.StreamHandler(sys.stdout)],
+        )
+        self.logger = logging.getLogger(__name__)
+        self.codex_image = codex_image
         self.all_channel_patches = None
         self.extracted_channel_patches = None
         self.noisy_extracted_channel_patches = None
         self.patches_metadata = None
 
+        self.valid_patches = None
+        self.repaired_seg_res_batch = None
+        self.original_seg_res_batch = None
+
+        self.tif_image_details = codex_image.tif_image_details
+
         self.generate_patches()
         self.init_patch_metadata()
         self.qc_patch_metadata()
+
+    def get_patches(self):
+        if self.noisy_extracted_channel_patches is not None:
+            self.logger.info("Returning noisy patches.")
+            return self.noisy_extracted_channel_patches
+        self.logger.info("Returning extracted patches.")
+        return self.extracted_channel_patches
+
+    def get_patches_metadata(self):
+        return self.patches_metadata
 
     def generate_patches(self):
         """
@@ -38,6 +64,7 @@ class CodexPatches:
         patch_height = patching_config.get("patch_height", 1440)
         patch_width = patching_config.get("patch_width", 1920)
         overlap = patching_config.get("overlap", 0.1)
+        self.logger.info(f"patching_config: {patching_config}")
 
         # Calculate overlap and step sizes
         overlap_height = int(patch_height * overlap)
@@ -45,16 +72,22 @@ class CodexPatches:
         step_height = patch_height - overlap_height
         step_width = patch_width - overlap_width
 
-        self.all_channel_patches = self.crop_image_into_patches(
-            self.codex_image.extended_all_channel_image,
+        self.logger.info(
+            f"before crop_image_into_patches: {self.codex_image.extended_extracted_channel_image.shape}"
+        )
+        self.extracted_channel_patches = self.crop_image_into_patches(
+            self.codex_image.extended_extracted_channel_image,
             patch_height,
             patch_width,
             step_height,
             step_width,
         )
 
-        self.extracted_channel_patches = self.crop_image_into_patches(
-            self.codex_image.extended_extracted_channel_image,
+        # self.logger.info(
+        #     f"before crop_image_into_patches: {self.codex_image.extended_all_channel_image.shape}"
+        # )
+        self.all_channel_patches = self.crop_image_into_patches(
+            self.codex_image.extended_all_channel_image,
             patch_height,
             patch_width,
             step_height,
@@ -83,9 +116,9 @@ class CodexPatches:
         patch_height = patching_config.get("patch_height", 1440)
         patch_width = patching_config.get("patch_width", 1920)
 
-        logging.info("Generating metadata for patches...")
+        self.logger.info("Generating metadata for patches...")
         num_patches = self.extracted_channel_patches.shape[0]
-        logging.info(
+        self.logger.info(
             f"=== size of extracted_channel_patches: {self.extracted_channel_patches.shape}"
         )
         self.patches_metadata = pd.DataFrame(
@@ -123,7 +156,7 @@ class CodexPatches:
         Returns:
             pd.DataFrame: DataFrame containing QC'd patch metadata.
         """
-        logging.info("Performing quality control on patch metadata...")
+        self.logger.info("Performing quality control on patch metadata...")
 
         # Get QC parameters from config
         qc_config = self.config.get("qc", {})
@@ -148,7 +181,7 @@ class CodexPatches:
         num_bad_patches = self.patches_metadata["is_bad_patch"].sum()
         total_patches = len(self.patches_metadata)
 
-        logging.info(
+        self.logger.info(
             f"Identified {num_bad_patches} bad patches out of {total_patches} total patches."
         )
 
@@ -156,56 +189,87 @@ class CodexPatches:
         """
         Save the patch metadata to a CSV file.
         """
-        metadata_file_name = os.path.join(self.args.output_dir, "patches_metadata.csv")
+        metadata_file_name = os.path.join(self.args.out_dir, "patches_metadata.csv")
         self.patches_metadata.to_csv(metadata_file_name, index=False)
-        logging.info(f"Saved metadata to {metadata_file_name}")
+        self.logger.info(f"Saved metadata to {metadata_file_name}")
 
-    def save_patches(self, save_all=True):
+    def save_patches(self, save_all_channel_patches=True):
         """
         Save the patches as NumPy arrays.
         """
         patches_file_name = os.path.join(
-            self.args.output_dir, "extracted_channel_patches.npy"
+            self.args.out_dir, "extracted_channel_patches.npy"
         )
         np.save(patches_file_name, self.extracted_channel_patches)
-        logging.info(f"Saved extracted_channel_patches to {patches_file_name}")
+        self.logger.info(f"Saved extracted_channel_patches to {patches_file_name}")
 
-        if save_all:
+        if save_all_channel_patches:
             patches_file_name = os.path.join(
-                self.args.output_dir, "all_channel_patches.npy"
+                self.args.out_dir, "all_channel_patches.npy"
             )
             np.save(patches_file_name, self.all_channel_patches)
-            logging.info(f"Saved all_channel_patches to {patches_file_name}")
+            self.logger.info(f"Saved all_channel_patches to {patches_file_name}")
 
-    def add_noise(self, noise_type="gaussian", **kwargs):
+    def add_disruptions(self, disruption_type, disruption_level):
         """
-        Add noise to the patches for robustness testing.
+        Add noise to the informative patches for robustness testing.
 
         Args:
-            noise_type (str): Type of noise to add ('gaussian', 'salt_and_pepper', 'poisson', 'speckle').
-            **kwargs: Additional parameters for noise configuration (e.g., sigma for Gaussian).
+            disruption_type (str): Type of disruption to add ('gaussian', 'downsampling').
+            disruption_level (int): Level of disruption to apply (e.g., 1, 2, 3).
         """
-        noisy_patches = []
 
-        for patch in self.all_patches_ndarray:
-            if noise_type == "gaussian":
-                sigma = kwargs.get("sigma", 500)
-                noisy_patch = self._apply_gaussian_noise(patch, sigma)
-            elif noise_type == "downsampling":
-                scale = kwargs.get("scale", 0.5)
+        disrupted_patches = []
+
+        for i, patch in enumerate(self.extracted_channel_patches):
+            if disruption_type == "gaussian":
+                if self.patches_metadata.loc[i, "is_infomative"]:
+                    sigma_dict = {
+                        8: {1: 1.94, 2: 3.88, 3: 5.82},
+                        16: {1: 500, 2: 1000, 3: 1500},
+                    }
+                    bit_per_sample = self.tif_image_details["BitsPerSample"]
+                    sigma = sigma_dict[bit_per_sample][disruption_level]
+                    noisy_patch = self._apply_gaussian_noise(patch, sigma)
+                    self.logger.debug(
+                        f"Added {disruption_type} noise to patch ({patch.shape}) with sigma {sigma}"
+                    )
+                else:
+                    noisy_patch = patch
+            elif disruption_type == "downsampling":
+                # level 1 = 0.3, level 2 = 0.5, level 3 = 0.7
+                scale = 0.3 + 0.2 * disruption_level
                 noisy_patch = self._downsample_patch(patch, scale)
+                self.logger.debug(
+                    f"Added {disruption_type} noise to patch with sigma {scale}"
+                )
             else:
-                raise ValueError(f"Unsupported noise type: {noise_type}")
+                raise ValueError(f"Unsupported disruption_type: {disruption_type}")
 
-            noisy_patches.append(noisy_patch)
+            disrupted_patches.append(noisy_patch)
 
-        self.noisy_patches_ndarray = np.array(noisy_patches)
-        logging.info(f"Added {noise_type} noise to patches with params {kwargs}")
+        self.disrupted_extracted_channel_patches = np.array(disrupted_patches)
+
+    def save_disrupted_patches(self):
+        """
+        Save patches with added noise.
+        """
+        patches_file_name = os.path.join(
+            self.args.out_dir, "disrupted_extracted_channel_patches.npy"
+        )
+        np.save(patches_file_name, self.disrupted_extracted_channel_patches)
+        self.logger.info(
+            f"Saved disrupted_extracted_channel_patches to {patches_file_name}"
+        )
 
     def _apply_gaussian_noise(self, image, sigma):
+        mean_original = np.mean(image)
+        std_original = np.std(image)
+
+        self.logger.info(f"Original Image Mean: {mean_original}, Std: {std_original}")
         row, col, ch = image.shape
         gauss = np.random.normal(0, sigma, (row, col, ch))
-        noisy = np.clip(image + gauss, 0, 65535).astype(np.uint16)
+        noisy = np.clip(image + gauss, 0, 255).astype(np.uint8)
         return noisy
 
     def _downsample_patch(self, image, scale):
@@ -214,28 +278,24 @@ class CodexPatches:
         downsampled = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
         return downsampled
 
-    def save_noisy_patches(self, noise_type="gaussian", scale=None):
-        """
-        Save patches with added noise.
+    def set_seg_res(self, repaired_seg_res_batch, original_seg_res_batch=None):
+        self.repaired_seg_res_batch = repaired_seg_res_batch
+        self.original_seg_res_batch = original_seg_res_batch
 
-        Args:
-            noise_type (str): Type of noise ("gaussian" or "downsampling").
-            scale (float, optional): Scale for downsampling (if applicable).
-        """
-        if noise_type == "gaussian":
-            for i, noisy_patches in enumerate(self.noisy_patches_ndarray):
-                filename = os.path.join(
-                    self.args.output_dir, f"gaussian_noise_level_{i}.npy"
-                )
-                np.save(filename, noisy_patches)
-                logging.info(f"Saved Gaussian noise level {i} patches to {filename}.")
-        elif noise_type == "downsampling" and scale:
-            downsampled_patches = self.noisy_patches_ndarray.get(scale)
-            if downsampled_patches is not None:
-                filename = os.path.join(
-                    self.args.output_dir, f"downsampled_{int(scale * 100)}.npy"
-                )
-                np.save(filename, np.array(downsampled_patches))
-                logging.info(
-                    f"Saved downsampled patches at {int(scale * 100)}% to {filename}."
-                )
+    def set_metadata(self, patches_metadata):
+        self.patches_metadata = patches_metadata
+
+    def save_seg_res(self):
+        if self.repaired_seg_res_batch is not None:
+            seg_res_file_name = os.path.join(
+                self.args.out_dir, "matched_seg_res_batch.npy"
+            )
+            np.save(seg_res_file_name, self.repaired_seg_res_batch)
+            self.logger.info(f"Saved matched_seg_res_batch to {seg_res_file_name}")
+
+        if self.original_seg_res_batch is not None:
+            seg_res_file_name = os.path.join(
+                self.args.out_dir, "original_seg_res_batch.npy"
+            )
+            np.save(seg_res_file_name, self.original_seg_res_batch)
+            self.logger.info(f"Saved original_seg_res_batch to {seg_res_file_name}")

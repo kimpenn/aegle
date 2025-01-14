@@ -3,6 +3,14 @@
 import argparse
 import yaml  # For reading YAML configuration files
 import logging
+import os
+import time
+
+src_path = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline"
+# Add the source directory to the Python path
+import sys
+
+sys.path.append(src_path)
 
 # Import custom modules from the installed 'aegle' package
 from aegle.pipeline import run_pipeline
@@ -29,7 +37,7 @@ def parse_args():
         help="Directory containing the data.",
     )
     parser.add_argument(
-        "--output_dir",
+        "--out_dir",
         type=str,
         default="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/out/output_dev",
         help="Directory to save outputs.",

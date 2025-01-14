@@ -26,7 +26,7 @@ def generate_and_save_patch_metadata(all_patches_ndarray, config, args):
 
     patch_metadata = qc_patch_metadata(patch_metadata, config, args)
     # Save the metadata
-    metadata_file_name = os.path.join(args.output_dir, "patches_metadata.csv")
+    metadata_file_name = os.path.join(args.out_dir, "patches_metadata.csv")
     save_metadata(patch_metadata, metadata_file_name)
     return patch_metadata
 

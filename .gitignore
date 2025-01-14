@@ -1,5 +1,8 @@
 notebooks/for_ashna/
 aegle_patch_viewer/
+*.pkl
+*.csv
+notebooks
 # Ignore specific files
 NW_1_Scan1 copy.qptiff
 res.txt

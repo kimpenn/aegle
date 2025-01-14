@@ -26,7 +26,7 @@ def run_segmentation_evaluation(
     """
 
     # Ensure the output directory exists
-    output_dir = Path(args.output_dir) / "segmentation_evaluation"
+    output_dir = Path(args.out_dir) / "segmentation_evaluation"
     os.makedirs(output_dir, exist_ok=True)
 
     # Iterate over all patches and run evaluation

@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import tifffile as tiff
 import logging
+import skimage.filters as filters
 
 
 class CodexImage:
@@ -65,6 +66,52 @@ class CodexImage:
         self.logger.info(f"Image shape: {self.all_channel_image.shape}")
         self.logger.info(f"Loaded {self.antibody_df.shape[0]} antibodies.")
         self.logger.info(f"Target channels: {self.target_channels_dict}")
+        # self.channel_stats_df = self.calculate_channel_statistics()
+        # save channel stats to a file
+
+    def calculate_channel_statistics(self):
+        """
+        Calculate statistics (Min, Median, Max, 95%, Mean, Std Dev, Threshold) for each channel in the image.
+
+        Returns:
+            pd.DataFrame: DataFrame containing the calculated statistics for each channel.
+        """
+        self.logger.info("Calculating channel statistics...")
+        stats = []
+
+        for channel_idx in range(self.n_channels):
+            self.logger.info(f"Calculating statistics for channel {channel_idx}...")
+            channel_data = self.all_channel_image[:, :, channel_idx]
+            self.logger.info("Calculating min...")
+            min_val = np.min(channel_data)
+            self.logger.info("Calculating median...")
+            median_val = np.median(channel_data)
+            self.logger.info("Calculating max...")
+            max_val = np.max(channel_data)
+            self.logger.info("Calculating 95th percentile...")
+            percentile_95 = np.percentile(channel_data, 95)
+            self.logger.info("Calculating mean...")
+            mean_val = np.mean(channel_data)
+            self.logger.info("Calculating standard deviation...")
+            std_dev = np.std(channel_data)
+
+            stats.append(
+                {
+                    "Channel": self.antibody_df["antibody_name"].iloc[channel_idx],
+                    "Min": min_val,
+                    "Median": median_val,
+                    "Max": max_val,
+                    "95%": percentile_95,
+                    "Mean": mean_val,
+                    "Std Dev": std_dev,
+                }
+            )
+
+        stats_df = pd.DataFrame(stats)
+        self.logger.info("Channel statistics calculated successfully.")
+        file_name = os.path.join(self.args.out_dir, "channel_stats.csv")
+        stats_df.to_csv(file_name, index=False)
+        return stats_df
 
     def load_data(self):
         """
@@ -103,6 +150,34 @@ class CodexImage:
             np.ndarray: Loaded image as a NumPy array with channels last.
         """
         self.logger.info(f"Reading image from {image_path}")
+
+        # Extract the BitsPerSample information from the first page
+        with tiff.TiffFile(image_path) as tif:
+            if 256 in tif.pages[0].tags:
+                img_width = tif.pages[0].tags[256].value
+                self.logger.info(f"ImageWidth: {img_width}")
+            else:
+                img_width = None
+                self.logger.warning("ImageWidth tag not found.")
+            if 257 in tif.pages[0].tags:
+                img_height = tif.pages[0].tags[257].value
+                self.logger.info(f"ImageLength: {img_height}")
+            else:
+                img_height = None
+                self.logger.warning("ImageLength tag not found.")
+            if 258 in tif.pages[0].tags:
+                bits_per_sample = tif.pages[0].tags[258].value
+                self.logger.info(f"BitsPerSample: {bits_per_sample}")
+            else:
+                bits_per_sample = None
+                self.logger.warning("BitsPerSample tag not found.")
+            if 277 in tif.pages[0].tags:
+                samples_per_pixel = tif.pages[0].tags[277].value
+                self.logger.info(f"SamplesPerPixel: {samples_per_pixel}")
+            else:
+                samples_per_pixel = None
+                self.logger.warning("SamplesPerPixel tag not found.")
+
         image_ndarray = tiff.imread(image_path)
         # image_ndarray = np.expand_dims(image_ndarray, axis=0)
         # Move the feature channels to the last axis
@@ -112,11 +187,17 @@ class CodexImage:
             image_ndarray.shape[1],
             image_ndarray.shape[2],
         )
-        tif_image_details = {
-            "Data Type": image_ndarray.dtype,
+        self.tif_image_details = {
+            "DataType": image_ndarray.dtype,
             "Shape": image_ndarray.shape,
+            "ImageWidth": img_width,
+            "ImageLength": img_height,
+            "BitsPerSample": bits_per_sample,
+            "SamplesPerPixel": samples_per_pixel,
         }
-        self.logger.info(f"Image loaded successfully. Details: {tif_image_details}")
+        self.logger.info(
+            f"Image loaded successfully. Details: {self.tif_image_details}"
+        )
         return image_ndarray
 
     def load_antibodies(self, antibodies_path):

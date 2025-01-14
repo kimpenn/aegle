@@ -10,12 +10,16 @@ from typing import List, Tuple, Dict, Optional
 import logging
 from scipy.sparse import csr_matrix
 
+from aegle.codex_patches import CodexPatches
+from aegle.visualization import make_outline_overlay
+from aegle.repair_masks import repair_masks_batch
+
 Image = np.ndarray
+import pickle
 
 
 def run_cell_segmentation(
-    all_patches_ndarray: np.ndarray,
-    patches_metadata_df: pd.DataFrame,
+    codex_patches: CodexPatches,
     config: dict,
     args: Optional[dict] = None,
 ):
@@ -23,31 +27,49 @@ def run_cell_segmentation(
     Main function to run the cell segmentation module.
 
     Args:
-        all_patches_ndarray (np.ndarray): Array of image patches.
-        patches_metadata_df (pd.DataFrame): DataFrame containing metadata for patches.
+        codex_patches (CodexPatches): CodexPatches object containing patches and metadata.
         config (dict): Configuration parameters.
-        args: Command-line arguments.
+        args (Optional[dict]): Command-line arguments.
 
     Returns:
-        None
+        Tuple[List[dict], float, List[dict]]: Matched segmentation results, fraction matched, and original segmentation results.
     """
-    seg_res = segment(all_patches_ndarray)
-    matched_seg_res, fraction_matched = get_matched_masks(seg_res, True)
-    return matched_seg_res, fraction_matched, seg_res
+
+    patches_ndarray = codex_patches.get_patches()
+    patches_metadata_df = codex_patches.get_patches_metadata()
+
+    # Select only valid patches
+    idx = patches_metadata_df["is_infomative"] == True
+    valid_patches = patches_ndarray[idx]
+    if valid_patches.size == 0:
+        logging.warning("No valid patches available for segmentation.")
+        return None
+    codex_patches.valid_patches = valid_patches
+
+    seg_res_batch = segment(valid_patches, config)
+    # file_name = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/out/explore-eval-scores-dev/exp-10/seg_res_batch.pickle"
+    # with open(file_name, "wb") as f:
+    #     pickle.dump(seg_res_batch, f)
+
+    repaired_seg_res_batch = repair_masks_batch(seg_res_batch)
+    matched_fraction_list = [res["matched_fraction"] for res in repaired_seg_res_batch]
+    # add matched fraction to metadata dataframe with the same index as the patches
+    patches_metadata_df.loc[idx, "matched_fraction"] = matched_fraction_list
+
+    codex_patches.set_seg_res(repaired_seg_res_batch, seg_res_batch)
+    codex_patches.set_metadata(patches_metadata_df)
+    codex_patches.save_seg_res()
 
 
 def segment(
-    all_patches_ndarray: np.ndarray,
-    patches_metadata_df: pd.DataFrame,
+    valid_patches: np.ndarray,
     config: dict,
-    args: Optional[dict] = None,
 ) -> List[dict]:
     """
     Segment cells and nuclei in the input image patches.
 
     Args:
-        all_patches_ndarray (np.ndarray): Image patches to segment.
-        patches_metadata_df (pd.DataFrame): Metadata for patches.
+        patches_ndarray (np.ndarray): Image patches to segment.
         config (dict): Configuration parameters.
         args: Command-line arguments.
 
@@ -58,131 +80,105 @@ def segment(
             - 'cell_boundary': np.ndarray, the cell boundary mask.
             - 'nucleus_boundary': np.ndarray, the nucleus boundary mask.
     """
-    try:
-        # Select only valid patches
-        valid_patches = all_patches_ndarray[
-            patches_metadata_df["is_bad_patch"] == False
-        ]
 
-        if valid_patches.size == 0:
-            logging.warning("No valid patches available for segmentation.")
-            return []
+    # Load the segmentation model
+    model = _load_segmentation_model(config)
 
-        # Load the segmentation model
-        model = _load_segmentation_model(config)
+    # Perform segmentation
+    image_mpp = config.get("data", {}).get("image_mpp", 0.5)
+    segmentation_predictions = model.predict(
+        valid_patches, image_mpp=image_mpp, compartment="both"
+    )
 
-        # Perform segmentation
-        image_mpp = config.get("data", {}).get("image_mpp", 0.5)
-        segmentation_predictions = model.predict(
-            valid_patches, image_mpp=image_mpp, compartment="both"
-        )
+    logging.info("Segmentation completed successfully.")
 
-        logging.info("Segmentation completed successfully.")
+    # reorganize the segmentation predictions
+    cell_masks, nuc_masks = _separate_batch(segmentation_predictions)
+    cell_boundaries = get_boundary(cell_masks)
+    nuc_boundaries = get_boundary(nuc_masks)
 
-        # Post-process segmentation results
-        cell_masks, nuc_masks = _separate_batch(segmentation_predictions)
+    segmentation_output = _build_segmentation_output(
+        cell_masks, nuc_masks, cell_boundaries, nuc_boundaries
+    )
 
-        logging.info("Generating cell boundaries.")
-        cell_boundaries = get_boundary(cell_masks)
+    # Force garbage collection to free memory
+    gc.collect()
 
-        logging.info("Generating nucleus boundaries.")
-        nuc_boundaries = get_boundary(nuc_masks)
-
-        segmentation_output = _build_segmentation_output(
-            cell_masks, nuc_masks, cell_boundaries, nuc_boundaries
-        )
-
-        # Force garbage collection to free memory
-        gc.collect()
-
-        return segmentation_predictions
-
-    except Exception as e:
-        logging.error(f"Error during segmentation: {e}", exc_info=True)
-        raise
+    return segmentation_output
 
 
-def get_matched_masks(
-    segmentation_output: List[dict], do_mismatch_repair: bool
-) -> Tuple[List[dict], float]:
-    """
-    Returns masks with matched cells and nuclei based on the segmentation output.
+# def get_matched_masks(
+#     seg_res_batch: List[dict], do_mismatch_repair: bool
+# ) -> Tuple[List[dict], float]:
+#     """
+#     Returns masks with matched cells and nuclei based on the segmentation output.
 
-    Args:
-        segmentation_output (List[dict]): List of dictionaries containing segmentation results for each patch. Keys include: 'cell', 'nucleus', 'cell_boundary', 'nucleus_boundary'. Values are numpy arrays representing the masks.
-        do_mismatch_repair (bool): Whether to apply mismatch repair during the matching process.
+#     Args:
+#         seg_res_batch (List[dict]): List of dictionaries containing segmentation results for each patch.
+#         do_mismatch_repair (bool): Whether to apply mismatch repair during the matching process.
 
-    Returns:
-        Tuple[List[dict], float]: A tuple containing:
-            - matched_output (List[dict]): The updated segmentation output with matched masks for each patch.
-            - fraction_matched_cells (float): The fraction of matched cells across all patches.
-    """
-    matched_output = []
-    total_matched_cells = 0
-    total_cells = 0
-    total_nuclei = 0
+#     Returns:
+#         Tuple[List[dict], float]: A tuple containing:
+#             - matched_output (List[dict]): The updated segmentation output with matched masks for each patch.
+#             - fraction_matched_cells (float): The fraction of matched cells across all patches.
+#     """
+#     matched_output = []
+#     total_matched_cells = 0
 
-    # Iterate over each patch segmentation
-    for patch_segmentation in segmentation_output:
+#     # Iterate over each patch segmentation
+#     for patch_segmentation in seg_res_batch:
 
-        whole_cell_mask = patch_segmentation["cell"]
-        nuclear_mask = patch_segmentation["nucleus"]
-        cell_membrane_mask = patch_segmentation["cell_boundary"]
+#         whole_cell_mask = patch_segmentation["cell"]
+#         nuclear_mask = patch_segmentation["nucleus"]
+#         cell_membrane_mask = patch_segmentation["cell_boundary"]
 
-        # Extract coordinates for cell, nucleus, and cell membrane
-        cell_coords_dict = _get_mask_coordinates(whole_cell_mask)
-        nucleus_coords_dict = _get_mask_coordinates(nuclear_mask)
-        cell_membrane_coords_dict = _get_mask_coordinates(cell_membrane_mask)
+#         # Extract coordinates for cell, nucleus, and cell membrane
+#         cell_coords_dict = _get_mask_coordinates(whole_cell_mask)
+#         nucleus_coords_dict = _get_mask_coordinates(nuclear_mask)
+#         cell_membrane_coords_dict = _get_mask_coordinates(cell_membrane_mask)
 
-        # Perform matching between cells and nuclei
-        cell_matched_list, nucleus_matched_list = _match_cells_to_nuclei(
-            cell_coords_dict,
-            nucleus_coords_dict,
-            cell_membrane_coords_dict,
-            nuclear_mask,
-            do_mismatch_repair,
-        )
+#         # Perform matching between cells and nuclei
+#         cell_matched_list, nucleus_matched_list = _match_cells_to_nuclei(
+#             cell_coords_dict,
+#             nucleus_coords_dict,
+#             cell_membrane_coords_dict,
+#             nuclear_mask,
+#             do_mismatch_repair,
+#         )
 
-        # Create new masks with matched cells and nuclei
-        cell_matched_mask = get_mask_from_labels(
-            cell_matched_list, whole_cell_mask.shape
-        )
-        nuclear_matched_mask = get_mask_from_labels(
-            nucleus_matched_list, nuclear_mask.shape
-        )
-        cell_membrane_matched_mask = get_boundary(cell_matched_mask)
-        nuclear_membrane_matched_mask = get_boundary(nuclear_matched_mask)
+#         # Create new masks with matched cells and nuclei
+#         cell_matched_mask = get_mask_from_labels(
+#             cell_matched_list, whole_cell_mask.shape
+#         )
+#         nuclear_matched_mask = get_mask_from_labels(
+#             nucleus_matched_list, nuclear_mask.shape
+#         )
+#         cell_membrane_matched_mask = get_boundary(cell_matched_mask)
+#         nuclear_membrane_matched_mask = get_boundary(nuclear_matched_mask)
 
-        # Update the patch segmentation with the matched masks
-        matched_patch_segmentation = {
-            "cell": cell_matched_mask,
-            "nucleus": nuclear_matched_mask,
-            "cell_boundary": cell_membrane_matched_mask,
-            "nucleus_boundary": nuclear_membrane_matched_mask,
-        }
-        matched_output.append(matched_patch_segmentation)
+#         # Update the patch segmentation with the matched masks
+#         matched_patch_segmentation = {
+#             "cell": cell_matched_mask,
+#             "nucleus": nuclear_matched_mask,
+#             "cell_boundary": cell_membrane_matched_mask,
+#             "nucleus_boundary": nuclear_membrane_matched_mask,
+#         }
+#         matched_output.append(matched_patch_segmentation)
 
-        # Calculate statistics for fraction of matched cells
-        matched_cell_num = len(np.unique(cell_matched_mask)) - 1
-        total_cell_num = len(np.unique(whole_cell_mask)) - 1
-        total_nuclei_num = len(np.unique(nuclear_mask)) - 1
+#         # Calculate statistics for fraction of matched cells
+#         matched_cell_num = len(np.unique(cell_matched_mask)) - 1
+#         total_cell_num = len(np.unique(whole_cell_mask)) - 1
+#         total_nuclei_num = len(np.unique(nuclear_mask)) - 1
 
-        total_matched_cells += matched_cell_num
-        total_cells += total_cell_num
-        total_nuclei += total_nuclei_num
+#         mismatched_cell_num = total_cell_num - matched_cell_num
+#         mismatched_nuclei_num = total_nuclei_num - matched_cell_num
+#         denominator = mismatched_cell_num + mismatched_nuclei_num + total_matched_cells
+#         fraction_matched_cells = (
+#             matched_cell_num / denominator if denominator > 0 else 0
+#         )
+#         logging.info(f"Fraction of matched cells: {fraction_matched_cells}")
 
-    # Calculate the overall fraction of matched cells
-    if do_mismatch_repair:
-        fraction_matched_cells = 1.0
-    else:
-        mismatched_cell_num = total_cells - total_matched_cells
-        mismatched_nuclei_num = total_nuclei - total_matched_cells
-        denominator = mismatched_cell_num + mismatched_nuclei_num + total_matched_cells
-        fraction_matched_cells = (
-            total_matched_cells / denominator if denominator > 0 else 0
-        )
-
-    return matched_output, fraction_matched_cells
+#     return matched_output, fraction_matched_cells
 
 
 def _load_segmentation_model(config: dict) -> Mesmer:
@@ -304,15 +300,15 @@ def _build_segmentation_output(
     return segmentation_output
 
 
-def _get_mask_coordinates(mask: np.ndarray) -> Dict[int, np.ndarray]:
-    """
-    Get coordinates and labels for each unique object in the mask.
-    Returns:
-        Dict[int, np.ndarray]: Mapping from label to coordinates. np.ndarray is a list of (row, col) coordinates.
-    """
-    props = regionprops(mask)
-    coords_dict = {prop.label: prop.coords for prop in props}
-    return coords_dict
+# def _get_mask_coordinates(mask: np.ndarray) -> Dict[int, np.ndarray]:
+#     """
+#     Get coordinates and labels for each unique object in the mask.
+#     Returns:
+#         Dict[int, np.ndarray]: Mapping from label to coordinates. np.ndarray is a list of (row, col) coordinates.
+#     """
+#     props = regionprops(mask)
+#     coords_dict = {prop.label: prop.coords for prop in props}
+#     return coords_dict
 
 
 def get_mask_from_labels(
@@ -458,6 +454,27 @@ def get_matched_cells(
             )
         else:
             return None
+
+
+def visualize_cell_segmentation(
+    data,
+    seg_res: List[dict],
+    config: dict,
+    args: Optional[dict] = None,
+):
+    """
+    Visualize the cell segmentation results.
+
+    Args:
+        matched_seg_res (List[dict]): List of dictionaries containing matched segmentation results for each patch.
+        config (dict): Configuration parameters.
+        args: Command-line arguments.
+
+    Returns:
+        None
+    """
+
+    make_outline_overlay(rgb_data, predictions)
 
 
 # def get_matched_cells(

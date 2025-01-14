@@ -49,7 +49,7 @@ def generate_image_patches(image_ndarray_target_channel, config, args):
 
     # Save patches as a NumPy file
     patches_file_name = os.path.join(
-        args.output_dir,
+        args.out_dir,
         f"patches_ndarray.npy",
     )
     np.save(patches_file_name, all_patches_ndarray)

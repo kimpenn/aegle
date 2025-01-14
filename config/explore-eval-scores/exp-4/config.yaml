@@ -2,12 +2,12 @@ data:
   file_name: 'NW_Ovary_16/Scan1/NW_1_Scan1.qptiff'
   antibodies_file: 'NW_Ovary_16/Scan1/extras/antibodies.tsv'
   image_mpp: 0.5  # Microns per pixel for the image during segmentation
-  generate_channel_stats: True
+  generate_channel_stats: False
 
 testing: 
   data_disruption: 
     type: "gaussian"  # Disruption type for the image
-    level: 3
+    level: 1
     save_disrupted_patches: True
 
 channels:
@@ -17,11 +17,11 @@ channels:
 patching:
   patch_height: 1440
   patch_width: 1920
-  overlap: 0.1
+  patch_overlap: 0.1
 
 visualization:
   visualize_whole_sample: False
-  visualize_patches: False
+  visualize_patches: True
   save_all_channel_patches: False
 
 qc:
@@ -31,4 +31,3 @@ qc:
 
 segmentation:
   model_path: '/workspaces/codex-analysis/data/deepcell/MultiplexSegmentation'
-  save_segmentation_results: True
