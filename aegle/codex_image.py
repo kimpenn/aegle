@@ -259,30 +259,84 @@ class CodexImage:
             np.ndarray: Image data with only the target channels.
         """
         self.logger.info("Extracting target channels from image...")
+        # Identify nuclear and wholecell channel names
+        nuclear_channel = self.target_channels_dict["nuclear"]
+        wholecell_channels = self.target_channels_dict["wholecell"]
 
-        # Baseline method: Select the first wholecell channel and the nuclear channel
-        # For deepcell, the first channel is the nuclear channel and the second is the wholecell channel
-        # TODO: Handle multiple antibodies for wholecell_channel if needed
-        target_channels = [self.target_channels_dict["nuclear"]] + [
-            self.target_channels_dict["wholecell"][0]
-        ]
-
-        # rows in antibody_df must be in the same order as the channels in the image
-        target_channel_idx = self.antibody_df[
-            self.antibody_df["antibody_name"].isin(target_channels)
+        # Get the index for the nuclear channel
+        nuclear_idx = self.antibody_df[
+            self.antibody_df["antibody_name"] == nuclear_channel
+        ].index.tolist()
+        # Get the indices for the wholecell channels
+        wcell_idx = self.antibody_df[
+            self.antibody_df["antibody_name"].isin(wholecell_channels)
         ].index.tolist()
 
-        if len(target_channel_idx) != len(target_channels):
-            self.logger.error(f"Could not find all target channels: {target_channels}")
+        # Ensure we actually found the nuclear channel and at least one wholecell channel
+        if len(nuclear_idx) != 1 or len(wcell_idx) < 1:
+            self.logger.error(
+                f"Could not find all target channels. "
+                f"Nuclear: {nuclear_channel} (found {len(nuclear_idx)}) | "
+                f"Wholecell: {wholecell_channels} (found {len(wcell_idx)})"
+            )
             sys.exit(1)
 
-        # Extract target channels
-        extracted_channel_image = self.all_channel_image[:, :, target_channel_idx]
+        # Extract the nuclear image
+        nuclear_image = self.all_channel_image[:, :, nuclear_idx[0]]
+
+        if len(wcell_idx) == 1:
+            # If only one wholecell channel is provided, extract it directly
+            self.logger.info(f"Extracting wholecell channel: {wholecell_channels[0]}")
+            wcell_image = self.all_channel_image[:, :, wcell_idx[0]]
+        else:
+            # If multiple wholecell channels are specified, combine them via maximum projection
+            self.logger.info(f"Extracting wholecell channels: {wholecell_channels}")
+            wcell_image = np.zeros(
+                (nuclear_image.shape[0], nuclear_image.shape[1]),
+                dtype=nuclear_image.dtype,
+            )
+            for idx in wcell_idx:
+                wcell_image = np.maximum(wcell_image, self.all_channel_image[:, :, idx])
+
+        # Stack nuclear and wholecell channels along the third dimension
+        extracted_channel_image = np.stack((nuclear_image, wcell_image), axis=-1)
+
         self.logger.info(
             f"Target channels extracted successfully. Shape: {extracted_channel_image.shape}"
         )
         self.extracted_channel_image = extracted_channel_image
+        return extracted_channel_image
 
+    # def extract_target_channels(self):
+    #         """
+    #         Preprocess the image by selecting the target channels.
+
+    #         Returns:
+    #             np.ndarray: Image data with only the target channels.
+    #         """
+    #         self.logger.info("Extracting target channels from image...")
+
+    #         # Baseline method: Select the first wholecell channel and the nuclear channel
+    #         # For deepcell, the first channel is the nuclear channel and the second is the wholecell channel
+    #         target_channels = [self.target_channels_dict["nuclear"]] + [
+    #             self.target_channels_dict["wholecell"][0]
+    #         ]
+
+    #         # rows in antibody_df must be in the same order as the channels in the image
+    #         target_channel_idx = self.antibody_df[
+    #             self.antibody_df["antibody_name"].isin(target_channels)
+    #         ].index.tolist()
+
+    #         if len(target_channel_idx) != len(target_channels):
+    #             self.logger.error(f"Could not find all target channels: {target_channels}")
+    #             sys.exit(1)
+
+    #         # Extract target channels
+    #         extracted_channel_image = self.all_channel_image[:, :, target_channel_idx]
+    #         self.logger.info(
+    #             f"Target channels extracted successfully. Shape: {extracted_channel_image.shape}"
+    #         )
+    #         self.extracted_channel_image = extracted_channel_image
     def extend_image(self):
         """
         Extend the image to ensure full coverage when cropping patches.

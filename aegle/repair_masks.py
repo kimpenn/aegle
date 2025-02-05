@@ -48,7 +48,11 @@ def repair_masks_single(cell_mask, nucleus_mask):
         cell_matched_mask,
         np.squeeze(nucleus_mask),
     )
+    logging.info(f"cell_matched_mask.shape: {cell_matched_mask.shape}")
+    logging.info(f"nuclear_matched_mask.shape: {nuclear_matched_mask.shape}")
+    logging.info(f"cell_outside_nucleus_mask.shape: {cell_outside_nucleus_mask.shape}")
     logging.info(f"matched_fraction: {matched_fraction}")
+
     return {
         "cell_matched_mask": cell_matched_mask,
         "nuclear_matched_mask": nuclear_matched_mask,

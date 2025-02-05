@@ -107,7 +107,7 @@ def run_pipeline(config, args):
     # Cell Segmentation and Post-Segmentation Repairs
     logging.info("Running cell segmentation.")
     run_cell_segmentation(codex_patches, config, args)
-    run_seg_evaluation(codex_patches, config, args)
+    # run_seg_evaluation(codex_patches, config, args)
 
     file_name = "codex_patches.pkl"
     file_name = os.path.join(args.out_dir, file_name)

@@ -1,7 +1,6 @@
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 import logging
-import xmltodict
 from skimage.filters import threshold_mean  # , threshold_otsu
 from skimage.morphology import area_closing, closing, disk
 from skimage.segmentation import morphological_geodesic_active_contour as MorphGAC
