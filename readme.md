@@ -4,4 +4,4 @@
 
 This pipeline is part of the PennTMC project.
 
-![aegle_icon.png]()
+![](aegle_icon.png)
