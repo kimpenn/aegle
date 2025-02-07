@@ -132,9 +132,6 @@ sprm_outputs/
 log.out
 segmentation.log
 
-# Shell script outputs
-*.sh
-
 # Temporary files
 *.tmp
 *.temp

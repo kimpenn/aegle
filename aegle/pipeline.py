@@ -24,12 +24,14 @@ def run_pipeline(config, args):
         args (Namespace): Command-line arguments parsed by argparse.
     """
     logging.info("----- Running pipeline with provided configuration and arguments.")
-
-    # Ensure output directory exists
     os.makedirs(args.out_dir, exist_ok=True)
     logging.info(f"Output directory set to: {args.out_dir}")
 
-    # Initialize CodexImage object
+    # ---------------------------------
+    # (A) Full Image Preprocessing
+    # ---------------------------------
+    # Step 1: Initialize CodexImage object
+    # - Read and Codex image as well the dataframe about antibodies
     logging.info("----- Initializing CodexImage object.")
     codex_image = CodexImage(config, args)
     logging.info("CodexImage object initialized successfully.")
@@ -38,22 +40,10 @@ def run_pipeline(config, args):
         codex_image.calculate_channel_statistics()
         logging.info("Channel statistics generated successfully.")
 
-    # Extract target channels from the image
+    # Step 2: Extract target channels from the image based on configuration
     logging.info("----- Extracting target channels from the image.")
     codex_image.extract_target_channels()
     logging.info("Target channels extracted successfully.")
-
-    # Extend the image for full patch coverage
-    logging.info("----- Extending image for full patch coverage.")
-    codex_image.extend_image()
-    logging.info("Image extension completed successfully.")
-
-    # # Initialize CodexPatches object and generate patches
-    logging.info("----- Initializing CodexPatches object and generating patches.")
-    codex_patches = CodexPatches(codex_image, config, args)
-    codex_patches.save_patches(config["visualization"]["save_all_channel_patches"])
-    codex_patches.save_metadata()
-    logging.info("Patches generated and metadata saved successfully.")
 
     # Optional: Visualize whole sample image
     if config.get("visualization", {}).get("visualize_whole_sample", False):
@@ -65,6 +55,21 @@ def run_pipeline(config, args):
         save_image_rgb(
             codex_image.extracted_channel_image, "extracted_channel_image.png", args
         )
+
+    # ---------------------------------
+    # (B) Patched Image Preprocessing
+    # ---------------------------------
+    # Step 1: Extend the image for full patch coverage
+    logging.info("----- Extending image for full patch coverage.")
+    codex_image.extend_image()
+    logging.info("Image extension completed successfully.")
+
+    # Step 2: Initialize CodexPatches object and generate patches
+    logging.info("----- Initializing CodexPatches object and generating patches.")
+    codex_patches = CodexPatches(codex_image, config, args)
+    codex_patches.save_patches(config["visualization"]["save_all_channel_patches"])
+    codex_patches.save_metadata()
+    logging.info("Patches generated and metadata saved successfully.")
 
     # Optional: Add disruptions to patches for testing
     # Extract distruption type and level from config
@@ -91,23 +96,27 @@ def run_pipeline(config, args):
                 args,
                 max_workers=config.get("visualization", {}).get("workers", None),
             )
-    else:
-        # Optional: Visualize patches
-        if config.get("visualization", {}).get("visualize_patches", False):
-            logging.info("Visualizing patches.")
-            save_patches_rgb(
-                codex_patches.extracted_channel_patches,
-                codex_patches.patches_metadata,
-                config,
-                args,
-                max_workers=config.get("visualization", {}).get("workers", None),
-            )
-            logging.info("Patch visualization completed.")
 
-    # Cell Segmentation and Post-Segmentation Repairs
+    # Optional: Visualize patches
+    if config.get("visualization", {}).get("visualize_patches", False):
+        logging.info("Visualizing patches.")
+        save_patches_rgb(
+            codex_patches.extracted_channel_patches,
+            codex_patches.patches_metadata,
+            config,
+            args,
+            max_workers=config.get("visualization", {}).get("workers", None),
+        )
+        logging.info("Patch visualization completed.")
+
+    # ---------------------------------
+    # (C) Cell Segmentation and auto evaluation
+    # ---------------------------------
     logging.info("Running cell segmentation.")
     run_cell_segmentation(codex_patches, config, args)
-    # run_seg_evaluation(codex_patches, config, args)
+
+    # TODO: if the number of cells are too large we should skip the evaluation
+    run_seg_evaluation(codex_patches, config, args)
 
     file_name = "codex_patches.pkl"
     file_name = os.path.join(args.out_dir, file_name)
