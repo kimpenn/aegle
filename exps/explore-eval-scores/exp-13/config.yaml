@@ -1,0 +1,31 @@
+data:
+  file_name: 'NW_Ovary_16/Scan1/NW_1_Scan1.qptiff'
+  antibodies_file: 'NW_Ovary_16/Scan1/extras/antibodies.tsv'
+  image_mpp: 0.5  # Microns per pixel for the image during segmentation
+  generate_channel_stats: False
+
+testing: 
+  data_disruption: null
+
+channels:
+  nuclear_channel: 'DAPI'
+  wholecell_channel: ['CD4']
+
+patching:
+  patch_height: 5000
+  patch_width: 5000
+  patch_overlap: 0.0
+
+visualization:
+  visualize_whole_sample: False
+  visualize_patches: True
+  save_all_channel_patches: False
+  workers: 1
+
+qc:
+  non_zero_perc_threshold: 0.05  # Percentage of non-zero pixels to pass the filter
+  mean_intensity_threshold: 1    # Minimum mean intensity to consider a patch as informative
+  std_intensity_threshold: 1     # Minimum standard deviation to avoid marking noisy patches
+
+segmentation:
+  model_path: '/workspaces/codex-analysis/data/deepcell/MultiplexSegmentation'
