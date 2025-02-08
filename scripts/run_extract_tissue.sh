@@ -20,12 +20,11 @@ OUT_DIR=$6
 
 # Create an output subdirectory specifically for tissue extraction results
 EXTRACT_OUT_DIR="${OUT_DIR}/${EXP_ID}/tissue_extraction"
-mkdir -p "${EXTRACT_OUT_DIR}"
 
 echo "Running Tissue Region Extraction..."
 python "${ROOT_DIR}/0-phenocycler-penntmc-pipeline/src/extract_tissue_regions.py" \
   --config "${CONFIG_DIR}/${EXP_ID}/config.yaml" \
   --data_dir "${DATA_DIR}" \
-  --out_dir "${EXTRACT_OUT_DIR}"
+  --out_dir "${OUT_DIR}"
 
-echo "Tissue region extraction completed. Results are in ${EXTRACT_OUT_DIR}"
+echo "Tissue region extraction for ${EXP_ID} completed. Results are in ${OUT_DIR}"

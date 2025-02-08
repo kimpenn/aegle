@@ -48,8 +48,12 @@ def parse_args():
 
 
 def load_config(config_path):
+    if not os.path.exists(config_path):
+        logging.error(f"Config file not found: {config_path}")
+        sys.exit(1)
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
+    logging.info(f"config: {config}")
     return config
 
 
@@ -320,6 +324,10 @@ def main():
     )
     args = parse_args()
     config = load_config(args.config)
+
+    qptiff_path = config["data"]["file_name"]
+    parent_dir = os.path.dirname(qptiff_path)
+    args.out_dir = os.path.join(args.out_dir, parent_dir)
 
     run_extraction(config, args)
     logging.info("Tissue extraction completed. Exiting.")
