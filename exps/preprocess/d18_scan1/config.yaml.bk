@@ -1,9 +1,0 @@
-data:
-  file_name: FallopianTube/D18/Scan1/D18_Scan1_tissue_2.tiff
-  # antibodies_file: 'FallopianTube/D18/Scan1/extra/antibody.tsv'
-
-tissue_extraction:
-  n_tissue: 4
-  downscale_factor: 64
-  min_area: 500
-  visualize: True

@@ -171,13 +171,13 @@ def run_antibody_extraction(config, args):
     df_channels = extract_channel_names(xml_file_path)
     logging.info(f"Parsed {len(df_channels)} channels from XML.")
 
-    # Create an "extra" folder inside the user-specified --out_dir/exp_name/ or similar
-    # Or mirror the data path's folder structure; for now we just create "extra" under out_dir
-    out_extra_dir = os.path.join(args.out_dir, "extra")
+    # Create an "extras" folder inside the user-specified --out_dir/exp_name/ or similar
+    # Or mirror the data path's folder structure; for now we just create "extras" under out_dir
+    out_extra_dir = os.path.join(args.out_dir, "extras")
     os.makedirs(out_extra_dir, exist_ok=True)
 
     # Save the tsv
-    antibody_tsv_path = os.path.join(out_extra_dir, "antibody.tsv")
+    antibody_tsv_path = os.path.join(out_extra_dir, "antibodies.tsv")
     df_channels.to_csv(antibody_tsv_path, sep="\t", index=False)
     logging.info(f"Saved antibody info to {antibody_tsv_path}.")
 

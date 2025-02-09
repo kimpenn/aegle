@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the experiment set name (same logic as in the main script)
-EXP_SET_NAME="preprocess/test0206"
+EXP_SET_NAME="preprocess/test0206_preprocess"
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -14,7 +14,7 @@ DATA_DIR="${ROOT_DIR}/data"
 CONFIG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/exps/configs/${EXP_SET_NAME}"
 
 # Define the output and log directories
-LOG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/logs/${EXP_SET_NAME}_tissue_extraction"
+LOG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/logs/${EXP_SET_NAME}"
 OUT_DIR="${DATA_DIR}"
 
 # Create the output and log directories if they do not exist
@@ -24,6 +24,7 @@ mkdir -p "${LOG_DIR}"
 # Define an array of experiment names (or ID's)
 declare -a EXPERIMENTS=(
   "d18_scan1"
+  "d18_scan2"
 )
 
 # Loop through the experiments and call run_extract_tissue.sh for each
@@ -34,15 +35,15 @@ for EXP_ID in "${EXPERIMENTS[@]}"; do
     echo "Current time: $(date)"
 
     # (1) Tissue Extraction
-    # echo "Running tissue extraction for $EXP_ID"
-    # time bash "${RUN_FILE}" \
-    #   "$EXP_SET_NAME" \
-    #   "$EXP_ID" \
-    #   "$ROOT_DIR" \
-    #   "$DATA_DIR" \
-    #   "$CONFIG_DIR" \
-    #   "$OUT_DIR"
-    # echo "Tissue extraction for $EXP_ID completed."
+    echo "Running tissue extraction for $EXP_ID"
+    time bash "${RUN_TISSUE_FILE}" \
+      "$EXP_SET_NAME" \
+      "$EXP_ID" \
+      "$ROOT_DIR" \
+      "$DATA_DIR" \
+      "$CONFIG_DIR" \
+      "$OUT_DIR"
+    echo "Tissue extraction for $EXP_ID completed."
 
     # (2) Antibody Extraction
     echo "Running antibody extraction for ${EXP_ID}"

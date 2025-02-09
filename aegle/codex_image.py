@@ -262,7 +262,10 @@ class CodexImage:
         # Identify nuclear and wholecell channel names
         nuclear_channel = self.target_channels_dict["nuclear"]
         wholecell_channels = self.target_channels_dict["wholecell"]
-
+        logging.info(f"Extracting nuclear channel: {nuclear_channel}")
+        logging.info(
+            f"Extracting wholecell channels with {len(wholecell_channels)} antibodies: {wholecell_channels}"
+        )
         # Get the index for the nuclear channel
         nuclear_idx = self.antibody_df[
             self.antibody_df["antibody_name"] == nuclear_channel

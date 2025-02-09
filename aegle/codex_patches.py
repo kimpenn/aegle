@@ -22,6 +22,8 @@ class CodexPatches:
         """
         self.config = config
         self.args = args
+        self.codex_image = codex_image
+        self.antibody_df = codex_image.antibody_df.copy()
 
         # Set up logging
         logging.basicConfig(
@@ -30,7 +32,6 @@ class CodexPatches:
             handlers=[logging.StreamHandler(sys.stdout)],
         )
         self.logger = logging.getLogger(__name__)
-        self.codex_image = codex_image
         self.all_channel_patches = None
         self.extracted_channel_patches = None
         self.noisy_extracted_channel_patches = None
@@ -66,32 +67,58 @@ class CodexPatches:
         overlap = patching_config.get("overlap", 0.1)
         self.logger.info(f"patching_config: {patching_config}")
 
-        # Calculate overlap and step sizes
-        overlap_height = int(patch_height * overlap)
-        overlap_width = int(patch_width * overlap)
-        step_height = patch_height - overlap_height
-        step_width = patch_width - overlap_width
+        # If both patch dimensions are negative, treat the entire image as one patch
+        if patch_height < 0 and patch_width < 0:
+            self.logger.info(
+                "patch_height and patch_width are both < 0; using the entire extended image as a single patch."
+            )
+            # The extended images
+            extracted_img = self.codex_image.extended_extracted_channel_image
+            all_img = self.codex_image.extended_all_channel_image
 
+            # Store them as a single entry list
+            self.extracted_channel_patches = np.array([extracted_img])
+            self.all_channel_patches = np.array([all_img])
+
+            # Create metadata for the single patch
+            h, w, c = extracted_img.shape
+            self.patches_metadata = [
+                {
+                    "patch_index": 0,
+                    "x_start": 0,
+                    "y_start": 0,
+                    "patch_width": w,
+                    "patch_height": h,
+                }
+            ]
+
+        else:
+            # Calculate overlap and step sizes
+            overlap_height = int(patch_height * overlap)
+            overlap_width = int(patch_width * overlap)
+            step_height = patch_height - overlap_height
+            step_width = patch_width - overlap_width
+
+            self.logger.info(
+                f"before crop_image_into_patches: {self.codex_image.extended_extracted_channel_image.shape}"
+            )
+            self.extracted_channel_patches = self.crop_image_into_patches(
+                self.codex_image.extended_extracted_channel_image,
+                patch_height,
+                patch_width,
+                step_height,
+                step_width,
+            )
+
+            self.all_channel_patches = self.crop_image_into_patches(
+                self.codex_image.extended_all_channel_image,
+                patch_height,
+                patch_width,
+                step_height,
+                step_width,
+            )
         self.logger.info(
-            f"before crop_image_into_patches: {self.codex_image.extended_extracted_channel_image.shape}"
-        )
-        self.extracted_channel_patches = self.crop_image_into_patches(
-            self.codex_image.extended_extracted_channel_image,
-            patch_height,
-            patch_width,
-            step_height,
-            step_width,
-        )
-
-        # self.logger.info(
-        #     f"before crop_image_into_patches: {self.codex_image.extended_all_channel_image.shape}"
-        # )
-        self.all_channel_patches = self.crop_image_into_patches(
-            self.codex_image.extended_all_channel_image,
-            patch_height,
-            patch_width,
-            step_height,
-            step_width,
+            f"Number of patches generated: {len(self.extracted_channel_patches)}"
         )
 
     def crop_image_into_patches(
@@ -159,7 +186,7 @@ class CodexPatches:
         self.logger.info("Performing quality control on patch metadata...")
 
         # Get QC parameters from config
-        qc_config = self.config.get("qc", {})
+        qc_config = self.config.get("patch_qc", {})
         non_zero_perc_threshold = qc_config.get("non_zero_perc_threshold", 0.05)
         mean_intensity_threshold = qc_config.get("mean_intensity_threshold", 1)
         std_intensity_threshold = qc_config.get("std_intensity_threshold", 1)

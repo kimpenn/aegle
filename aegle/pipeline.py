@@ -10,6 +10,7 @@ from aegle.visualization import save_patches_rgb, save_image_rgb
 
 from aegle.segment import run_cell_segmentation, visualize_cell_segmentation
 from aegle.evaluation import run_seg_evaluation
+from aegle.cell_profiling import run_cell_profiling
 
 # from aegle.seg_eval import run_segmentation_evaluation
 # Show current working directory
@@ -115,48 +116,40 @@ def run_pipeline(config, args):
     logging.info("Running cell segmentation.")
     run_cell_segmentation(codex_patches, config, args)
 
-    # TODO: if the number of cells are too large we should skip the evaluation
-    run_seg_evaluation(codex_patches, config, args)
+    if config["evaluation"]["compute_metrics"]:
+        # TODO: if the number of cells are too large we should skip the evaluation
+        run_seg_evaluation(codex_patches, config, args)
 
-    file_name = "codex_patches.pkl"
-    file_name = os.path.join(args.out_dir, file_name)
-    logging.info(f"Saving CodexPatches object to {file_name}")
-    with open(file_name, "wb") as f:
-        pickle.dump(codex_patches, f)
+    if config["segmentation"].get("save_segmentation_pickle", False):
+        file_name = "codex_patches.pkl"
+        file_name = os.path.join(args.out_dir, file_name)
+        logging.info(f"Saving CodexPatches object to {file_name}")
+        with open(file_name, "wb") as f:
+            pickle.dump(codex_patches, f)
 
-    # if config["visualize_segmentation"]:
-    #     visualize_cell_segmentation(
-    #         codex_patches.valid_patches,
-    #         codex_patches.repaired_seg_res_batch,
-    #         config,
-    #         args,
-    #     )
-    #     logging.info("Segmentation visualization completed.")
+    if config.get("visualization", {}).get("visualize_segmentation", False):
 
-    #     visualize_cell_segmentation(
-    #         codex_patches.valid_patches,
-    #         codex_patches.original_seg_res_batch,
-    #         config,
-    #         args,
-    #     )
-    #     logging.info("Segmentation visualization completed.")
+        visualize_cell_segmentation(
+            codex_patches.valid_patches,
+            codex_patches.repaired_seg_res_batch,
+            config,
+            args,
+        )
+        logging.info("Segmentation visualization completed.")
 
-    # Post-Segmentation Filtering
-    # logging.info("Running post-segmentation filtering.")
-    # post_segmentation_filter(matched_seg_res)
-    # logging.info("Post-segmentation filtering completed.")
-
-    # Segmentation Evaluation
-    # logging.info("Running segmentation evaluation.")
-    # run_segmentation_evaluation(all_patches_ndarray, matched_seg_res, config, args)
-    # logging.info("Segmentation evaluation completed.")
-
-    # Cell Profiling
-    # logging.info("Running cell profiling.")
-    # run_cell_profiling(seg_res, config, args)
-    # logging.info("Cell profiling completed.")
+        visualize_cell_segmentation(
+            codex_patches.valid_patches,
+            codex_patches.original_seg_res_batch,
+            config,
+            args,
+        )
+        logging.info("Segmentation visualization completed.")
 
     # ---------------------------------
-    # Future Steps (Placeholders)
+    # (D) Cell Profiling
     # ---------------------------------
+    logging.info("Running cell profiling.")
+    run_cell_profiling(codex_patches, config, args)
+    logging.info("Cell profiling completed.")
+
     logging.info("Pipeline run completed.")

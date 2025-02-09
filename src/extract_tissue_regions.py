@@ -77,6 +77,16 @@ def load_image(image_path):
 
     # Actually load the data
     image_ndarray = tiff.imread(image_path)
+
+    # Ensure correct dtype based on bits per sample
+    expected_dtype = np.uint8 if bits_per_sample == 8 else np.uint16
+
+    if image_ndarray.dtype != expected_dtype:
+        logging.warning(
+            f"Image dtype mismatch: {image_ndarray.dtype} -> Converting to {expected_dtype}"
+        )
+        image_ndarray = image_ndarray.astype(expected_dtype)
+
     # Move channels to the last dimension if needed (shape: H x W x C).
     # (Some qptiff are in shape: C x H x W.)
     if image_ndarray.ndim == 3 and image_ndarray.shape[0] < image_ndarray.shape[-1]:
@@ -108,7 +118,7 @@ def extract_tissue_regions_advanced(
     elevation_map = sobel(image)
 
     # 2) Markers for background=1, foreground=2
-    markers = np.zeros_like(image, dtype=int)
+    markers = np.zeros(image.shape, dtype=np.uint8)
 
     # Use Otsu threshold if fixed thresholds not provided
     otsu_thresh = threshold_otsu(image)
@@ -229,7 +239,7 @@ def find_tissue_rois_large_image(
     return rois
 
 
-def crop_tissue_regions(all_channel_image, rois):
+def crop_tissue_regions(all_channel_image, rois, dtype_original):
     """
     Crop bounding boxes from the full-resolution image according to `rois`.
     Returns a list of (H, W, C) arrays.
@@ -239,6 +249,14 @@ def crop_tissue_regions(all_channel_image, rois):
         minr, minc = roi["min_row"], roi["min_col"]
         maxr, maxc = roi["max_row"], roi["max_col"]
         crop = all_channel_image[minr:maxr, minc:maxc, :]
+
+        # Ensure the cropped image retains the correct dtype
+        if crop.dtype != dtype_original:
+            logging.warning(
+                f"Crop {i} dtype mismatch: {crop.dtype} -> Converting to {dtype_original}"
+            )
+            crop = crop.astype(dtype_original)
+
         crops.append(crop)
     return crops
 
@@ -249,21 +267,30 @@ def save_crops_to_ome_tiff(tissue_crops, tif_image_details, output_dir, base_nam
     """
     bits_per_sample = tif_image_details["BitsPerSample"]
     dtype_original = tif_image_details["DataType"]
+    bytes_per_pixel = bits_per_sample // 8  # Convert bits to bytes
+
     for i, crop in enumerate(tissue_crops):
         # Ensure crop dtype matches original
         if crop.dtype != dtype_original:
             crop = crop.astype(dtype_original)
 
-        # Reorder dims from (H, W, C) => (C, H, W) for TIFF
+        H, W, C = crop.shape  # Crop dimensions
+        estimated_size = H * W * C * bytes_per_pixel / (1024**2)  # Convert bytes to MB
+
         out_path = os.path.join(output_dir, f"{base_name}_tissue_{i}.ome.tiff")
-        logging.info(f"Saving tissue crop {i} => {out_path}")
+        logging.info(
+            f"Saving tissue crop {i} => {out_path} [H={H}, W={W}, C={C}, bits={bits_per_sample}, Estimated Size={estimated_size:.2f} MB]"
+        )
+
         tiff.imwrite(
             out_path,
-            crop.transpose(2, 0, 1),
+            crop.transpose(
+                2, 0, 1
+            ),  # Reorder dims from (H, W, C) => (C, H, W) for TIFF
             compression="lzw",
             ome=True,
             metadata={"axes": "CYX"},
-            bigtiff=False,
+            bigtiff=True,
         )
 
 
@@ -291,6 +318,7 @@ def run_extraction(config, args):
 
     # 1) Load image
     full_image, info = load_image(file_name)
+    dtype_original = info["DataType"]
 
     # 2) Find bounding boxes for top tissue
     rois = find_tissue_rois_large_image(
@@ -303,7 +331,7 @@ def run_extraction(config, args):
     )
 
     # 3) Crop each ROI from original
-    crops = crop_tissue_regions(full_image, rois)
+    crops = crop_tissue_regions(full_image, rois, dtype_original)
 
     # 4) Save each crop as an OME‐TIFF
     os.makedirs(args.out_dir, exist_ok=True)
