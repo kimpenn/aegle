@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the experiment set name (same logic as in the main script)
-EXP_SET_NAME="preprocess/test0206_preprocess"
+EXP_SET_NAME="preprocess/hubmap_swat"
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -23,10 +23,10 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names (or ID's)
 declare -a EXPERIMENTS=(
-  # "d18_scan1"
-  # "d18_scan2"
-  # "H33_scan1"
-  "d11_scan1"
+  # "D231-RLL-11B3-3"
+  "D231-RLL-11B3-4"
+  # "D239-RLL-15B3-117"
+  # "D342-RLL-18A6-11"
 )
 
 # Loop through the experiments and call run_extract_tissue.sh for each

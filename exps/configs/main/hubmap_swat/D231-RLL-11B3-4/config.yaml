@@ -1,14 +1,14 @@
 # Top-level configuration for CODEX pipeline
-exp_id: D18_Scan1_1
+exp_id: D231-RLL-11B3-4
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
-  file_name: FallopianTube/D18/Scan1/D18_Scan1_tissue_1.ome.tiff
+  file_name: URMC/D231-RLL-11B3-4/D231-RLL-11B3-4_Scan1.er_full.ome.tiff
 
   # Path to the TSV file containing antibody definitions (one row per channel)
-  antibodies_file: FallopianTube/D18/Scan1/extras/antibodies.tsv
+  antibodies_file: URMC/D231-RLL-11B3-4/extras/antibodies.tsv
 
   # Microns per pixel for this image; used in downstream calculations (e.g., segmentation scaling)
   image_mpp: 0.5
@@ -25,9 +25,7 @@ channels:
 
   # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
   wholecell_channel:
-    - Pan-Cytokeratin
-    - Collagen IV
-    - FUT4
+    - CD298
 patching:
   # Size (height, width) of each patch (in pixels)
   patch_height: -1

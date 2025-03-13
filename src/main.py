@@ -66,7 +66,7 @@ def main():
 
     # Load configuration from the YAML file
     config = load_config(args.config_file)
-
+    logging.info(f"Config: {config}")
     # Run the pipeline
     logging.info("Running the CODEX image analysis pipeline.")
     run_pipeline(config, args)

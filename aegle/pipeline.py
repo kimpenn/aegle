@@ -76,7 +76,7 @@ def run_pipeline(config, args):
     # Extract distruption type and level from config
     disruption_config = config.get("testing", {}).get("data_disruption", {})
     logging.info(f"Disruption config: {disruption_config}")
-    if disruption_config:
+    if disruption_config and disruption_config.get("type", None) is not None:
         disruption_type = disruption_config.get("type", None)
         disruption_level = disruption_config.get("level", 1)
         logging.info(
@@ -84,7 +84,7 @@ def run_pipeline(config, args):
         )
         codex_patches.add_disruptions(disruption_type, disruption_level)
         logging.info("Disruptions added to patches.")
-        if disruption_config["save_disrupted_patches"]:
+        if disruption_config.get("save_disrupted_patches", False):
             logging.info("Saving disrupted patches.")
             codex_patches.save_disrupted_patches()
             logging.info("Disrupted patches saved.")
@@ -120,12 +120,12 @@ def run_pipeline(config, args):
         # TODO: if the number of cells are too large we should skip the evaluation
         run_seg_evaluation(codex_patches, config, args)
 
-    if config["segmentation"].get("save_segmentation_pickle", False):
-        file_name = "codex_patches.pkl"
-        file_name = os.path.join(args.out_dir, file_name)
-        logging.info(f"Saving CodexPatches object to {file_name}")
-        with open(file_name, "wb") as f:
-            pickle.dump(codex_patches, f)
+    # if config["segmentation"].get("save_segmentation_pickle", False):
+    #     file_name = "codex_patches.pkl"
+    #     file_name = os.path.join(args.out_dir, file_name)
+    #     logging.info(f"Saving CodexPatches object to {file_name}")
+    #     with open(file_name, "wb") as f:
+    #         pickle.dump(codex_patches, f)
 
     if config.get("visualization", {}).get("visualize_segmentation", False):
 

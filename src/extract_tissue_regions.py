@@ -43,9 +43,8 @@ def parse_args():
         type=str,
         default="output_tissue_regions",
         help="Output directory to save cropped tissue images.",
-    )
+    )  
     return parser.parse_args()
-
 
 def load_config(config_path):
     if not os.path.exists(config_path):
@@ -293,6 +292,30 @@ def save_crops_to_ome_tiff(tissue_crops, tif_image_details, output_dir, base_nam
             bigtiff=True,
         )
 
+def save_full_image_to_tiff(image, tif_image_details, output_dir, base_name):
+    """
+    Save the full image as an OME‐TIFF with LZW compression + minimal metadata.
+    """
+    bits_per_sample = tif_image_details["BitsPerSample"]
+    dtype_original = tif_image_details["DataType"]
+    bytes_per_pixel = bits_per_sample // 8  # Convert bits to bytes
+    
+    H, W, C = image.shape  # Image dimensions
+    estimated_size = H * W * C * bytes_per_pixel / (1024**2)  # Convert bytes to MB
+    
+    out_path = os.path.join(output_dir, f"{base_name}_full.ome.tiff")
+    logging.info(
+        f"Saving full image => {out_path} [H={H}, W={W}, C={C}, bits={bits_per_sample}, Estimated Size={estimated_size:.2f} MB]"
+    )
+    
+    tiff.imwrite(
+        out_path,
+        image.transpose(2, 0, 1),  # Reorder dims from (H, W, C) => (C, H, W) for TIFF
+        compression="lzw",
+        ome=True,
+        metadata={"axes": "CYX"},
+        bigtiff=True,
+    )
 
 #########################################
 # (C) MAIN ENTRYPOINT: "run_extraction" #
@@ -308,18 +331,30 @@ def run_extraction(config, args):
     # Retrieve relevant fields from config
     file_name = config["data"]["file_name"]
     file_name = os.path.join(args.data_dir, file_name)
+    logging.info(f"Processing file: {file_name}")
+    # Retrieve relevant fields from config    
     tissue_cfg = config.get("tissue_extraction", {})
+    skip_roi_crop = tissue_cfg.get("skip_roi_crop", False)
+    
+    # 1) Load image
+    full_image, info = load_image(file_name)
+    dtype_original = info["DataType"]
+
+    # If skipping ROI detection and cropping, save the full image directly
+    if skip_roi_crop:
+        os.makedirs(args.out_dir, exist_ok=True)
+        base_name = os.path.splitext(os.path.basename(file_name))[0]
+        save_full_image_to_tiff(full_image, info, args.out_dir, base_name)
+        logging.info("Full image saved successfully. Exiting.")
+        return
+    
     n_tissue = tissue_cfg.get("n_tissue", 4)
     downscale_factor = tissue_cfg.get("downscale_factor", 64)
     min_area = tissue_cfg.get("min_area", 500)
     visualize = tissue_cfg.get("visualize", False)
     logging.info(f"config: {config}")
     logging.info(f"visualize: {visualize}")
-
-    # 1) Load image
-    full_image, info = load_image(file_name)
-    dtype_original = info["DataType"]
-
+        
     # 2) Find bounding boxes for top tissue
     rois = find_tissue_rois_large_image(
         full_image,

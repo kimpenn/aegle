@@ -1,6 +1,6 @@
 exp_id: d18_scan2
 data:
-  file_name: FallopianTube/D18/Scan2/D18_Scan2.er.qptiff
+  file_name: FallopianTube/D18/Scan1/D18_Scan2.er.qptiff
   # antibodies_file: 'FallopianTube/D18/Scan1/extra/antibody.tsv'
 
 bftools:
@@ -10,3 +10,5 @@ tissue_extraction:
   downscale_factor: 64
   min_area: 500
   visualize: true
+evaluation:
+  compute_metrics: null

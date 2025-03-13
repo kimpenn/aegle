@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 import numpy as np
 
-from aegle.extract_features import extract_features_v2
+from aegle.extract_features import extract_features_v2, extract_features_v2_optimized
 
 
 def run_cell_profiling(codex_patches, config, args):
@@ -46,9 +46,13 @@ def run_cell_profiling(codex_patches, config, args):
             image_dict[ab] = patch_img[:, :, channel_idx]
 
         # Extract features (exp_df: cell-by-marker, metadata_df: cell metadata)
-        exp_df, metadata_df = extract_features_v2(
+        # exp_df, metadata_df = extract_features_v2(
+        #     image_dict, segmentation_masks, antibodies
+        # )
+        
+        exp_df, metadata_df = extract_features_v2_optimized(
             image_dict, segmentation_masks, antibodies
-        )
+        )        
 
         logging.info(
             f"Patch {patch_idx} profiling complete: "

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the experiment set name
-EXP_SET_NAME="test0206_main"  # "explore-eval-scores-dev" or "explore-eval-scores"
+EXP_SET_NAME="hubmap_swat"  # "explore-eval-scores-dev" or "explore-eval-scores"
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -20,11 +20,8 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
-  "D18_Scan1_0"
-  "D18_Scan1_1"  
-  "D18_Scan1_2"
-  "D18_Scan1_3"
-  # "H33_scan1"
+  # "D231-RLL-11B3-3"
+  "D231-RLL-11B3-4"
 )
 
 # Loop through the experiments and call run_main.sh for each

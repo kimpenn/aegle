@@ -85,7 +85,7 @@ segmentation:
 testing:
   data_disruption:
     # Disruption type can be "downsampling" or "gaussian"
-    type: gaussian
+    type: null
 
     # Intensity level of disruption (1-5, for instance)
     level: 3

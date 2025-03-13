@@ -1,12 +1,13 @@
-exp_id: d18_scan1
+exp_id: D231-RLL-11B3-3
 data:
-  file_name: FallopianTube/D18/Scan1/D18_Scan1.qptiff
+  file_name: URMC/D231-RLL-11B3-3/D231-RLL-11B3-3_Scan1.er.qptiff
   # antibodies_file: 'FallopianTube/D18/Scan1/extra/antibody.tsv'
 
 bftools:
   showinf_path: /workspaces/codex-analysis/bftools/showinf
 tissue_extraction:
-  n_tissue: 4
+  skip_roi_crop: true
+  n_tissue: 1
   downscale_factor: 64
   min_area: 500
   visualize: true
