@@ -5,6 +5,10 @@
 This pipeline is developed as part of the PennTMC project.  
 
 ![](aegle_icon.png)
+## About the Name  
+
+*Aegle* is named after the Greek goddess of radiant good health. Inspired by her name, this pipeline aims to bring clarity and precision to spatial biology by extracting meaningful insights from PhenoCycler images.  
+
 
 ## Key Features  
 
