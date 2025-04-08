@@ -2,6 +2,7 @@ import os
 import numpy as np
 import logging
 import pickle
+import shutil
 
 from aegle.codex_image import CodexImage
 from aegle.codex_patches import CodexPatches
@@ -27,7 +28,9 @@ def run_pipeline(config, args):
     logging.info("----- Running pipeline with provided configuration and arguments.")
     os.makedirs(args.out_dir, exist_ok=True)
     logging.info(f"Output directory set to: {args.out_dir}")
-
+    copied_config_path = os.path.join(args.out_dir, "copied_config.yaml")
+    shutil.copy(args.config_file, copied_config_path)  
+    
     # ---------------------------------
     # (A) Full Image Preprocessing
     # ---------------------------------

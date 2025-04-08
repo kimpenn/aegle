@@ -7,6 +7,7 @@ import pandas as pd
 import scanpy as sc
 import matplotlib.pyplot as plt
 import anndata
+import shutil
 
 # Import modules from the package
 from aegle_analysis.data import (
@@ -74,6 +75,9 @@ def run_analysis(config, args):
     )
     logging.info(f"Resolved output_dir: {output_dir}")
     output_dir = ensure_dir(output_dir)
+    copied_config_path = os.path.join(args.out_dir, "copied_config.yaml")
+    shutil.copy(args.config_file, copied_config_path)    
+    
     plots_dir = ensure_dir(os.path.join(output_dir, "plots"))
     marker_plots_dir = ensure_dir(os.path.join(plots_dir, "markers"))
     metric_plots_dir = ensure_dir(os.path.join(plots_dir, "metrics"))
