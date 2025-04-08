@@ -50,7 +50,15 @@ def run_analysis(config, args):
     )
 
     # Extract relevant parameters from config and args
-    data_dir = config.get("analysis", {}).get("data_dir", args.data_dir)
+    data_dir = os.path.join(
+        args.data_dir, 
+        config.get("analysis", {}).get("data_dir", ""),
+        config.get("exp_id", "")
+        )
+    logging.info(f"Resolved data_dir: {data_dir}")
+    if not os.path.exists(data_dir):
+        raise FileNotFoundError(f"Data directory does not exist: {data_dir}")
+    
     patch_index = config.get("analysis", {}).get("patch_index", args.patch_index)
     skip_viz = config.get("analysis", {}).get("skip_viz", args.skip_viz)
     output_dir = config.get("analysis", {}).get("output_dir", args.output_dir)
@@ -58,7 +66,13 @@ def run_analysis(config, args):
         "clustering_resolution", args.clustering_resolution
     )
     norm_method = config.get("analysis", {}).get("norm_method", "log1p")
+    
     # Create output directory
+    output_dir = os.path.join(
+        args.output_dir,
+        config.get("exp_id", ""),
+    )
+    logging.info(f"Resolved output_dir: {output_dir}")
     output_dir = ensure_dir(output_dir)
     plots_dir = ensure_dir(os.path.join(output_dir, "plots"))
     marker_plots_dir = ensure_dir(os.path.join(plots_dir, "markers"))
@@ -113,6 +127,12 @@ def run_analysis(config, args):
     adata = create_anndata(data_df, meta_df)
     adata = run_clustering(adata, resolution=clustering_resolution, random_state=42)
 
+    # ================= 4. CLUSTER LEVEL STATISTICS =================
+    # Save anndata object
+    adata.write(os.path.join(output_dir, "codex_analysis.h5ad"))
+    logging.info("Anndata object saved.")
+    logging.info("Calculating cluster-level statistics...")
+    
     # ================= 5. DIMENSIONALITY REDUCTION VISUALIZATION =================
     if not skip_viz:
         logging.info("Plotting UMAP...")
@@ -149,7 +169,7 @@ def run_analysis(config, args):
         )
 
     # ================= 8. SPATIAL VISUALIZATION =================
-    seg_data = load_segmentation_data(data_dir, patch_index)
+    seg_data = load_segmentation_data(data_dir, 0)
     if seg_data and not skip_viz:
         logging.info("Generating spatial visualizations...")
         cell_mask = seg_data["cell_matched_mask"]

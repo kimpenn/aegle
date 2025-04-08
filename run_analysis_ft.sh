@@ -4,21 +4,22 @@
 EXP_SET_NAME="test_analysis"
 
 # [2] Define the base directory (adjust as needed)
-ROOT_DIR="/workspaces/codex-analysis"
+ROOT_DIR="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline"
 
 # [3] Define the path to the inner script that launches run_analysis.py
-RUN_FILE="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/scripts/run_analysis.sh"
+RUN_FILE="${ROOT_DIR}/scripts/run_analysis.sh"
 
 # [4] Define input data directory
-DATA_DIR="${ROOT_DIR}/data"
+DATA_DIR="${ROOT_DIR}/out/main"
+
 
 # [5] Directory where your config files for analysis live
 #     Example: each experiment has its own subfolder with an analysis config.
-CONFIG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/exps/configs/analysis/${EXP_SET_NAME}"
+CONFIG_DIR="${ROOT_DIR}/exps/configs/analysis/${EXP_SET_NAME}"
 
 # [6] Define the output and log directories for analysis
-LOG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/logs/analysis/${EXP_SET_NAME}"
-OUT_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/out/analysis/${EXP_SET_NAME}"
+LOG_DIR="${ROOT_DIR}/logs/analysis/${EXP_SET_NAME}"
+OUT_DIR="${ROOT_DIR}/out/analysis/${EXP_SET_NAME}"
 
 # [7] Create them if they don't exist
 mkdir -p "${OUT_DIR}"
