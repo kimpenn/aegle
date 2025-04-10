@@ -31,6 +31,10 @@ This pipeline is developed as part of the PennTMC project.
 
 If you have any questions or feedback, please feel free to reach out to us.  
 
+## Documentation
+Comprehensive documentation for Aegle is currently under development and will be hosted at:
+👉 https://kimpenn.github.io/aegle/
+
 ## Acknowledgements  
 
 The *Aegle* pipeline builds upon and is inspired by the following projects. We greatly appreciate their contributions to the field. More detailed disclaimers and attributions will be included in the source code as development progresses.  
