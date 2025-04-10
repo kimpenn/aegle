@@ -1,0 +1,38 @@
+<svg width="240" height="200" viewBox="0 0 240 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradient for the cell -->
+    <radialGradient id="cellGradient" cx="60" cy="80" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#d0e9ff"/>
+      <stop offset="100%" stop-color="#a6cfff"/>
+    </radialGradient>
+
+    <!-- Shadow for the bars -->
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#aaa" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="240" height="200" fill="white"/>
+
+  <!-- Cell -->
+  <circle cx="70" cy="90" r="45" fill="url(#cellGradient)" stroke="#5c90d2" stroke-width="2"/>
+
+  <!-- Nucleus with glow -->
+  <circle cx="70" cy="90" r="15" fill="#5c90d2">
+    <animate attributeName="r" values="14;16;14" dur="3s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Fancy bar chart (feature profile) -->
+  <g filter="url(#shadow)">
+    <rect x="140" y="60" width="14" height="50" rx="4" fill="#6c63ff"/>
+    <rect x="160" y="45" width="14" height="65" rx="4" fill="#00cec9"/>
+    <rect x="180" y="70" width="14" height="40" rx="4" fill="#fdcb6e"/>
+  </g>
+
+  <!-- Sparkles or dots to imply molecular features -->
+  <circle cx="45" cy="55" r="2" fill="#74b9ff"/>
+  <circle cx="90" cy="50" r="2.5" fill="#74b9ff"/>
+  <circle cx="55" cy="120" r="2" fill="#74b9ff"/>
+  <circle cx="85" cy="125" r="1.5" fill="#74b9ff"/>
+</svg>
