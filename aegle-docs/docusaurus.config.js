@@ -10,7 +10,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'PhenoCycler-PennTMC Pipeline',
+  title: 'Aegle: PhenoCycler Pipeline @ PennTMC',
   tagline: '2D Segmentation for PhenoCycler',
   favicon: 'img/favicon.ico',
   // staticDirectories: ['static'],
