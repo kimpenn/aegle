@@ -13,9 +13,6 @@ from aegle.segment import run_cell_segmentation, visualize_cell_segmentation
 from aegle.evaluation import run_seg_evaluation
 from aegle.cell_profiling import run_cell_profiling
 
-# from aegle.seg_eval import run_segmentation_evaluation
-# Show current working directory
-
 
 def run_pipeline(config, args):
     """
@@ -49,6 +46,14 @@ def run_pipeline(config, args):
     codex_image.extract_target_channels()
     logging.info("Target channels extracted successfully.")
 
+    # ---------------------------------
+    # (B) Patched Image Preprocessing
+    # ---------------------------------
+    # Step 1: Extend the image for full patch coverage
+    logging.info("----- Extending image for full patch coverage.")
+    codex_image.extend_image()
+    logging.info("Image extension completed successfully.")
+    
     # Optional: Visualize whole sample image
     if config.get("visualization", {}).get("visualize_whole_sample", False):
         save_image_rgb(
@@ -59,14 +64,6 @@ def run_pipeline(config, args):
         save_image_rgb(
             codex_image.extracted_channel_image, "extracted_channel_image.png", args
         )
-
-    # ---------------------------------
-    # (B) Patched Image Preprocessing
-    # ---------------------------------
-    # Step 1: Extend the image for full patch coverage
-    logging.info("----- Extending image for full patch coverage.")
-    codex_image.extend_image()
-    logging.info("Image extension completed successfully.")
 
     # Step 2: Initialize CodexPatches object and generate patches
     logging.info("----- Initializing CodexPatches object and generating patches.")

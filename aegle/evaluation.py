@@ -34,14 +34,14 @@ def run_seg_evaluation(
             "data": image_ndarray[idx : idx + 1, :, :, :, :],
         }
         cell_matched_mask = repaired_seg_res["cell_matched_mask"]
-        nuclear_matched_mask = repaired_seg_res["nuclear_matched_mask"]
+        nucleus_matched_mask = repaired_seg_res["nucleus_matched_mask"]
         cell_outside_nucleus_mask = repaired_seg_res["cell_outside_nucleus_mask"]
         pixel_size = config["data"]["image_mpp"] * 1000
         res = evaluate_seg_single(
             img_dict_single,
             original_seg_res_single,
             cell_matched_mask,
-            nuclear_matched_mask,
+            nucleus_matched_mask,
             cell_outside_nucleus_mask,
             unit="nanometer",
             pixelsizex=pixel_size,
@@ -57,7 +57,7 @@ def evaluate_seg_single(
     img,
     seg_res,
     cell_matched_mask,
-    nuclear_matched_mask,
+    nucleus_matched_mask,
     cell_outside_nucleus_mask,
     unit="nanometer",
     pixelsizex=377.5,
@@ -67,7 +67,7 @@ def evaluate_seg_single(
     nucleus_mask = seg_res["nucleus"]
 
     metric_mask = np.expand_dims(cell_matched_mask, 0)
-    metric_mask = np.vstack((metric_mask, np.expand_dims(nuclear_matched_mask, 0)))
+    metric_mask = np.vstack((metric_mask, np.expand_dims(nucleus_matched_mask, 0)))
     metric_mask = np.vstack((metric_mask, np.expand_dims(cell_outside_nucleus_mask, 0)))
     # separate image foreground background
 
@@ -97,7 +97,7 @@ def evaluate_seg_single(
     # set mask channel names
     channel_names = [
         "Matched Cell",
-        "Nucleus (including nuclear membrane)",
+        "Nucleus (including nucleus membrane)",
         "Cell Not Including Nucleus (cell membrane plus cytoplasm)",
     ]
     metrics = {}

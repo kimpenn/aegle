@@ -145,12 +145,12 @@ def segment(
 #     for patch_segmentation in seg_res_batch:
 
 #         whole_cell_mask = patch_segmentation["cell"]
-#         nuclear_mask = patch_segmentation["nucleus"]
+#         nucleus_mask = patch_segmentation["nucleus"]
 #         cell_membrane_mask = patch_segmentation["cell_boundary"]
 
 #         # Extract coordinates for cell, nucleus, and cell membrane
 #         cell_coords_dict = _get_mask_coordinates(whole_cell_mask)
-#         nucleus_coords_dict = _get_mask_coordinates(nuclear_mask)
+#         nucleus_coords_dict = _get_mask_coordinates(nucleus_mask)
 #         cell_membrane_coords_dict = _get_mask_coordinates(cell_membrane_mask)
 
 #         # Perform matching between cells and nuclei
@@ -158,7 +158,7 @@ def segment(
 #             cell_coords_dict,
 #             nucleus_coords_dict,
 #             cell_membrane_coords_dict,
-#             nuclear_mask,
+#             nucleus_mask,
 #             do_mismatch_repair,
 #         )
 
@@ -166,25 +166,25 @@ def segment(
 #         cell_matched_mask = get_mask_from_labels(
 #             cell_matched_list, whole_cell_mask.shape
 #         )
-#         nuclear_matched_mask = get_mask_from_labels(
-#             nucleus_matched_list, nuclear_mask.shape
+#         nucleus_matched_mask = get_mask_from_labels(
+#             nucleus_matched_list, nucleus_mask.shape
 #         )
 #         cell_membrane_matched_mask = get_boundary(cell_matched_mask)
-#         nuclear_membrane_matched_mask = get_boundary(nuclear_matched_mask)
+#         nucleus_membrane_matched_mask = get_boundary(nucleus_matched_mask)
 
 #         # Update the patch segmentation with the matched masks
 #         matched_patch_segmentation = {
 #             "cell": cell_matched_mask,
-#             "nucleus": nuclear_matched_mask,
+#             "nucleus": nucleus_matched_mask,
 #             "cell_boundary": cell_membrane_matched_mask,
-#             "nucleus_boundary": nuclear_membrane_matched_mask,
+#             "nucleus_boundary": nucleus_membrane_matched_mask,
 #         }
 #         matched_output.append(matched_patch_segmentation)
 
 #         # Calculate statistics for fraction of matched cells
 #         matched_cell_num = len(np.unique(cell_matched_mask)) - 1
 #         total_cell_num = len(np.unique(whole_cell_mask)) - 1
-#         total_nuclei_num = len(np.unique(nuclear_mask)) - 1
+#         total_nuclei_num = len(np.unique(nucleus_mask)) - 1
 
 #         mismatched_cell_num = total_cell_num - matched_cell_num
 #         mismatched_nuclei_num = total_nuclei_num - matched_cell_num
@@ -352,7 +352,7 @@ def _match_cells_to_nuclei(
     cell_coords: Dict[int, np.ndarray],
     nucleus_coords: Dict[int, np.ndarray],
     cell_membrane_coords: Dict[int, np.ndarray],
-    nuclear_mask: np.ndarray,
+    nucleus_mask: np.ndarray,
     do_mismatch_repair: bool,
 ) -> Tuple[List[Tuple[int, np.ndarray]], List[Tuple[int, np.ndarray]]]:
     """
@@ -371,11 +371,11 @@ def _match_cells_to_nuclei(
         cell_membrane_coord = cell_membrane_coords.get(cell_label, np.array([]))
 
         # Find candidate nuclei overlapping with the current cell
-        nuclear_candidates = np.unique(nuclear_mask[tuple(cell_coord.T)])
+        nucleus_candidates = np.unique(nucleus_mask[tuple(cell_coord.T)])
         best_mismatch_fraction = 1
         best_match = None
 
-        for nucleus_id in nuclear_candidates:
+        for nucleus_id in nucleus_candidates:
             if nucleus_id == 0 or nucleus_id in nucleus_matched_labels:
                 continue
 
@@ -423,7 +423,7 @@ def _match_cells_to_nuclei(
 def get_matched_cells(
     cell_arr: np.ndarray,
     cell_membrane_arr: np.ndarray,
-    nuclear_arr: np.ndarray,
+    nucleus_arr: np.ndarray,
     mismatch_repair: bool,
 ) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
     """
@@ -432,7 +432,7 @@ def get_matched_cells(
     Args:
         cell_arr (np.ndarray): Coordinates of the cell.
         cell_membrane_arr (np.ndarray): Coordinates of the cell membrane.
-        nuclear_arr (np.ndarray): Coordinates of the nucleus.
+        nucleus_arr (np.ndarray): Coordinates of the nucleus.
         mismatch_repair (bool): Whether to apply mismatch repair.
 
     Returns:
@@ -445,7 +445,7 @@ def get_matched_cells(
     """
     cell_set = set(map(tuple, cell_arr))
     membrane_set = set(map(tuple, cell_membrane_arr))
-    nucleus_set = set(map(tuple, nuclear_arr))
+    nucleus_set = set(map(tuple, nucleus_arr))
 
     cell_interior = cell_set - membrane_set
     mismatched_pixels = nucleus_set - cell_interior
@@ -496,7 +496,7 @@ def visualize_cell_segmentation(
 # def get_matched_cells(
 #     cell_arr: np.ndarray,
 #     cell_membrane_arr: np.ndarray,
-#     nuclear_arr: np.ndarray,
+#     nucleus_arr: np.ndarray,
 #     mismatch_repair: bool,
 # ) -> Tuple[np.ndarray, np.ndarray, float]:
 #     """
@@ -505,7 +505,7 @@ def visualize_cell_segmentation(
 #     Args:
 #         cell_arr (np.ndarray): Coordinates of the cell.
 #         cell_membrane_arr (np.ndarray): Coordinates of the cell membrane.
-#         nuclear_arr (np.ndarray): Coordinates of the nucleus.
+#         nucleus_arr (np.ndarray): Coordinates of the nucleus.
 #         mismatch_repair (bool): Whether to apply mismatch repair.
 
 #     Returns:
@@ -516,7 +516,7 @@ def visualize_cell_segmentation(
 #     """
 #     cell_set = set(map(tuple, cell_arr))
 #     membrane_set = set(map(tuple, cell_membrane_arr))
-#     nucleus_set = set(map(tuple, nuclear_arr))
+#     nucleus_set = set(map(tuple, nucleus_arr))
 
 #     cell_interior = cell_set - membrane_set
 #     mismatched_pixels = nucleus_set - cell_interior

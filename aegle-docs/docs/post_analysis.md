@@ -39,7 +39,7 @@ logging.info(f"[INFO] Loading codex_patches from {pkl_file}")
 repaired_seg_res_batch = np.load(pkl_file, allow_pickle=True)
 repaired_seg_data = repaired_seg_res_batch[patch_index]
 repaired_cell_mask = repaired_seg_data["cell_matched_mask"]
-repaired_nuc_mask = repaired_seg_data["nuclear_matched_mask"]
+repaired_nuc_mask = repaired_seg_data["nucleus_matched_mask"]
 
 # Load the OME-TIFF image (you may need to provide full path)
 file_name = "/Users/kuangda/Developer/1-projects/4-codex-analysis/0-phenocycler-penntmc-pipeline/D18_Scan1_tissue_0.ome.tiff"
@@ -62,17 +62,17 @@ viewer.add_image(image_40, name='FUT4')
 cell_mask_int = cell_mask.astype(np.int32)
 viewer.add_labels(cell_mask_int, name="Cell Mask")
 
-# Optional: Add nuclear mask if desired
+# Optional: Add nucleus mask if desired
 nuc_mask_int = nuc_mask.astype(np.int32)
-viewer.add_labels(nuc_mask_int, name="Nuclear Mask")
+viewer.add_labels(nuc_mask_int, name="nucleus Mask")
 
 # Ensure the mask is integer type
 repaired_cell_mask_int = repaired_cell_mask.astype(np.int32)
 viewer.add_labels(repaired_cell_mask_int, name="Cell Mask Reqaired")
 
-# Optional: Add nuclear mask if desired
+# Optional: Add nucleus mask if desired
 repaired_nuc_mask_int = repaired_nuc_mask.astype(np.int32)
-viewer.add_labels(repaired_cell_mask_int, name="Nuclear Mask Reqaired")
+viewer.add_labels(repaired_cell_mask_int, name="nucleus Mask Reqaired")
 
 napari.run()
 ```

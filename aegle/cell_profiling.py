@@ -34,7 +34,7 @@ def run_cell_profiling(codex_patches, config, args):
     for patch_idx in range(num_patches):
         # Get segmentation mask from repaired segmentation
         seg_result = codex_patches.repaired_seg_res_batch[patch_idx]
-        segmentation_masks = seg_result["nuclear_matched_mask"]
+        segmentation_masks = seg_result["nucleus_matched_mask"]
 
         # Get the full multi-channel patch from all channels (or extracted channels)
         patch_img = codex_patches.all_channel_patches[patch_idx]

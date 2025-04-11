@@ -367,16 +367,16 @@ def single_method_eval(
     # get compartment masks
     # matched_mask = np.squeeze(mask.data[0, 0, :, bestz, :, :], axis=0)
     cell_matched_mask = mask_dict["cell"]
-    nuclear_matched_mask = mask_dict["nucleus"]
-    cell_outside_nucleus_mask = cell_matched_mask - nuclear_matched_mask
+    nucleus_matched_mask = mask_dict["nucleus"]
+    cell_outside_nucleus_mask = cell_matched_mask - nucleus_matched_mask
 
     metric_mask = np.expand_dims(cell_matched_mask, 0)
-    metric_mask = np.vstack((metric_mask, np.expand_dims(nuclear_matched_mask, 0)))
+    metric_mask = np.vstack((metric_mask, np.expand_dims(nucleus_matched_mask, 0)))
     metric_mask = np.vstack((metric_mask, np.expand_dims(cell_outside_nucleus_mask, 0)))
 
     # TODO: implement details for channel index and image dimensions
-    # nuclear and cell channel index are mandatory
-    thresholding_channels = [nuclear_channel_index, cell_channel_index]
+    # nucleus and cell channel index are mandatory
+    thresholding_channels = [nucleus_channel_index, cell_channel_index]
     img_thresholded = sum(
         thresholding(np.squeeze(img[c, :, :], axis=0)) for c in thresholding_channels
     )
@@ -396,7 +396,7 @@ def single_method_eval(
     # set mask channel names
     channel_names = [
         "Matched Cell",
-        "Nucleus (including nuclear membrane)",
+        "Nucleus (including nucleus membrane)",
         "Cell Not Including Nucleus (cell membrane plus cytoplasm)",
     ]
     metrics = {}

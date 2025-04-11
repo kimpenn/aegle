@@ -157,13 +157,13 @@ class CodexPatches:
                 "patch_id": range(num_patches),
                 "height": patch_height,
                 "width": patch_width,
-                "nuclear_mean": [
+                "nucleus_mean": [
                     np.mean(patch[:, :, 0]) for patch in self.extracted_channel_patches
                 ],
-                "nuclear_std": [
+                "nucleus_std": [
                     np.std(patch[:, :, 0]) for patch in self.extracted_channel_patches
                 ],
-                "nuclear_non_zero_perc": [
+                "nucleus_non_zero_perc": [
                     np.count_nonzero(patch[:, :, 0]) / (patch_height * patch_width)
                     for patch in self.extracted_channel_patches
                 ],
@@ -193,17 +193,15 @@ class CodexPatches:
         qc_config = self.config.get("patch_qc", {})
         non_zero_perc_threshold = qc_config.get("non_zero_perc_threshold", 0.05)
         mean_intensity_threshold = qc_config.get("mean_intensity_threshold", 1)
-        std_intensity_threshold = qc_config.get("std_intensity_threshold", 1)
 
         # Identify patches that are empty or noisy
         self.patches_metadata["is_empty"] = (
-            self.patches_metadata["nuclear_non_zero_perc"] < non_zero_perc_threshold
+            self.patches_metadata["nucleus_non_zero_perc"] < non_zero_perc_threshold
         )
 
         self.patches_metadata["is_noisy"] = (
-            self.patches_metadata["nuclear_mean"] < mean_intensity_threshold
-        ) & (self.patches_metadata["nuclear_std"] < std_intensity_threshold)
-
+            self.patches_metadata["nucleus_mean"] < mean_intensity_threshold
+        )
         # Mark patches as bad (either empty or noisy)
         self.patches_metadata["is_bad_patch"] = (
             self.patches_metadata["is_empty"] | self.patches_metadata["is_noisy"]
@@ -232,6 +230,7 @@ class CodexPatches:
             self.args.out_dir, "extracted_channel_patches.npy"
         )
         np.save(patches_file_name, self.extracted_channel_patches)
+        self.logger.info(f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}")
         self.logger.info(f"Saved extracted_channel_patches to {patches_file_name}")
 
         if save_all_channel_patches:

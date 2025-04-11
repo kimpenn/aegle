@@ -19,7 +19,7 @@ def load_data(config, args):
     Returns:
         image_ndarray (np.ndarray): Loaded image data.
         antibody_df (pd.DataFrame): DataFrame containing antibody information.
-        target_channels_dict (dict): Dictionary containing nuclear and wholecell channels.
+        target_channels_dict (dict): Dictionary containing nucleus and wholecell channels.
     """
     data_config = config.get("data", {})
     file_name = data_config.get("file_name", "NW_Ovary_16/Scan1/NW_1_Scan1_dev.qptiff")
@@ -36,18 +36,18 @@ def load_data(config, args):
     antibody_df = load_antibodies(antibodies_path)
 
     channels_config = config.get("channels", {})
-    nuclear_channel = channels_config.get("nuclear_channel", "DAPI")
+    nucleus_channel = channels_config.get("nucleus_channel", "DAPI")
     wholecell_channel = channels_config.get("wholecell_channel", ["CD4"])
     if not isinstance(wholecell_channel, list):
         wholecell_channel = [wholecell_channel]
 
-    target_channels = [nuclear_channel] + wholecell_channel
+    target_channels = [nucleus_channel] + wholecell_channel
     for channel in target_channels:
         if channel not in antibody_df["antibody_name"].values:
             raise ValueError(f"Channel {channel} not found in the antibodies file.")
 
     target_channels_dict = {
-        "nuclear": nuclear_channel,
+        "nucleus": nucleus_channel,
         "wholecell": wholecell_channel,
     }
 

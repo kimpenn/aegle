@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore")
 Package functions that evaluate a single cell segmentation mask for a single image
 Authors: Haoran Chen and Ted Zhang and Robert F. Murphy
 Version: 1.4 December 11, 2023 R.F.Murphy
-        repair nuclear masks outside cell masks and mismatched cells and nuclei
+        repair nucleus masks outside cell masks and mismatched cells and nuclei
          1.5 January 18, 2024 R.F.Murphy
         add CSE3D as simpler function for 3D evaluation
 """
@@ -571,10 +571,10 @@ def get_boundary(mask):
     return mask_boundary_indexed
 
 
-def get_matched_cells(cell_arr, cell_membrane_arr, nuclear_arr, mismatch_repair):
+def get_matched_cells(cell_arr, cell_membrane_arr, nucleus_arr, mismatch_repair):
     a = set((tuple(i) for i in cell_arr))
     b = set((tuple(i) for i in cell_membrane_arr))
-    c = set((tuple(i) for i in nuclear_arr))
+    c = set((tuple(i) for i in nucleus_arr))
     d = a - b
     mismatch_pixel_num = len(list(c - d))
     mismatch_fraction = len(list(c - d)) / len(list(c))
@@ -597,14 +597,14 @@ def get_mask(cell_list, mask_shape):
     return mask
 
 
-def get_matched_fraction(repair_mask, mask, cell_matched_mask, nuclear_mask):
+def get_matched_fraction(repair_mask, mask, cell_matched_mask, nucleus_mask):
     if repair_mask == "repaired_matched_mask":
         fraction_matched_cells = 1
     elif repair_mask == "nonrepaired_matched_mask":
-        # print(mask.shape,cell_matched_mask.shape,nuclear_mask.shape)
+        # print(mask.shape,cell_matched_mask.shape,nucleus_mask.shape)
         matched_cell_num = len(np.unique(cell_matched_mask))
         total_cell_num = len(np.unique(mask))
-        total_nuclei_num = len(np.unique(nuclear_mask))
+        total_nuclei_num = len(np.unique(nucleus_mask))
         mismatched_cell_num = total_cell_num - matched_cell_num
         mismatched_nuclei_num = total_nuclei_num - matched_cell_num
         # print(matched_cell_num, total_cell_num, total_nuclei_num, mismatched_cell_num, mismatched_nuclei_num)
@@ -614,10 +614,10 @@ def get_matched_fraction(repair_mask, mask, cell_matched_mask, nuclear_mask):
     return fraction_matched_cells
 
 
-# def get_matched_masks(cell_mask, nuclear_mask):
+# def get_matched_masks(cell_mask, nucleus_mask):
 #     cell_membrane_mask = get_boundary(cell_mask)
 #     cell_coords_dict = get_indices_pandas(cell_mask)
-#     nucleus_coords_dict = get_indices_pandas(nuclear_mask)
+#     nucleus_coords_dict = get_indices_pandas(nucleus_mask)
 #     cell_membrane_coords_dict = get_indices_pandas(cell_membrane_mask)
 #     cell_matched_labels = set()
 #     nucleus_matched_labels = set()
@@ -629,13 +629,13 @@ def get_matched_fraction(repair_mask, mask, cell_matched_mask, nuclear_mask):
 #         cell_coords = np.array(cell_coords).T
 #         if len(cell_coords) != 0:
 #             current_cell_coords = cell_coords
-#             nuclear_search_num = np.unique(nuclear_mask[tuple(current_cell_coords.T)])
-#             nuclear_search_num = nuclear_search_num[nuclear_search_num != 0]
+#             nucleus_search_num = np.unique(nucleus_mask[tuple(current_cell_coords.T)])
+#             nucleus_search_num = nucleus_search_num[nucleus_search_num != 0]
 #             best_mismatch_fraction = 1
 #             whole_cell_best = []
-#             for nuclear_label in nuclear_search_num:
-#                 if (nuclear_label not in nucleus_matched_labels) and (cell_label not in cell_matched_labels):
-#                     nucleus_coords = nucleus_coords_dict.get(nuclear_label)
+#             for nucleus_label in nucleus_search_num:
+#                 if (nucleus_label not in nucleus_matched_labels) and (cell_label not in cell_matched_labels):
+#                     nucleus_coords = nucleus_coords_dict.get(nucleus_label)
 #                     if nucleus_coords is not None:
 #                         nucleus_coords = np.array(nucleus_coords).T
 #                         whole_cell, nucleus, mismatch_fraction = get_matched_cells(
@@ -650,7 +650,7 @@ def get_matched_fraction(repair_mask, mask, cell_matched_mask, nuclear_mask):
 #                                 whole_cell_best = whole_cell
 #                                 nucleus_best = nucleus
 #                                 best_cell_label = cell_label
-#                                 best_nuclear_label = nuclear_label
+#                                 best_nucleus_label = nucleus_label
 #             if 0 < best_mismatch_fraction < 1:
 #                 repaired_num += 1
 
@@ -658,7 +658,7 @@ def get_matched_fraction(repair_mask, mask, cell_matched_mask, nuclear_mask):
 #                 cell_matched_list.append(whole_cell_best)
 #                 nucleus_matched_list.append(nucleus_best)
 #                 cell_matched_labels.add(best_cell_label)
-#                 nucleus_matched_labels.add(best_nuclear_label)
+#                 nucleus_matched_labels.add(best_nucleus_label)
 #             else:
 #                 logging.debug(f'Skipped cell#{str(cell_label)}')
 
@@ -670,20 +670,20 @@ def get_matched_fraction(repair_mask, mask, cell_matched_mask, nuclear_mask):
 #     return matched_cell_mask, matched_nucleus_mask, cell_outside_nucleus_mask
 
 
-def get_matched_masks(cell_mask, nuclear_mask):
+def get_matched_masks(cell_mask, nucleus_mask):
     logging.info(f"cell_mask.shape: {cell_mask.shape}")
-    logging.info(f"nuclear_mask.shape: {nuclear_mask.shape}")
+    logging.info(f"nucleus_mask.shape: {nucleus_mask.shape}")
     # debug_dir = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/debug"
     cell_membrane_mask = get_boundary(cell_mask)
     # cell_coords = get_indices_sparse(cell_mask)[1:]
-    # nucleus_coords = get_indices_sparse(nuclear_mask)[1:]
+    # nucleus_coords = get_indices_sparse(nucleus_mask)[1:]
     cell_coords = get_indices_pandas(cell_mask)
     if cell_coords.index[0] == 0:
         cell_coords = cell_coords.drop(0)
     else:
         logging.info(f"cell_coords.index[0]: {cell_coords.index[0]}")
 
-    nucleus_coords = get_indices_pandas(nuclear_mask)
+    nucleus_coords = get_indices_pandas(nucleus_mask)
     if nucleus_coords.index[0] == 0:
         nucleus_coords = nucleus_coords.drop(0)
     else:
@@ -714,13 +714,13 @@ def get_matched_masks(cell_mask, nuclear_mask):
     for i in range(len(cell_coords)):
         if len(cell_coords[i]) != 0:
             current_cell_coords = cell_coords[i]
-            nuclear_search_num = np.unique(
-                list(map(lambda x: nuclear_mask[tuple(x)], current_cell_coords))
+            nucleus_search_num = np.unique(
+                list(map(lambda x: nucleus_mask[tuple(x)], current_cell_coords))
             )
-            # logging.info(f"nuclear_search_num: {nuclear_search_num}")
+            # logging.info(f"nucleus_search_num: {nucleus_search_num}")
             best_mismatch_fraction = 1
             whole_cell_best = []
-            for j in nuclear_search_num:
+            for j in nucleus_search_num:
                 # logging.info(f"i: {i}; j: {j}")
                 if j != 0:
                     if (j - 1 not in nucleus_matched_index_list) and (
@@ -756,9 +756,9 @@ def get_matched_masks(cell_mask, nuclear_mask):
         )
 
     cell_matched_mask = get_mask(cell_matched_list, cell_mask.shape)
-    nuclear_matched_mask = get_mask(nucleus_matched_list, nuclear_mask.shape)
-    cell_outside_nucleus_mask = cell_matched_mask - nuclear_matched_mask
-    return cell_matched_mask, nuclear_matched_mask, cell_outside_nucleus_mask
+    nucleus_matched_mask = get_mask(nucleus_matched_list, nucleus_mask.shape)
+    cell_outside_nucleus_mask = cell_matched_mask - nucleus_matched_mask
+    return cell_matched_mask, nucleus_matched_mask, cell_outside_nucleus_mask
 
 
 def getPCAmodel(model_name):

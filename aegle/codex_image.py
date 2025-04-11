@@ -52,16 +52,20 @@ class CodexImage:
         self.load_data()
         # Set patching parameters
         patching_config = self.config.get("patching", {})
-        self.patch_height = patching_config.get("patch_height", 1440)
-        self.patch_width = patching_config.get("patch_width", 1920)
-        self.patch_overlap = patching_config.get("patch_overlap", 0.1)
+        self.patch_height = patching_config.get("patch_height", -1)
+        self.patch_width = patching_config.get("patch_width", -1)
+        self.patch_overlap = patching_config.get("patch_overlap", 0)
         overlap_height = int(self.patch_height * self.patch_overlap)
         overlap_width = int(self.patch_width * self.patch_overlap)
         self.step_height = self.patch_height - overlap_height
         self.step_width = self.patch_width - overlap_width
 
         self.logger.info(
-            f"Patching parameters set: patch_height={self.patch_height}, patch_width={self.patch_width}, patch_overlap={self.patch_overlap}"
+            f"""
+            Patching parameters set: 
+                patch_height={self.patch_height}, patch_width={self.patch_width}, patch_overlap={self.patch_overlap}
+                step_height={self.step_height}, step_width={self.step_width}
+              """
         )
         self.logger.info(f"Image shape: {self.all_channel_image.shape}")
         self.logger.info(f"Loaded {self.antibody_df.shape[0]} antibodies.")
@@ -236,16 +240,16 @@ class CodexImage:
 
     def set_target_channels(self):
         """
-        Set the target channels for nuclear and whole-cell staining based on the configuration.
+        Set the target channels for nucleus and whole-cell staining based on the configuration.
         """
         self.logger.info("Setting target channels...")
         channels_config = self.config.get("channels", {})
-        nuclear_channel = channels_config.get("nuclear_channel", "DAPI")
+        nucleus_channel = channels_config.get("nucleus_channel", "DAPI")
         wholecell_channel = channels_config.get("wholecell_channel", ["CD4"])
         if not isinstance(wholecell_channel, list):
             wholecell_channel = [wholecell_channel]
 
-        target_channels = [nuclear_channel] + wholecell_channel
+        target_channels = [nucleus_channel] + wholecell_channel
         for channel in target_channels:
             if channel not in self.antibody_df["antibody_name"].values:
                 self.logger.error(
@@ -254,7 +258,7 @@ class CodexImage:
                 raise ValueError(f"Channel {channel} not found in the antibodies file.")
 
         self.target_channels_dict = {
-            "nuclear": nuclear_channel,
+            "nucleus": nucleus_channel,
             "wholecell": wholecell_channel,
         }
         self.logger.info(
@@ -269,33 +273,33 @@ class CodexImage:
             np.ndarray: Image data with only the target channels.
         """
         self.logger.info("Extracting target channels from image...")
-        # Identify nuclear and wholecell channel names
-        nuclear_channel = self.target_channels_dict["nuclear"]
+        # Identify nucleus and wholecell channel names
+        nucleus_channel = self.target_channels_dict["nucleus"]
         wholecell_channels = self.target_channels_dict["wholecell"]
-        logging.info(f"Extracting nuclear channel: {nuclear_channel}")
+        logging.info(f"Extracting nucleus channel: {nucleus_channel}")
         logging.info(
             f"Extracting wholecell channels with {len(wholecell_channels)} antibodies: {wholecell_channels}"
         )
-        # Get the index for the nuclear channel
-        nuclear_idx = self.antibody_df[
-            self.antibody_df["antibody_name"] == nuclear_channel
+        # Get the index for the nucleus channel
+        nucleus_idx = self.antibody_df[
+            self.antibody_df["antibody_name"] == nucleus_channel
         ].index.tolist()
         # Get the indices for the wholecell channels
         wcell_idx = self.antibody_df[
             self.antibody_df["antibody_name"].isin(wholecell_channels)
         ].index.tolist()
 
-        # Ensure we actually found the nuclear channel and at least one wholecell channel
-        if len(nuclear_idx) != 1 or len(wcell_idx) < 1:
+        # Ensure we actually found the nucleus channel and at least one wholecell channel
+        if len(nucleus_idx) != 1 or len(wcell_idx) < 1:
             self.logger.error(
                 f"Could not find all target channels. "
-                f"Nuclear: {nuclear_channel} (found {len(nuclear_idx)}) | "
+                f"nucleus: {nucleus_channel} (found {len(nucleus_idx)}) | "
                 f"Wholecell: {wholecell_channels} (found {len(wcell_idx)})"
             )
             sys.exit(1)
 
-        # Extract the nuclear image
-        nuclear_image = self.all_channel_image[:, :, nuclear_idx[0]]
+        # Extract the nucleus image
+        nucleus_image = self.all_channel_image[:, :, nucleus_idx[0]]
 
         if len(wcell_idx) == 1:
             # If only one wholecell channel is provided, extract it directly
@@ -305,17 +309,17 @@ class CodexImage:
             # If multiple wholecell channels are specified, combine them via maximum projection
             self.logger.info(f"Extracting wholecell channels: {wholecell_channels}")
             wcell_image = np.zeros(
-                (nuclear_image.shape[0], nuclear_image.shape[1]),
-                dtype=nuclear_image.dtype,
+                (nucleus_image.shape[0], nucleus_image.shape[1]),
+                dtype=nucleus_image.dtype,
             )
             for idx in wcell_idx:
                 wcell_image = np.maximum(wcell_image, self.all_channel_image[:, :, idx])
 
-        # Stack nuclear and wholecell channels along the third dimension
-        extracted_channel_image = np.stack((nuclear_image, wcell_image), axis=-1)
+        # Stack nucleus and wholecell channels along the third dimension
+        extracted_channel_image = np.stack((nucleus_image, wcell_image), axis=-1)
 
         self.logger.info(
-            f"Target channels extracted successfully. Shape: {extracted_channel_image.shape}"
+            f"Target channels extracted successfully. Shape: {extracted_channel_image.shape}. Data type: {extracted_channel_image.dtype}"
         )
         self.extracted_channel_image = extracted_channel_image
         return extracted_channel_image
@@ -329,9 +333,9 @@ class CodexImage:
     #         """
     #         self.logger.info("Extracting target channels from image...")
 
-    #         # Baseline method: Select the first wholecell channel and the nuclear channel
-    #         # For deepcell, the first channel is the nuclear channel and the second is the wholecell channel
-    #         target_channels = [self.target_channels_dict["nuclear"]] + [
+    #         # Baseline method: Select the first wholecell channel and the nucleus channel
+    #         # For deepcell, the first channel is the nucleus channel and the second is the wholecell channel
+    #         target_channels = [self.target_channels_dict["nucleus"]] + [
     #             self.target_channels_dict["wholecell"][0]
     #         ]
 
