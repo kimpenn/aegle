@@ -25,6 +25,9 @@ This pipeline is developed as part of the PennTMC project.
 - **Patch Visualization**  
   - *Aegle* can segment images patch by patch. To visualize patch locations on the original image, use the standalong web app `aegle_patch_viewer`.  
 
+- **Segmentation Evaluation**  
+  - Assess and visualize segmentation quality using the [Napari Mask Density plugin](https://github.com/kuang-da/napari-mask-density), which provides intuitive overlays and density maps for inspecting segmentation performance.
+
 ## Development Status  
 
 *Aegle* is under active development. The pipeline is not yet ready for production use, and we are continuously improving its features and performance.  
