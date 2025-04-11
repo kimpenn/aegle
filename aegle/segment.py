@@ -36,6 +36,8 @@ def run_cell_segmentation(
     """
 
     patches_ndarray = codex_patches.get_patches()
+    logging.info(f"Number of patches: {len(patches_ndarray)}")
+    logging.info(f"dtype of patches: {patches_ndarray.dtype}")
     patches_metadata_df = codex_patches.get_patches_metadata()
 
     # Select only valid patches
@@ -89,9 +91,23 @@ def segment(
     segmentation_predictions = model.predict(
         valid_patches, image_mpp=image_mpp, compartment="both"
     )
+    # is there any negative values in the segmentation predictions?
+    if np.any(segmentation_predictions < 0):
+        logging.warning("Negative values found in segmentation predictions.")
+        # save segmentation_predictions to a file for debug
+        # np.save("/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/aegle/segmentation_predictions_debug.npy", segmentation_predictions)
+    else:
+        logging.info("No negative values found in segmentation predictions.")
+    
+    max_label = segmentation_predictions.max()
+    logging.info(f"Max label value before casting: {max_label}")
+    if max_label >= 2**32:
+        raise ValueError("Segmentation label values exceed uint32 range. Consider using uint64 instead.")
 
+    # transform segmentation_predictions from float32 to int32
+    segmentation_predictions = segmentation_predictions.astype(np.uint32)
     logging.info("Segmentation completed successfully.")
-
+    logging.info(f"=== dtype of segmentation predictions: {segmentation_predictions.dtype}")
     # reorganize the segmentation predictions
     cell_masks, nuc_masks = _separate_batch(segmentation_predictions)
     cell_boundaries = get_boundary(cell_masks)

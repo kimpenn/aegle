@@ -20,10 +20,10 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
-  "D18_Scan1_0"
+  # "D18_Scan1_0"
   "D18_Scan1_1"  
-  "D18_Scan1_2"
-  "D18_Scan1_3"
+  # "D18_Scan1_2"
+  # "D18_Scan1_3"
   # "H33_scan1"
 )
 

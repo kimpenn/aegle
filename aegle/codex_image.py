@@ -120,15 +120,22 @@ class CodexImage:
         self.logger.info("Loading data...")
         data_config = self.config.get("data", {})
         file_name = data_config.get(
-            "file_name", "NW_Ovary_16/Scan1/NW_1_Scan1_dev.qptiff"
+            "file_name", ""
         )
         antibodies_file = data_config.get(
-            "antibodies_file", "NW_Ovary_16/Scan1/extras/antibodies.tsv"
+            "antibodies_file", ""
         )
-
+        
         # Construct full paths
         image_path = os.path.join(self.args.data_dir, file_name)
         antibodies_path = os.path.join(self.args.data_dir, antibodies_file)
+        
+        if not os.path.exists(image_path):
+            self.logger.error(f"Image file not found at {image_path}")
+            sys.exit(1)
+        if not os.path.exists(antibodies_path):
+            self.logger.error(f"Antibodies file not found at {antibodies_path}")
+            sys.exit(1)        
         self.logger.info(f"Image path: {image_path}")
         self.logger.info(f"Antibodies path: {antibodies_path}")
 
@@ -179,6 +186,9 @@ class CodexImage:
                 self.logger.warning("SamplesPerPixel tag not found.")
 
         image_ndarray = tiff.imread(image_path)
+        # log the image data type
+        self.logger.info(f"Image data type: {image_ndarray.dtype}")
+        
         # image_ndarray = np.expand_dims(image_ndarray, axis=0)
         # Move the feature channels to the last axis
         image_ndarray = np.transpose(image_ndarray, (1, 2, 0))

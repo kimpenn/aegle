@@ -54,9 +54,9 @@ def repair_masks_single(cell_mask, nucleus_mask):
     logging.info(f"matched_fraction: {matched_fraction}")
 
     return {
-        "cell_matched_mask": cell_matched_mask,
-        "nuclear_matched_mask": nuclear_matched_mask,
-        "cell_outside_nucleus_mask": cell_outside_nucleus_mask,
+        "cell_matched_mask": cell_matched_mask.astype(np.uint32),
+        "nuclear_matched_mask": nuclear_matched_mask.astype(np.uint32),
+        "cell_outside_nucleus_mask": cell_outside_nucleus_mask.astype(np.uint32),
         "matched_fraction": matched_fraction,
     }
 
