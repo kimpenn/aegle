@@ -22,7 +22,7 @@ ANALYSIS_CONFIG="${CONFIG_DIR}/${EXP_ID}/config.yaml"
 
 # [3] Run the Python script
 echo "Running analysis Python script for experiment ${EXP_ID} ..."
-python "${ROOT_DIR}/0-phenocycler-penntmc-pipeline/src/run_analysis.py" \
+python "${ROOT_DIR}/src/run_analysis.py" \
   --data_dir "${DATA_DIR}" \
   --config_file "${ANALYSIS_CONFIG}" \
   --output_dir "${OUT_DIR}/${EXP_ID}"

@@ -29,8 +29,8 @@ mkdir -p "${LOG_DIR}"
 #     In your main pipeline, you might have 'D18_Scan1_0', etc.
 #     Adjust as needed for whichever analysis you are doing:
 declare -a EXPERIMENTS=(
-  "D18_Scan1_0"
-  "D18_Scan1_0"
+  # "D18_Scan1_0"
+  "D18_Scan1_1"
 )
 
 # [9] Loop over experiments

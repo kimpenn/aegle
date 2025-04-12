@@ -53,8 +53,7 @@ def run_analysis(config, args):
     # Extract relevant parameters from config and args
     data_dir = os.path.join(
         args.data_dir, 
-        config.get("analysis", {}).get("data_dir", ""),
-        config.get("exp_id", "")
+        config.get("analysis", {}).get("data_dir", "")
         )
     logging.info(f"Resolved data_dir: {data_dir}")
     if not os.path.exists(data_dir):
@@ -69,13 +68,10 @@ def run_analysis(config, args):
     norm_method = config.get("analysis", {}).get("norm_method", "log1p")
     
     # Create output directory
-    output_dir = os.path.join(
-        args.output_dir,
-        config.get("exp_id", ""),
-    )
+    output_dir = args.output_dir
     logging.info(f"Resolved output_dir: {output_dir}")
     output_dir = ensure_dir(output_dir)
-    copied_config_path = os.path.join(args.out_dir, "copied_config.yaml")
+    copied_config_path = os.path.join(args.output_dir, "copied_config.yaml")
     shutil.copy(args.config_file, copied_config_path)    
     
     plots_dir = ensure_dir(os.path.join(output_dir, "plots"))
@@ -136,19 +132,8 @@ def run_analysis(config, args):
     adata.write(os.path.join(output_dir, "codex_analysis.h5ad"))
     logging.info("Anndata object saved.")
     logging.info("Calculating cluster-level statistics...")
-    
-    # ================= 5. DIMENSIONALITY REDUCTION VISUALIZATION =================
-    if not skip_viz:
-        logging.info("Plotting UMAP...")
-        # Plot UMAP with clusters
-        plot_umap(adata, color_by=["leiden"], output_dir=umap_plots_dir)
 
-        # Plot UMAP colored by metadata columns if present
-        for column in ["cell_entropy", "area", "DAPI"]:
-            if column in meta_df.columns:
-                plot_umap(adata, color_by=[column], output_dir=umap_plots_dir)
-
-    # ================= 6. DIFFERENTIAL EXPRESSION ANALYSIS =================
+    # ================= 5. DIFFERENTIAL EXPRESSION ANALYSIS =================
     logging.info("Performing differential expression analysis...")
     cluster_labels = adata.obs["leiden"]
     logging.info(f"Cluster labels: {cluster_labels}")
@@ -161,7 +146,7 @@ def run_analysis(config, args):
     lfc_matrix = build_fold_change_matrix(de_results)
     lfc_matrix.to_csv(os.path.join(de_dir, "log_fold_change_matrix.csv"))
 
-    # ================= 7. HEATMAP VISUALIZATION =================
+    # ================= 6. HEATMAP VISUALIZATION =================
     if not skip_viz:
         logging.info("Generating cluster heatmap...")
         plot_heatmap(
@@ -172,29 +157,44 @@ def run_analysis(config, args):
             output_path=os.path.join(plots_dir, "cluster_heatmap.png"),
         )
 
-    # ================= 8. SPATIAL VISUALIZATION =================
+    # ================= 7. SPATIAL VISUALIZATION =================
     seg_data = load_segmentation_data(data_dir, 0)
     if seg_data and not skip_viz:
         logging.info("Generating spatial visualizations...")
         cell_mask = seg_data["cell_matched_mask"]
-        nuc_mask = seg_data["nuclear_matched_mask"]
+        nuc_mask = seg_data["nucleus_matched_mask"]
 
         # Plot segmentation masks
         plot_segmentation_masks(
             cell_mask,
             nuc_mask,
-            title="Cell and Nuclear Segmentation",
+            title="Cell and nucleus Segmentation",
             output_path=os.path.join(spatial_plots_dir, "segmentation_masks.png"),
         )
 
         # Plot clustering on segmentation mask
         cluster_int = adata.obs["leiden"].astype(int).values
-        plot_clustering_on_mask(
+        cluster_colors = plot_clustering_on_mask(
             cell_mask,
             cluster_int,
             title=f"Cell clustering (resolution={clustering_resolution})",
             output_path=os.path.join(spatial_plots_dir, "clustering_on_mask.png"),
         )
+
+    # ================= 8. DIMENSIONALITY REDUCTION VISUALIZATION =================
+    if not skip_viz:
+        logging.info("Plotting UMAP...")
+        # Plot UMAP with clusters
+        plot_umap(
+            adata, color_by=["leiden"], 
+            output_dir=umap_plots_dir,
+            cluster_colors=cluster_colors
+        )
+
+        # Plot UMAP colored by metadata columns if present
+        for column in ["cell_entropy", "area", "DAPI"]:
+            if column in meta_df.columns:
+                plot_umap(adata, color_by=[column], output_dir=umap_plots_dir)
 
     # ================= 9. SAVE RESULTS =================
     adata.write(os.path.join(output_dir, "codex_analysis.h5ad"))
