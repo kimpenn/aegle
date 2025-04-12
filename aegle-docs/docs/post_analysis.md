@@ -5,7 +5,7 @@ sidebar_position: 5
 
 Launch napari with the following data
 
-`codex_analysis.h5ad`, `original_seg_res_batch.npy`, `matched_seg_res_batch.npy`, `*.ome.tiff`
+`codex_analysis.h5ad`, `original_seg_res_batch.pickle`, `matched_seg_res_batch.pickle`, `*.ome.tiff`
 
 Example ipynb code block
 

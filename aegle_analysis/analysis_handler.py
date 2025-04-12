@@ -174,7 +174,7 @@ def run_analysis(config, args):
 
     # ================= 8. SPATIAL VISUALIZATION =================
     seg_data = load_segmentation_data(data_dir, 0)
-    if seg_data and not skip_viz:C
+    if seg_data and not skip_viz:
         logging.info("Generating spatial visualizations...")
         cell_mask = seg_data["cell_matched_mask"]
         nuc_mask = seg_data["nuclear_matched_mask"]

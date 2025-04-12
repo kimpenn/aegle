@@ -1,5 +1,5 @@
 ---
-sidebar_position: 6
+sidebar_position: 2
 ---
 
 # Preprocess
@@ -7,21 +7,6 @@ sidebar_position: 6
 This document describes the preprocessing pipeline for CODEX images in Aegle. The preprocessing consists of two main stages: **Full Image Preprocessing** and **Patched Image Preprocessing**, as implemented in `aegle/pipeline.py` under the `run_pipeline` function.
 
 Key outputs include:
-- Patched images with overlapping regions: `extracted_channel_patches.npy` in shape `(num_patches, patch_size, patch_size, [nucleus, wholecell])`.
-- Metadata for patches: `patches_metadata.csv`.
-    - `patch_id`
-    - `height`
-    - `width`
-    - `nucleus_mean`: the mean intensity of the nucleus channel in the patch
-    - `nucleus_std`: the standard deviation of the nucleus channel in the patch
-    - `nucleus_non_zero_perc`: the percentage of non-zero pixels in the nucleus channel in the patch
-    - `wholecell_mean`: the mean intensity of the wholecell channel in the patch
-    - `wholecell_std`: the standard deviation of the wholecell channel in the patch
-    - `wholecell_non_zero_perc`: the percentage of non-zero pixels in the wholecell channel in the patch
-    - `is_empty`: `nucleus_non_zero_perc` < `non_zero_perc_threshold` (default: 0.05)
-    - `is_noisy`: `nucleus_mean` < `mean_intensity_threshold` (default: 1)
-    - `is_bad_patch`: `is_empty` | `is_noisy`
-    - `is_infomative`: !`is_bad_patch`
 
 
 ## A. Full Image Preprocessing
