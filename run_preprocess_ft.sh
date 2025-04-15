@@ -23,7 +23,7 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names (or ID's)
 declare -a EXPERIMENTS=(
-  # "d18_scan1"
+  "d18_scan1"
   # "d18_scan2"
   # "H33_scan1"
   "d11_scan1"

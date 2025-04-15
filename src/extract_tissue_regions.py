@@ -102,13 +102,13 @@ def load_image(image_path):
 
 
 def extract_tissue_regions_advanced(
-    image, n_tissue, min_area=500, visualize=False, visualization_outpath=None
+    image, n_tissue, min_area=500, 
+    vis_outdir=None
 ):
     """
     Identify and extract tissue regions from a (downsampled) grayscale image
     using Sobel + Watershed, optionally with Otsu thresholding.
     Returns up to n_tissue binary masks of shape (H, W).
-    If 'visualize=True', saves a figure showing each of the top tissue masks.
     """
     if n_tissue is None:
         raise ValueError("Please specify `n_tissue`.")
@@ -148,28 +148,35 @@ def extract_tissue_regions_advanced(
     tissue_masks.sort(key=lambda x: x[1], reverse=True)
     top_tissue_masks = [x[0] for x in tissue_masks[:n_tissue]]
 
-    # Optional single-figure visualization
-    if visualize and len(top_tissue_masks) > 0:
-        fig, axes = plt.subplots(
-            1, len(top_tissue_masks), figsize=(4 * len(top_tissue_masks), 4)
-        )
-        if len(top_tissue_masks) == 1:
-            axes = [axes]  # so we can iterate uniformly
+    # Create output path for any visualization
+    if vis_outdir is not None:
+        os.makedirs(vis_outdir, exist_ok=True)    
 
-        for i, m in enumerate(top_tissue_masks):
-            axes[i].imshow(m, cmap="gray")
-            axes[i].set_title(f"Tissue Region {i+1}")
-            axes[i].axis("off")
+    # Export each mask as a separate image
+    for i, mask in enumerate(top_tissue_masks):
+        mask_path = os.path.join(vis_outdir, f"tissue_mask_preview_{i}.png")
+        # Use cv2 or PIL instead of tifffile for PNG
+        cv2.imwrite(mask_path, mask.astype(np.uint8) * 255)
+        logging.info(f"[TissueDetect] Saved tissue mask {i} to {mask_path}")
 
-        plt.tight_layout()
-        if visualization_outpath:
-            plt.savefig(visualization_outpath, dpi=150)
-            logging.info(
-                f"[Visualization] Saved tissue masks preview to {visualization_outpath}"
-            )
-        else:
-            logging.warning("No visualization_outpath provided. Skipping figure save.")
-        plt.close(fig)
+    mask_path = os.path.join(vis_outdir, "tissue_masks_preview.png")        
+    fig, axes = plt.subplots(
+        1, len(top_tissue_masks), figsize=(4 * len(top_tissue_masks), 4)
+    )
+    if len(top_tissue_masks) == 1:
+        axes = [axes]  # so we can iterate uniformly
+
+    for i, m in enumerate(top_tissue_masks):
+        axes[i].imshow(m, cmap="gray")
+        axes[i].set_title(f"Tissue Region {i}")
+        axes[i].axis("off")
+
+    plt.tight_layout()
+    plt.savefig(mask_path, dpi=150)
+    logging.info(
+        f"[Visualization] Saved tissue masks preview to {mask_path}"
+    )
+    plt.close(fig)
 
     return top_tissue_masks
 
@@ -179,7 +186,6 @@ def find_tissue_rois_large_image(
     downscale_factor=64,
     n_tissue=1,
     min_area=500,
-    visualize=False,
     visualization_outdir=None,
 ):
     """
@@ -204,19 +210,12 @@ def find_tissue_rois_large_image(
     resized_im = np.stack(resized_channels, axis=-1)
     resized_gray = np.mean(resized_im, axis=-1)
 
-    # Create output path for any visualization
-    viz_path = None
-    if visualize and visualization_outdir is not None:
-        os.makedirs(visualization_outdir, exist_ok=True)
-        viz_path = os.path.join(visualization_outdir, "tissue_masks_preview.png")
-
     # Segment for top n tissue
     tissue_masks = extract_tissue_regions_advanced(
         resized_gray,
         n_tissue=n_tissue,
         min_area=min_area,
-        visualize=visualize,
-        visualization_outpath=viz_path,
+        vis_outdir=visualization_outdir,
     )
     logging.info(f"[ROI] Found {len(tissue_masks)} tissue mask(s) after filtering.")
 
@@ -351,9 +350,7 @@ def run_extraction(config, args):
     n_tissue = tissue_cfg.get("n_tissue", 4)
     downscale_factor = tissue_cfg.get("downscale_factor", 64)
     min_area = tissue_cfg.get("min_area", 500)
-    visualize = tissue_cfg.get("visualize", False)
     logging.info(f"config: {config}")
-    logging.info(f"visualize: {visualize}")
         
     # 2) Find bounding boxes for top tissue
     rois = find_tissue_rois_large_image(
@@ -361,7 +358,6 @@ def run_extraction(config, args):
         downscale_factor=downscale_factor,
         n_tissue=n_tissue,
         min_area=min_area,
-        visualize=visualize,
         visualization_outdir=args.out_dir,
     )
 
