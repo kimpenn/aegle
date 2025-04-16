@@ -20,11 +20,16 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
+  # "test-1"
   # "D18_Scan1_0"
-  "D18_Scan1_1"  
+  # "D18_Scan1_1"
   # "D18_Scan1_2"
   # "D18_Scan1_3"
   # "H33_scan1"
+  # "D18_Scan1_1_markerset_1"
+  "D18_Scan1_1_markerset_2"
+  "D18_Scan1_1_markerset_3"
+  "D18_Scan1_1_markerset_4"
 )
 
 # Loop through the experiments and call run_main.sh for each

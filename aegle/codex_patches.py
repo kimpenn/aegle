@@ -82,8 +82,11 @@ class CodexPatches:
 
             # Store them as a single entry list
             self.extracted_channel_patches = np.array([extracted_img])
+            logging.info(
+                f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}"
+            )
             self.all_channel_patches = np.array([all_img])
-
+            logging.info(f"Shape of all_channel_patches: {self.all_channel_patches.shape}")
             # Create metadata for the single patch
             h, w, c = extracted_img.shape
             self.patches_metadata = [

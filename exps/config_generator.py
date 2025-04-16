@@ -4,9 +4,12 @@ from ruamel.yaml import YAML
 import ast
 
 # TODO:: Change this according to the csv file
-experiment_set_name = "analysis_test_analysis"
+# experiment_set_name = "test0206_main"
+experiment_set_name = "test_analysis"
 # TODO:: Change this according to the analysis step
-analysis_step = "analysis"  # "preprocess", "main", "analysis"
+# "preprocess", "main", "analysis"
+# analysis_step = "main"  
+analysis_step = "analysis"  
 base_dir = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps"
 # Path to the input CSV file
 design_table_path = (
@@ -16,9 +19,10 @@ design_table_path = (
 default_config_path = (
     f"{base_dir}/{analysis_step}_template.yaml"
 )
-# Base path for saving the configs
-output_dir = f"{base_dir}/configs/{experiment_set_name}"
 
+# Base path for saving the configs
+output_dir = f"{base_dir}/configs/{analysis_step}/{experiment_set_name}"
+print(f"Output directory: {output_dir}")
 
 def read_csv(file_path):
     with open(file_path, newline="") as csvfile:
@@ -101,41 +105,17 @@ def generate_config_files(design_table_path, default_config_path, output_dir):
         config["exp_id"] = exp_id  # Update exp_id from the CSV file
 
         for k, v in row.items():
+            print(f"Processing key: {k}, value: {v}")
             keys = k.split("::")
-            if keys[-1] in ["embeddings", "noise_type", "assign_sizes"]:
+            if keys[-1] in ["wholecell_channel"]:
                 # transform string "phylodist,gaussian_noise,pca" into list of strings
                 v = v.split(",")
                 if keys[-1] == "assign_sizes":
                     v = [float(i) for i in v]
             elif keys[-1] in [
-                "n_leaves",
-                "max_walk",
-                "n_signals",
-                "n_gaussian_noise",
-                "noise_std",
-                "random_seed",
-                "eval_interval",
-                "batch_size",
-                "iteration_num",
-                "permutation_seed",
-                "bm_rep",
-                "prior_level",
-            ]:
-                v = int(v)
-            elif keys[-1] in [
-                "data_split_seed",
-                "subset_seed",
-                "num_epochs",
-                "scheduler_step_size",
-                "eavl_interval",
-                "proj_dim",
-                "output_dim",
-                "hidden_dim",
-                "num_heads",
-                "num_layers",
-                "n_alt_trees_per_signal_leaf",
-                "n_alt_signals_per_alt_tree",
-                "",
+                "patch_width",
+                "patch_height",
+                "patch_index"
             ]:
                 v = int(v)
             elif keys[-1] == "output_dim":
@@ -145,7 +125,13 @@ def generate_config_files(design_table_path, default_config_path, output_dir):
                     pass  # v is a string, leave it as is
             elif keys[-1] == "hidden_dims":
                 v = ast.literal_eval(v)
-            elif keys[-1] in ["permute_leaves", "permute_row", "permute_col"]:
+            elif keys[-1] in [
+                "generate_channel_stats", "visualize_whole_sample", 
+                "visualize_patches", "save_all_channel_patches", 
+                "visualize_segmentation", "save_segmentation_images", 
+                "save_segmentation_pickle", "save_disrupted_patches", 
+                "compute_metrics", "skip_viz"
+                ]:
                 v = str_to_bool(v)
             elif v == "None":
                 v = None

@@ -3,16 +3,13 @@ exp_id: D18_Scan1_0
 
 analysis:
   # Directory containing the CSV or expression files for this analysis
-  data_dir: /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/out/main/test0206_main/D18_Scan1_0
+  data_dir: D18_Scan1_0
 
   # Which patch index to analyze (if you have multiple patches)
   patch_index: 0
 
   # Whether to skip all plotting steps (for faster processing)
   skip_viz: false
-
-  # Directory to store output results (figures, logs, final AnnData, etc.)
-  output_dir: /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/out/analysis/test_analysis/exp-1
 
   # Resolution parameter used by Leiden clustering
   clustering_resolution: 0.2

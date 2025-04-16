@@ -1,9 +1,9 @@
 # /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/configs/analysis/my_experiment/analysis_config.yaml
-exp_id: D18_Scan1_0
+exp_id: D18_Scan1_2
 
 analysis:
   # Directory containing the CSV or expression files for this analysis
-  data_dir: D18_Scan1_0
+  data_dir: test0206_main/D18_Scan1_2
 
   # Which patch index to analyze (if you have multiple patches)
   patch_index: 0

@@ -301,6 +301,7 @@ class CodexImage:
         # Extract the nucleus image
         nucleus_image = self.all_channel_image[:, :, nucleus_idx[0]]
 
+        # Extract the wholecell image(s)
         if len(wcell_idx) == 1:
             # If only one wholecell channel is provided, extract it directly
             self.logger.info(f"Extracting wholecell channel: {wholecell_channels[0]}")
@@ -316,6 +317,8 @@ class CodexImage:
                 wcell_image = np.maximum(wcell_image, self.all_channel_image[:, :, idx])
 
         # Stack nucleus and wholecell channels along the third dimension
+        # Should be the order of (nucleus, wholecell)
+        # ref: https://github.com/vanvalenlab/deepcell-tf/blob/f1839a4eac03df1ceb17f28390bb7a1aa3f8dac8/deepcell/applications/mesmer.py#L176
         extracted_channel_image = np.stack((nucleus_image, wcell_image), axis=-1)
 
         self.logger.info(

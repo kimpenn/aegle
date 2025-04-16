@@ -10,7 +10,7 @@ ROOT_DIR="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline"
 RUN_FILE="${ROOT_DIR}/scripts/run_analysis.sh"
 
 # [4] Define input data directory
-DATA_DIR="${ROOT_DIR}/out/main"
+DATA_DIR="${ROOT_DIR}/out/main/test0206_main"
 
 
 # [5] Directory where your config files for analysis live
@@ -30,7 +30,13 @@ mkdir -p "${LOG_DIR}"
 #     Adjust as needed for whichever analysis you are doing:
 declare -a EXPERIMENTS=(
   # "D18_Scan1_0"
-  "D18_Scan1_1"
+  # "D18_Scan1_1"
+  # "D18_Scan1_2"
+  # "D18_Scan1_3"
+  "D18_Scan1_1_markerset_1"
+  "D18_Scan1_1_markerset_2"
+  "D18_Scan1_1_markerset_3"
+  "D18_Scan1_1_markerset_4"  
 )
 
 # [9] Loop over experiments

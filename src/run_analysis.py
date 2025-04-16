@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/out/test-ft/exp-1",
+        default="",
         help="Directory containing the data.",
     )
     parser.add_argument(

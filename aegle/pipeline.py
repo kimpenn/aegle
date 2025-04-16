@@ -153,3 +153,11 @@ def run_pipeline(config, args):
     logging.info("Cell profiling completed.")
 
     logging.info("Pipeline run completed.")
+
+    # ---------------------------------
+    # (E) Quick Evaluation of Segmentation and Repaired segmentation
+    # ---------------------------------
+    logging.info("Running quick evaluation of segmentation and repaired segmentation.")
+    run_quick_eval(codex_patches, config, args)
+    run_seg_evaluation(codex_patches, config, args)
+    logging.info("Quick evaluation completed.")
