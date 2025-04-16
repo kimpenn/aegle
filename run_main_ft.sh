@@ -26,10 +26,10 @@ declare -a EXPERIMENTS=(
   # "D18_Scan1_2"
   # "D18_Scan1_3"
   # "H33_scan1"
-  # "D18_Scan1_1_markerset_1"
-  "D18_Scan1_1_markerset_2"
-  "D18_Scan1_1_markerset_3"
-  "D18_Scan1_1_markerset_4"
+  "D18_Scan1_1_markerset_1"
+  # "D18_Scan1_1_markerset_2"
+  # "D18_Scan1_1_markerset_3"
+  # "D18_Scan1_1_markerset_4"
 )
 
 # Loop through the experiments and call run_main.sh for each

@@ -1,3 +1,5 @@
+aegle/output_bias_analysis
+aegle/test.ipynb
 notebooks/for_ashna/
 aegle_patch_viewer/
 *.pkl

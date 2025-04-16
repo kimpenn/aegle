@@ -58,15 +58,15 @@ def repair_masks_single(cell_mask, nucleus_mask):
         np.squeeze(cell_mask),
         np.squeeze(nucleus_mask),
         cell_matched_mask,
-        nucleus_matched_mask
+        nucleus_matched_mask,
     )
-    
+
     return {
         "cell_matched_mask": cell_matched_mask.astype(np.uint32),
         "nucleus_matched_mask": nucleus_matched_mask.astype(np.uint32),
         "cell_outside_nucleus_mask": cell_outside_nucleus_mask.astype(np.uint32),
         "matched_fraction": matched_fraction,
-        "matching_stats": matching_stats        
+        "matching_stats": matching_stats,
     }
 
 
@@ -166,9 +166,7 @@ def get_matched_masks(cell_mask, nucleus_mask):
                 logging.debug(f"Skipped cell#{str(i)}")
 
     if repaired_num > 0:
-        logging.info(
-            f"{repaired_num} cells repaired out of {len(cell_coords)} cells"
-        )
+        logging.info(f"{repaired_num} cells repaired out of {len(cell_coords)} cells")
 
     cell_matched_mask = get_mask(cell_matched_list, cell_mask.shape)
     nucleus_matched_mask = get_mask(nucleus_matched_list, nucleus_mask.shape)
@@ -233,16 +231,19 @@ def get_matched_cells(cell_arr, cell_membrane_arr, nucleus_arr, mismatch_repair)
         else:
             return False, False, False
 
-def calculate_matching_statistics(cell_mask, nucleus_mask, cell_matched_mask, nucleus_matched_mask):
+
+def calculate_matching_statistics(
+    cell_mask, nucleus_mask, cell_matched_mask, nucleus_matched_mask
+):
     """
     Calculate statistics about matched and unmatched cells and nuclei.
-    
+
     Args:
         cell_mask: Original cell mask
         nucleus_mask: Original nucleus mask
         cell_matched_mask: Mask of matched cells
         nucleus_matched_mask: Mask of matched nuclei
-        
+
     Returns:
         Dictionary containing statistics for the table
     """
@@ -251,29 +252,33 @@ def calculate_matching_statistics(cell_mask, nucleus_mask, cell_matched_mask, nu
     total_nuclei = len(np.unique(nucleus_mask)) - 1
     matched_cells = len(np.unique(cell_matched_mask)) - 1
     matched_nuclei = len(np.unique(nucleus_matched_mask)) - 1
-    
+
     # Calculate unmatched counts
     unmatched_cells = total_cells - matched_cells
     unmatched_nuclei = total_nuclei - matched_nuclei
-    
+
     # Calculate percentages
     cell_matched_pct = (matched_cells / total_cells * 100) if total_cells > 0 else 0
     cell_unmatched_pct = (unmatched_cells / total_cells * 100) if total_cells > 0 else 0
-    nuclei_matched_pct = (matched_nuclei / total_nuclei * 100) if total_nuclei > 0 else 0
-    nuclei_unmatched_pct = (unmatched_nuclei / total_nuclei * 100) if total_nuclei > 0 else 0
-    
+    nuclei_matched_pct = (
+        (matched_nuclei / total_nuclei * 100) if total_nuclei > 0 else 0
+    )
+    nuclei_unmatched_pct = (
+        (unmatched_nuclei / total_nuclei * 100) if total_nuclei > 0 else 0
+    )
+
     # Assemble statistics dictionary
     stats = {
         "nucleus": {
             "total": (total_nuclei, 100.0),
             "matched": (matched_nuclei, nuclei_matched_pct),
-            "unmatched": (unmatched_nuclei, nuclei_unmatched_pct)
+            "unmatched": (unmatched_nuclei, nuclei_unmatched_pct),
         },
         "whole_cell": {
             "total": (total_cells, 100.0),
             "matched": (matched_cells, cell_matched_pct),
-            "unmatched": (unmatched_cells, cell_unmatched_pct)
-        }
+            "unmatched": (unmatched_cells, cell_unmatched_pct),
+        },
     }
-    
+
     return stats

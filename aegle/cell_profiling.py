@@ -5,6 +5,9 @@ import numpy as np
 
 from aegle.extract_features import extract_features_v2, extract_features_v2_optimized
 
+# Create a logger specific to this module
+logger = logging.getLogger(__name__)
+
 
 def run_cell_profiling(codex_patches, config, args):
     """
@@ -16,7 +19,7 @@ def run_cell_profiling(codex_patches, config, args):
         config (dict): The pipeline configuration.
         args (Namespace): Command-line arguments with paths and other settings.
     """
-    logging.info("----- Running cell profiling.")
+    logger.info("----- Running cell profiling.")
 
     # Retrieve the antibody_df directly from codex_patches
     antibody_df = codex_patches.antibody_df
@@ -29,7 +32,7 @@ def run_cell_profiling(codex_patches, config, args):
 
     # Iterate through patches
     num_patches = len(codex_patches.patches_metadata)
-    logging.info(f"Profiling {num_patches} patches.")
+    logger.info(f"Profiling {num_patches} patches.")
 
     for patch_idx in range(num_patches):
         # Get segmentation mask from repaired segmentation
@@ -49,12 +52,12 @@ def run_cell_profiling(codex_patches, config, args):
         # exp_df, metadata_df = extract_features_v2(
         #     image_dict, segmentation_masks, antibodies
         # )
-        
+
         exp_df, metadata_df = extract_features_v2_optimized(
             image_dict, segmentation_masks, antibodies
-        )        
+        )
 
-        logging.info(
+        logger.info(
             f"Patch {patch_idx} profiling complete: "
             f"exp_df shape {exp_df.shape}, metadata_df shape {metadata_df.shape}"
         )
@@ -70,4 +73,4 @@ def run_cell_profiling(codex_patches, config, args):
         exp_df.to_csv(exp_file, index=False)
         metadata_df.to_csv(meta_file, index=False)
 
-    logging.info("----- Cell profiling completed.")
+    logger.info("----- Cell profiling completed.")

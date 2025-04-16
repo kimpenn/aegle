@@ -12,6 +12,7 @@ from aegle.visualization import save_patches_rgb, save_image_rgb
 from aegle.segment import run_cell_segmentation, visualize_cell_segmentation
 from aegle.evaluation import run_seg_evaluation
 from aegle.cell_profiling import run_cell_profiling
+from aegle.quick_evaluation import run_quick_evaluation
 
 
 def run_pipeline(config, args):
@@ -26,8 +27,8 @@ def run_pipeline(config, args):
     os.makedirs(args.out_dir, exist_ok=True)
     logging.info(f"Output directory set to: {args.out_dir}")
     copied_config_path = os.path.join(args.out_dir, "copied_config.yaml")
-    shutil.copy(args.config_file, copied_config_path)  
-    
+    shutil.copy(args.config_file, copied_config_path)
+
     # ---------------------------------
     # (A) Full Image Preprocessing
     # ---------------------------------
@@ -53,7 +54,7 @@ def run_pipeline(config, args):
     logging.info("----- Extending image for full patch coverage.")
     codex_image.extend_image()
     logging.info("Image extension completed successfully.")
-    
+
     # Optional: Visualize whole sample image
     if config.get("visualization", {}).get("visualize_whole_sample", False):
         save_image_rgb(
@@ -158,6 +159,5 @@ def run_pipeline(config, args):
     # (E) Quick Evaluation of Segmentation and Repaired segmentation
     # ---------------------------------
     logging.info("Running quick evaluation of segmentation and repaired segmentation.")
-    run_quick_eval(codex_patches, config, args)
-    run_seg_evaluation(codex_patches, config, args)
+    run_quick_evaluation(codex_patches, config, args)
     logging.info("Quick evaluation completed.")

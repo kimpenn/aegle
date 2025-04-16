@@ -10,10 +10,13 @@ from skimage.io import imsave
 from aegle.codex_image import CodexImage
 import pickle
 
+
 def save_large_array(array, file_path):
-    """ Save a large NumPy array using different methods. """
+    """Save a large NumPy array using different methods."""
     # Method 1: np.savez_compressed (Recommended for large arrays)
-    np.savez_compressed(file_path.replace('.npy', '.npz'), array=array)
+    np.savez_compressed(file_path.replace(".npy", ".npz"), array=array)
+
+
 class CodexPatches:
     def __init__(self, codex_image: CodexImage, config, args):
         """
@@ -86,7 +89,9 @@ class CodexPatches:
                 f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}"
             )
             self.all_channel_patches = np.array([all_img])
-            logging.info(f"Shape of all_channel_patches: {self.all_channel_patches.shape}")
+            logging.info(
+                f"Shape of all_channel_patches: {self.all_channel_patches.shape}"
+            )
             # Create metadata for the single patch
             h, w, c = extracted_img.shape
             self.patches_metadata = [
@@ -233,7 +238,9 @@ class CodexPatches:
             self.args.out_dir, "extracted_channel_patches.npy"
         )
         np.save(patches_file_name, self.extracted_channel_patches)
-        self.logger.info(f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}")
+        self.logger.info(
+            f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}"
+        )
         self.logger.info(f"Saved extracted_channel_patches to {patches_file_name}")
 
         if save_all_channel_patches:
@@ -330,7 +337,7 @@ class CodexPatches:
                     self.logger.info(f"Shape: {data.shape}")
                 elif isinstance(data, list):
                     self.logger.info(f"Length: {len(data)}")
-                
+
                 # Check the first element's type and shape (if applicable)
                 if isinstance(data, (list, tuple)) and len(data) > 0:
                     first_elem = data[0]
@@ -339,13 +346,17 @@ class CodexPatches:
                         self.logger.info(f"First element shape: {first_elem.shape}")
 
                 # Sample content (Avoid printing too much data)
-                sample_content = data[:5] if isinstance(data, (list, np.ndarray)) else str(data)[:500]
+                sample_content = (
+                    data[:5]
+                    if isinstance(data, (list, np.ndarray))
+                    else str(data)[:500]
+                )
                 self.logger.info(f"Sample content: {sample_content}")
 
                 file_name = os.path.join(self.args.out_dir, file_name)
                 self.logger.info(f"Saving to {file_name}...")
                 # Save with Pickle (Protocol 4 for large files)
-                with open(file_name, 'wb') as f:
+                with open(file_name, "wb") as f:
                     pickle.dump(data, f, protocol=4)
 
                 self.logger.info(f"Saved {file_name}")
@@ -362,10 +373,10 @@ class CodexPatches:
     #         #     self.args.out_dir, "matched_seg_res_batch.npy"
     #         # )
     #         # np.save(seg_res_file_name, self.repaired_seg_res_batch)
-    #         # np.save(seg_res_file_name, self.repaired_seg_res_batch, allow_pickle=True)            
+    #         # np.save(seg_res_file_name, self.repaired_seg_res_batch, allow_pickle=True)
     #         # seg_res_file_name = os.path.join(
     #         #     self.args.out_dir, "matched_seg_res_batch.npz"
-    #         # )            
+    #         # )
     #         # np.savez_compressed(seg_res_file_name, self.repaired_seg_res_batch)
     #         seg_res_file_name = "matched_seg_res_batch.pickle"
     #         with open(seg_res_file_name, 'wb') as f:
@@ -377,12 +388,12 @@ class CodexPatches:
     #         # seg_res_file_name = os.path.join(
     #         #     self.args.out_dir, "original_seg_res_batch.npy"
     #         # )
-    #         # np.save(seg_res_file_name, self.original_seg_res_batch, allow_pickle=True) 
+    #         # np.save(seg_res_file_name, self.original_seg_res_batch, allow_pickle=True)
     #         # seg_res_file_name = os.path.join(
     #         #     self.args.out_dir, "original_seg_res_batch.npz"
-    #         # )          
-    #         # np.savez_compressed(seg_res_file_name, self.original_seg_res_batch)      
+    #         # )
+    #         # np.savez_compressed(seg_res_file_name, self.original_seg_res_batch)
     #         seg_res_file_name = "original_seg_res_batch.pickle"
     #         with open(seg_res_file_name, 'wb') as f:
-    #             pickle.dump(self.repaired_seg_res_batch, f, protocol=4)                    
+    #             pickle.dump(self.repaired_seg_res_batch, f, protocol=4)
     #         self.logger.info(f"Saved original_seg_res_batch to {seg_res_file_name}")

@@ -53,99 +53,117 @@ def run_cell_segmentation(
     # with open(file_name, "wb") as f:
     #     pickle.dump(seg_res_batch, f)
     repaired_seg_res_batch = repair_masks_batch(seg_res_batch)
-    
+
     # Add segmentation related metrics to the metadata
-    
-    # --- Matched fraction ------------------------------------------    
+
+    # --- Matched fraction ------------------------------------------
     matched_fraction_list = [res["matched_fraction"] for res in repaired_seg_res_batch]
     patches_metadata_df.loc[idx, "matched_fraction"] = matched_fraction_list
-    
+
     # --- Global density measures ------------------------------------------
     res = compute_mask_density_batch(seg_res_batch)
     patches_metadata_df.loc[idx, "cell_mask_nobj"] = res["cell_mask_nobj_list"]
     patches_metadata_df.loc[idx, "cell_mask_areamm2"] = res["cell_mask_areamm2_list"]
     patches_metadata_df.loc[idx, "cell_mask_density"] = res["cell_mask_density_list"]
     patches_metadata_df.loc[idx, "nucleus_mask_nobj"] = res["nucleus_mask_nobj_list"]
-    patches_metadata_df.loc[idx, "nucleus_mask_areamm2"] = res["nucleus_mask_areamm2_list"]
-    patches_metadata_df.loc[idx, "nucleus_mask_density"] = res["nucleus_mask_density_list"]
+    patches_metadata_df.loc[idx, "nucleus_mask_areamm2"] = res[
+        "nucleus_mask_areamm2_list"
+    ]
+    patches_metadata_df.loc[idx, "nucleus_mask_density"] = res[
+        "nucleus_mask_density_list"
+    ]
 
     res = compute_mask_density_batch(repaired_seg_res_batch)
     patches_metadata_df.loc[idx, "repaired_cell_mask_nobj"] = res["cell_mask_nobj_list"]
-    patches_metadata_df.loc[idx, "repaired_cell_mask_areamm2"] = res["cell_mask_areamm2_list"]
-    patches_metadata_df.loc[idx, "repaired_cell_mask_density"] = res["cell_mask_density_list"]
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_nobj"] = res["nucleus_mask_nobj_list"]
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_areamm2"] = res["nucleus_mask_areamm2_list"]
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_density"] = res["nucleus_mask_density_list"]
+    patches_metadata_df.loc[idx, "repaired_cell_mask_areamm2"] = res[
+        "cell_mask_areamm2_list"
+    ]
+    patches_metadata_df.loc[idx, "repaired_cell_mask_density"] = res[
+        "cell_mask_density_list"
+    ]
+    patches_metadata_df.loc[idx, "repaired_nucleus_mask_nobj"] = res[
+        "nucleus_mask_nobj_list"
+    ]
+    patches_metadata_df.loc[idx, "repaired_nucleus_mask_areamm2"] = res[
+        "nucleus_mask_areamm2_list"
+    ]
+    patches_metadata_df.loc[idx, "repaired_nucleus_mask_density"] = res[
+        "nucleus_mask_density_list"
+    ]
 
-# --- Local density measures -------------------------------------------
+    # --- Local density measures -------------------------------------------
     # For cell mask (original code)
     cell_local_means = []
     cell_local_medians = []
     cell_local_stds = []
     cell_local_qunatile_25 = []
     cell_local_qunatile_75 = []
-    
+
     # For nucleus mask
     nucleus_local_means = []
     nucleus_local_medians = []
     nucleus_local_stds = []
     nucleus_local_qunatile_25 = []
     nucleus_local_qunatile_75 = []
-    
+
     # For repaired cell mask
     repaired_cell_local_means = []
     repaired_cell_local_medians = []
     repaired_cell_local_stds = []
     repaired_cell_local_qunatile_25 = []
     repaired_cell_local_qunatile_75 = []
-    
+
     # For repaired nucleus mask
     repaired_nucleus_local_means = []
     repaired_nucleus_local_medians = []
     repaired_nucleus_local_stds = []
     repaired_nucleus_local_qunatile_25 = []
     repaired_nucleus_local_qunatile_75 = []
-    
+
     image_mpp = config.get("data", {}).get("image_mpp", 0.5)
 
     for i, seg_res in enumerate(seg_res_batch):
         # Original cell mask analysis
         cell_mask = seg_res["cell"]
-        local_densities = compute_local_densities(cell_mask, image_mpp=image_mpp,
-                                                  window_size_microns=200)
+        local_densities = compute_local_densities(
+            cell_mask, image_mpp=image_mpp, window_size_microns=200
+        )
         stats = compute_local_density_stats(local_densities)
         cell_local_means.append(stats["mean"])
         cell_local_medians.append(stats["median"])
         cell_local_stds.append(stats["std"])
         cell_local_qunatile_25.append(stats["qunatile_25"])
         cell_local_qunatile_75.append(stats["qunatile_75"])
-        
+
         # Nucleus mask analysis
         nucleus_mask = seg_res["nucleus"]
-        local_densities = compute_local_densities(nucleus_mask, image_mpp=image_mpp,
-                                                  window_size_microns=200)
+        local_densities = compute_local_densities(
+            nucleus_mask, image_mpp=image_mpp, window_size_microns=200
+        )
         stats = compute_local_density_stats(local_densities)
         nucleus_local_means.append(stats["mean"])
         nucleus_local_medians.append(stats["median"])
         nucleus_local_stds.append(stats["std"])
         nucleus_local_qunatile_25.append(stats["qunatile_25"])
         nucleus_local_qunatile_75.append(stats["qunatile_75"])
-        
+
         # Repaired cell mask analysis
         repaired_cell_mask = repaired_seg_res_batch[i]["cell_matched_mask"]
-        local_densities = compute_local_densities(repaired_cell_mask, image_mpp=image_mpp,
-                                                  window_size_microns=200)
+        local_densities = compute_local_densities(
+            repaired_cell_mask, image_mpp=image_mpp, window_size_microns=200
+        )
         stats = compute_local_density_stats(local_densities)
         repaired_cell_local_means.append(stats["mean"])
         repaired_cell_local_medians.append(stats["median"])
         repaired_cell_local_stds.append(stats["std"])
         repaired_cell_local_qunatile_25.append(stats["qunatile_25"])
         repaired_cell_local_qunatile_75.append(stats["qunatile_75"])
-        
+
         # Repaired nucleus mask analysis
         repaired_nucleus_mask = repaired_seg_res_batch[i]["nucleus_matched_mask"]
-        local_densities = compute_local_densities(repaired_nucleus_mask, image_mpp=image_mpp,
-                                                  window_size_microns=200)
+        local_densities = compute_local_densities(
+            repaired_nucleus_mask, image_mpp=image_mpp, window_size_microns=200
+        )
         stats = compute_local_density_stats(local_densities)
         repaired_nucleus_local_means.append(stats["mean"])
         repaired_nucleus_local_medians.append(stats["median"])
@@ -157,63 +175,98 @@ def run_cell_segmentation(
     patches_metadata_df.loc[idx, "cell_mask_local_density_mean"] = cell_local_means
     patches_metadata_df.loc[idx, "cell_mask_local_density_median"] = cell_local_medians
     patches_metadata_df.loc[idx, "cell_mask_local_density_std"] = cell_local_stds
-    patches_metadata_df.loc[idx, "cell_mask_local_density_qunatile_25"] = cell_local_qunatile_25
-    patches_metadata_df.loc[idx, "cell_mask_local_density_qunatile_75"] = cell_local_qunatile_75
-    
+    patches_metadata_df.loc[idx, "cell_mask_local_density_qunatile_25"] = (
+        cell_local_qunatile_25
+    )
+    patches_metadata_df.loc[idx, "cell_mask_local_density_qunatile_75"] = (
+        cell_local_qunatile_75
+    )
+
     # Store the local density summary for nucleus mask
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_mean"] = nucleus_local_means
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_median"] = nucleus_local_medians
+    patches_metadata_df.loc[idx, "nucleus_mask_local_density_mean"] = (
+        nucleus_local_means
+    )
+    patches_metadata_df.loc[idx, "nucleus_mask_local_density_median"] = (
+        nucleus_local_medians
+    )
     patches_metadata_df.loc[idx, "nucleus_mask_local_density_std"] = nucleus_local_stds
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_qunatile_25"] = nucleus_local_qunatile_25
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_qunatile_75"] = nucleus_local_qunatile_75
-    
+    patches_metadata_df.loc[idx, "nucleus_mask_local_density_qunatile_25"] = (
+        nucleus_local_qunatile_25
+    )
+    patches_metadata_df.loc[idx, "nucleus_mask_local_density_qunatile_75"] = (
+        nucleus_local_qunatile_75
+    )
+
     # Store the local density summary for repaired cell mask
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_mean"] = repaired_cell_local_means
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_median"] = repaired_cell_local_medians
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_std"] = repaired_cell_local_stds
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_qunatile_25"] = repaired_cell_local_qunatile_25
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_qunatile_75"] = repaired_cell_local_qunatile_75
-    
+    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_mean"] = (
+        repaired_cell_local_means
+    )
+    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_median"] = (
+        repaired_cell_local_medians
+    )
+    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_std"] = (
+        repaired_cell_local_stds
+    )
+    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_qunatile_25"] = (
+        repaired_cell_local_qunatile_25
+    )
+    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_qunatile_75"] = (
+        repaired_cell_local_qunatile_75
+    )
+
     # Store the local density summary for repaired nucleus mask
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_mean"] = repaired_nucleus_local_means
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_median"] = repaired_nucleus_local_medians
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_std"] = repaired_nucleus_local_stds
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_qunatile_25"] = repaired_nucleus_local_qunatile_25
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_qunatile_75"] = repaired_nucleus_local_qunatile_75
-    
+    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_mean"] = (
+        repaired_nucleus_local_means
+    )
+    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_median"] = (
+        repaired_nucleus_local_medians
+    )
+    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_std"] = (
+        repaired_nucleus_local_stds
+    )
+    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_qunatile_25"] = (
+        repaired_nucleus_local_qunatile_25
+    )
+    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_qunatile_75"] = (
+        repaired_nucleus_local_qunatile_75
+    )
+
     # Save everything
     codex_patches.set_seg_res(repaired_seg_res_batch, seg_res_batch)
     codex_patches.set_metadata(patches_metadata_df)
     codex_patches.save_seg_res()
     codex_patches.save_metadata()
 
+
 def compute_mask_density_batch(seg_res_batch, image_mpp: float = 0.5) -> List[float]:
-    
+
     cell_mask_nobj_list = []
     cell_mask_areamm2_list = []
     cell_mask_density_list = []
     nucleus_mask_nobj_list = []
     nucleus_mask_areamm2_list = []
     nucleus_mask_density_list = []
-    
+
     for idx, seg_res in enumerate(seg_res_batch):
         logging.info(f"Calculating mask density: {idx}")
         # the key can be "cell" or "cell_matched_mask"
         the_key = "cell_matched_mask" if "cell_matched_mask" in seg_res else "cell"
         cell_mask = seg_res[the_key]
-        the_key = "nucleus_matched_mask" if "nucleus_matched_mask" in seg_res else "nucleus"
+        the_key = (
+            "nucleus_matched_mask" if "nucleus_matched_mask" in seg_res else "nucleus"
+        )
         nucleus_mask = seg_res[the_key]
 
         res = compute_mask_density(cell_mask, image_mpp)
-        cell_mask_nobj_list.append(res['n_objects'])
-        cell_mask_areamm2_list.append(res['area_mm2'])
-        cell_mask_density_list.append(res['density'])
-        
+        cell_mask_nobj_list.append(res["n_objects"])
+        cell_mask_areamm2_list.append(res["area_mm2"])
+        cell_mask_density_list.append(res["density"])
+
         res = compute_mask_density(nucleus_mask, image_mpp)
         nucleus_mask_nobj_list.append(res["n_objects"])
         nucleus_mask_areamm2_list.append(res["area_mm2"])
         nucleus_mask_density_list.append(res["density"])
-        
+
     return {
         "cell_mask_nobj_list": cell_mask_nobj_list,
         "cell_mask_areamm2_list": cell_mask_areamm2_list,
@@ -237,32 +290,32 @@ def compute_mask_density(mask, image_mpp: float = 0.5) -> float:
     """
     if mask.ndim == 3:
         mask = np.squeeze(mask)  # shape becomes (H, W)
-    
+
     n_objects = len(np.unique(mask)) - (1 if 0 in mask else 0)  # exclude background
     tissue_pixels = np.count_nonzero(mask)  # actual tissue area in pixels
-    area_mm2 = tissue_pixels * (image_mpp ** 2) / 1e6
+    area_mm2 = tissue_pixels * (image_mpp**2) / 1e6
 
     if area_mm2 == 0:
         return 0.0  # avoid division by zero
 
     density = n_objects / area_mm2
     return {
-        'n_objects': n_objects,
-        'area_mm2': area_mm2,
-        'density': density,
-        }
+        "n_objects": n_objects,
+        "area_mm2": area_mm2,
+        "density": density,
+    }
 
 
 def compute_local_densities(
     mask: np.ndarray,
     image_mpp: float = 0.5,
     window_size_microns: float = 200,
-    step_microns: Optional[float] = None
+    step_microns: Optional[float] = None,
 ) -> List[float]:
     """
     Subdivides a labeled mask into smaller windows and computes
     cell density within each window. Returns a list of local densities.
-    
+
     Args:
         mask (np.ndarray): Labeled mask (H, W) with int labels.
         image_mpp (float): Microns per pixel.
@@ -297,14 +350,14 @@ def compute_local_densities(
 
             # Count how many cells fall into this sub-window (centroid in bounding box)
             cell_count = 0
-            for (cy, cx) in centroids:
+            for cy, cx in centroids:
                 if (cy >= top) and (cy < bottom) and (cx >= left) and (cx < right):
                     cell_count += 1
 
             sub_height = bottom - top
             sub_width = right - left
             # area in mm^2
-            sub_area_mm2 = sub_height * sub_width * (image_mpp ** 2) / 1e6
+            sub_area_mm2 = sub_height * sub_width * (image_mpp**2) / 1e6
 
             if sub_area_mm2 > 0:
                 local_density = cell_count / sub_area_mm2
@@ -322,17 +375,18 @@ def compute_local_density_stats(local_density_list: List[float]) -> Dict[str, fl
     """
     if len(local_density_list) == 0:
         return {
-            'mean': 0.0,
-            'median': 0.0,
-            'std': 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "std": 0.0,
         }
     return {
-        'mean': float(np.mean(local_density_list)),
-        'median': float(np.median(local_density_list)),
-        'std': float(np.std(local_density_list)),
-        'qunatile_25': float(np.quantile(local_density_list, 0.25)),
-        'qunatile_75': float(np.quantile(local_density_list, 0.75)),
+        "mean": float(np.mean(local_density_list)),
+        "median": float(np.median(local_density_list)),
+        "std": float(np.std(local_density_list)),
+        "qunatile_25": float(np.quantile(local_density_list, 0.25)),
+        "qunatile_75": float(np.quantile(local_density_list, 0.75)),
     }
+
 
 def segment(
     valid_patches: np.ndarray,
@@ -369,16 +423,20 @@ def segment(
         # np.save("/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/aegle/segmentation_predictions_debug.npy", segmentation_predictions)
     else:
         logging.info("No negative values found in segmentation predictions.")
-    
+
     max_label = segmentation_predictions.max()
     logging.info(f"Max label value before casting: {max_label}")
     if max_label >= 2**32:
-        raise ValueError("Segmentation label values exceed uint32 range. Consider using uint64 instead.")
+        raise ValueError(
+            "Segmentation label values exceed uint32 range. Consider using uint64 instead."
+        )
 
     # transform segmentation_predictions from float32 to int32
     segmentation_predictions = segmentation_predictions.astype(np.uint32)
     logging.info("Segmentation completed successfully.")
-    logging.info(f"=== dtype of segmentation predictions: {segmentation_predictions.dtype}")
+    logging.info(
+        f"=== dtype of segmentation predictions: {segmentation_predictions.dtype}"
+    )
     # reorganize the segmentation predictions
     cell_masks, nuc_masks = _separate_batch(segmentation_predictions)
     cell_boundaries = get_boundary(cell_masks)
