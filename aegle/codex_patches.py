@@ -325,6 +325,11 @@ class CodexPatches:
     def set_metadata(self, patches_metadata):
         self.patches_metadata = patches_metadata
 
+    def save_metadata(self, file_name="codex_patches_metadata.df"):
+        file_name = os.path.join(self.args.out_dir, file_name)
+        self.patches_metadata.to_csv(file_name, index=False)
+        self.logger.info(f"Saved codex_patches metadata to {file_name}")
+    
     def save_seg_res(self):
         def inspect_and_save(data, file_name):
             """Inspect the type, shape, and sample content of the data before saving."""

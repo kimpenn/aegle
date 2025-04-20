@@ -1,3 +1,4 @@
+# quick_evaluation.py
 import os
 import sys
 import time
@@ -14,6 +15,7 @@ from scipy import ndimage
 from skimage.filters import threshold_mean  # , threshold_otsu
 from skimage.morphology import area_closing, closing, disk
 from skimage.segmentation import morphological_geodesic_active_contour as MorphGAC
+from skimage.measure import regionprops
 
 src_path = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline"
 sys.path.append(src_path)
@@ -24,10 +26,9 @@ from aegle.evaluation_func import *
 def run_quick_evaluation(
     codex_patches: CodexPatches,
     config,
-    args,
+    args=None,
 ):
-    """
-    Run a customized evaluation on CODEX patches to assess segmentation repair quality.
+    """Run a streamlined, *per‑patch* evaluation of repaired segmentations.
 
     Args:
         codex_patches: CodexPatches object containing patches and segmentation data
@@ -44,6 +45,9 @@ def run_quick_evaluation(
     original_seg_res_batch = codex_patches.original_seg_res_batch
     repaired_seg_res_batch = codex_patches.repaired_seg_res_batch
     patches_metadata_df = codex_patches.get_patches_metadata()
+    antibody_df = codex_patches.antibody_df
+    logging.info(f"antibody_df:\n{antibody_df}")
+    antibody_list = antibody_df["antibody_name"].to_list()
 
     # Filter for informative patches
     informative_idx = patches_metadata_df["is_infomative"] == True
@@ -52,6 +56,17 @@ def run_quick_evaluation(
     logging.info(f"image_ndarray.shape: {image_ndarray.shape}")
 
     output_dir = config.get("output_dir", "./output")
+
+    # --- Matched fraction ------------------------------------------
+    # This is precalculated after segmentation in segmentation.py
+    matched_fraction_list = [res["matched_fraction"] for res in repaired_seg_res_batch]
+    patches_metadata_df.loc[informative_idx, "matched_fraction"] = matched_fraction_list
+
+    # Get microns per pixel from config
+    image_mpp = config.get("data", {}).get("image_mpp", 0.5)
+
+    # List to store all density metrics
+    all_density_metrics = []
 
     # Process each patch
     res_list = []
@@ -82,10 +97,16 @@ def run_quick_evaluation(
         logging.info(f"nucleus_matched_mask.shape: {nucleus_matched_mask.shape}")
 
         # ----------
+        # Compute density metrics
+        # ----------
+        density_metrics = update_patch_metrics(cell_mask, nucleus_mask, cell_matched_mask, nucleus_matched_mask, image_mpp)
+        all_density_metrics.append(density_metrics)
+
+        # ----------
         # Check the gain of intensity from repaired segmentation by barplot
         # ----------
         # Analyze repair bias across channels
-        bias_results = analyze_repair_bias_across_channels(
+        bias_results = analyze_intensity_bias_across_channels(
             image_ndarray[idx],
             cell_mask,
             nucleus_mask,
@@ -104,32 +125,33 @@ def run_quick_evaluation(
         # ----------
 
         # Create density plots for this patch
-        density_results = create_comparison_density_plots(
+        density_results = visualize_intensity_distributions(
             image_ndarray[idx],
             cell_mask,
             nucleus_mask,
             cell_matched_mask,
             nucleus_matched_mask,
             output_dir=os.path.join(patch_output_dir, "density_shits"),
-            channels_to_plot=None,
             use_log_scale=True,
-            channel_names=None,
+            channel_names=antibody_list,
         )
-        # ----------
-        # Average local cell density in 100x100 micrometer^2 window
-        # ----------
-        # TODO: Implement local cell density calculation
 
         # Store results
         evaluation_result = {
             "patch_idx": idx,
             "bias_analysis": bias_results,
             "density_analysis": density_results,
+            "density_metrics": density_metrics,
             # Add other metrics as needed
         }
         res_list.append(evaluation_result)
 
+    # Update metadata with density metrics
+    patches_metadata_df = update_metadata_with_density_metrics(
+        patches_metadata_df, informative_idx, all_density_metrics
+    )
     codex_patches.seg_evaluation_metrics = res_list
+    codex_patches.set_metadata(patches_metadata_df)
 
 
 def analyze_repair_bias_across_channels(
@@ -520,7 +542,6 @@ def create_comparison_density_plots(
     cell_matched_mask,
     nucleus_matched_mask,
     output_dir=None,
-    channels_to_plot=None,
     use_log_scale=True,
     channel_names=None,
 ):
@@ -537,14 +558,13 @@ def create_comparison_density_plots(
         cell_matched_mask: Repaired cell mask
         nucleus_matched_mask: Repaired nucleus mask
         output_dir: Directory to save plots (if None, will display them)
-        channels_to_plot: List of specific channel indices to plot (if None, will plot all)
         use_log_scale: Whether to use log scaling for x-axis
         channel_names: Dictionary mapping channel indices to names (optional)
 
     Returns:
         Dictionary with intensity data for each channel
     """
-
+    logging.info("Creating comparison density plots...")
     start_time = time.time()
 
     # Create output directory if needed
@@ -558,18 +578,63 @@ def create_comparison_density_plots(
     if channel_names is None:
         channel_names = {i: f"Channel {i}" for i in range(num_channels)}
 
-    # Determine which channels to process
-    if channels_to_plot is None:
-        channels_to_plot = list(range(num_channels))
-    else:
-        # Make sure all indices are valid
-        channels_to_plot = [c for c in channels_to_plot if 0 <= c < num_channels]
+    channels_to_plot = list(range(num_channels))
+    logging.info(f"Processing {len(channels_to_plot)}channels")
 
-    logging.info(f"Processing {len(channels_to_plot)} of {num_channels} channels")
+    # Pre-compute masks and IDs once for all channels
+    mask_data = precompute_mask_data(
+        nucleus_mask, nucleus_matched_mask, cell_mask, cell_matched_mask
+    )
+
+    # Initialize data containers
+    channel_data = defaultdict(
+        lambda: {
+            "matched_nuclei": [],
+            "unmatched_nuclei": [],
+            "matched_cells": [],
+            "unmatched_cells": [],
+            "all_nuclei": [],
+            "unselected": [],
+        }
+    )
+
+    # Process each requested channel
+    for c in channels_to_plot:
+        channel_start = time.time()
+
+        # Get channel name
+        channel_name = channel_names.get(c, f"Channel {c}")
+        logging.info(f"Processing {channel_name} (channel {c+1}/{num_channels})")
+
+        # Extract current channel image
+        channel_img = image_array[:, :, c]
+
+        # Process intensities for this channel
+        channel_data[c] = process_channel_intensities(channel_img, mask_data)
+
+        # Create and save/show plots
+        create_channel_plots(
+            channel_data[c], channel_name, c, output_dir, use_log_scale
+        )
+
+        logging.info(
+            f"Channel {c} ({channel_name}) processed in {time.time() - channel_start:.2f}s"
+        )
+
+    logging.info(f"All density plots completed in {time.time() - start_time:.2f}s")
+    return dict(channel_data)
+
+
+def precompute_mask_data(
+    nucleus_mask, nucleus_matched_mask, cell_mask, cell_matched_mask
+):
+    """Helper function to precompute all mask data needed for analysis"""
+    import numpy as np
+    import logging
 
     # Get unique IDs for nuclei
     all_nucleus_ids = np.unique(nucleus_mask)
-    all_nucleus_ids = all_nucleus_ids[all_nucleus_ids > 0]
+    all_nucleus_ids = all_nucleus_ids[all_nucleus_ids > 0]  # Remove background
 
     matched_nucleus_ids = np.unique(nucleus_matched_mask)
     matched_nucleus_ids = matched_nucleus_ids[matched_nucleus_ids > 0]
@@ -597,6 +662,9 @@ def create_comparison_density_plots(
         [cid for cid in all_cell_ids if cid not in matched_cell_set]
     )
 
+    # Create unselected mask (regions with no nuclei)
+    unselected_mask = nucleus_mask == 0
+
     logging.info(
         f"Found {len(all_nucleus_ids)} total nuclei, {len(matched_nucleus_ids)} matched, {len(unmatched_nucleus_ids)} unmatched"
     )
@@ -604,204 +672,564 @@ def create_comparison_density_plots(
         f"Found {len(all_cell_ids)} total cells, {len(matched_cell_ids)} matched, {len(unmatched_cell_ids)} unmatched"
     )
 
-    # Initialize data containers
-    channel_data = defaultdict(
-        lambda: {
-            "matched_nuclei": [],
-            "unmatched_nuclei": [],
-            "matched_cells": [],
-            "unmatched_cells": [],
-            "all_nuclei": [],
-            "unselected": [],
-        }
-    )
+    return {
+        "nucleus_mask": nucleus_mask,
+        "cell_mask": cell_mask,
+        "matched_nucleus_ids": matched_nucleus_ids,
+        "unmatched_nucleus_ids": unmatched_nucleus_ids,
+        "matched_cell_ids": matched_cell_ids,
+        "unmatched_cell_ids": unmatched_cell_ids,
+        "unselected_mask": unselected_mask,
+    }
 
-    # Process each requested channel
-    for c in channels_to_plot:
-        channel_start = time.time()
 
-        # Get channel name
-        channel_name = channel_names.get(c, f"Channel {c}")
-        logging.info(f"Processing {channel_name} (channel {c+1}/{num_channels})")
+def process_channel_intensities(channel_img, mask_data):
+    """Process intensity data for a single channel"""
+    import numpy as np
+    from scipy import ndimage
 
-        channel_img = image_array[:, :, c]
+    result = {
+        "matched_nuclei": np.array([]),
+        "unmatched_nuclei": np.array([]),
+        "matched_cells": np.array([]),
+        "unmatched_cells": np.array([]),
+        "all_nuclei": np.array([]),
+        "unselected": np.array([]),
+    }
 
-        # Process nuclei
-        if len(matched_nucleus_ids) > 0:
-            matched_means = ndimage.mean(
-                channel_img, labels=nucleus_mask, index=matched_nucleus_ids
-            )
-            channel_data[c]["matched_nuclei"] = matched_means
-
-        if len(unmatched_nucleus_ids) > 0:
-            unmatched_means = ndimage.mean(
-                channel_img, labels=nucleus_mask, index=unmatched_nucleus_ids
-            )
-            channel_data[c]["unmatched_nuclei"] = unmatched_means
-
-        # Process cells
-        if len(matched_cell_ids) > 0:
-            matched_cell_means = ndimage.mean(
-                channel_img, labels=cell_mask, index=matched_cell_ids
-            )
-            channel_data[c]["matched_cells"] = matched_cell_means
-
-        if len(unmatched_cell_ids) > 0:
-            unmatched_cell_means = ndimage.mean(
-                channel_img, labels=cell_mask, index=unmatched_cell_ids
-            )
-            channel_data[c]["unmatched_cells"] = unmatched_cell_means
-
-        # All nuclei (combine the two lists)
-        channel_data[c]["all_nuclei"] = (
-            np.concatenate(
-                [channel_data[c]["matched_nuclei"], channel_data[c]["unmatched_nuclei"]]
-            )
-            if len(channel_data[c]["matched_nuclei"]) > 0
-            and len(channel_data[c]["unmatched_nuclei"]) > 0
-            else np.array([])
+    # Process nuclei
+    if len(mask_data["matched_nucleus_ids"]) > 0:
+        result["matched_nuclei"] = ndimage.mean(
+            channel_img,
+            labels=mask_data["nucleus_mask"],
+            index=mask_data["matched_nucleus_ids"],
         )
 
-        # For unselected regions (sample a subset of pixels)
-        unselected_mask = nucleus_mask == 0
-        if np.any(unselected_mask):
-            unselected_indices = np.where(unselected_mask)
-            sample_size = min(10000, len(unselected_indices[0]))
+    if len(mask_data["unmatched_nucleus_ids"]) > 0:
+        result["unmatched_nuclei"] = ndimage.mean(
+            channel_img,
+            labels=mask_data["nucleus_mask"],
+            index=mask_data["unmatched_nucleus_ids"],
+        )
+
+    # Process cells
+    if len(mask_data["matched_cell_ids"]) > 0:
+        result["matched_cells"] = ndimage.mean(
+            channel_img,
+            labels=mask_data["cell_mask"],
+            index=mask_data["matched_cell_ids"],
+        )
+
+    if len(mask_data["unmatched_cell_ids"]) > 0:
+        result["unmatched_cells"] = ndimage.mean(
+            channel_img,
+            labels=mask_data["cell_mask"],
+            index=mask_data["unmatched_cell_ids"],
+        )
+
+    # All nuclei (combine matched and unmatched)
+    if len(result["matched_nuclei"]) > 0 or len(result["unmatched_nuclei"]) > 0:
+        result["all_nuclei"] = (
+            np.concatenate([result["matched_nuclei"], result["unmatched_nuclei"]])
+            if len(result["matched_nuclei"]) > 0 and len(result["unmatched_nuclei"]) > 0
+            else (
+                result["matched_nuclei"]
+                if len(result["matched_nuclei"]) > 0
+                else result["unmatched_nuclei"]
+            )
+        )
+
+    # Sample unselected regions
+    if np.any(mask_data["unselected_mask"]):
+        unselected_indices = np.where(mask_data["unselected_mask"])
+        # Limit sample size for performance
+        sample_size = min(10000, len(unselected_indices[0]))
+
+        if sample_size > 0:
+            # Sample random points from unselected regions
             sample_idx = np.random.choice(
                 len(unselected_indices[0]), sample_size, replace=False
             )
 
-            sampled_intensities = channel_img[
+            result["unselected"] = channel_img[
                 unselected_indices[0][sample_idx], unselected_indices[1][sample_idx]
             ]
-            channel_data[c]["unselected"] = sampled_intensities
 
-        # Create and save/show plots (3 plots now)
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
+    return result
 
-        # Plot 1: Matched vs Unmatched nuclei
-        if len(channel_data[c]["matched_nuclei"]) > 0:
-            sns.kdeplot(
-                channel_data[c]["matched_nuclei"],
-                ax=ax1,
-                label=f'Matched Nuclei (n={len(channel_data[c]["matched_nuclei"])})',
-                fill=True,
-                alpha=0.5,
-            )
 
-        if len(channel_data[c]["unmatched_nuclei"]) > 0:
-            sns.kdeplot(
-                channel_data[c]["unmatched_nuclei"],
-                ax=ax1,
-                label=f'Unmatched Nuclei (n={len(channel_data[c]["unmatched_nuclei"])})',
-                fill=True,
-                alpha=0.5,
-            )
+def create_channel_plots(
+    channel_data, channel_name, channel_idx, output_dir, use_log_scale
+):
+    """Create and save/show plots for a channel"""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+    import os
 
-        ax1.set_title(f"{channel_name}: Matched vs Unmatched Nuclei")
-        ax1.set_xlabel("Mean Intensity")
-        ax1.set_ylabel("Density")
-        ax1.legend()
+    # Create figure with 3 subplots
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
 
-        if use_log_scale:
-            ax1.set_xscale("log")
-            ax1.set_xlabel("Mean Intensity (log scale)")
+    # Plot 1: Matched vs Unmatched nuclei
+    create_kde_plot(
+        ax1,
+        [
+            (
+                channel_data["matched_nuclei"],
+                f'Matched Nuclei (n={len(channel_data["matched_nuclei"])})',
+                0.5,
+            ),
+            (
+                channel_data["unmatched_nuclei"],
+                f'Unmatched Nuclei (n={len(channel_data["unmatched_nuclei"])})',
+                0.5,
+            ),
+        ],
+        f"{channel_name}: Matched vs Unmatched Nuclei",
+        "Mean Intensity",
+        "Density",
+        use_log_scale,
+    )
 
-        # Plot 2: Matched vs Unmatched cells
-        if len(channel_data[c]["matched_cells"]) > 0:
-            sns.kdeplot(
-                channel_data[c]["matched_cells"],
-                ax=ax2,
-                label=f'Matched Cells (n={len(channel_data[c]["matched_cells"])})',
-                fill=True,
-                alpha=0.5,
-            )
+    # Plot 2: Matched vs Unmatched cells
+    create_kde_plot(
+        ax2,
+        [
+            (
+                channel_data["matched_cells"],
+                f'Matched Cells (n={len(channel_data["matched_cells"])})',
+                0.5,
+            ),
+            (
+                channel_data["unmatched_cells"],
+                f'Unmatched Cells (n={len(channel_data["unmatched_cells"])})',
+                0.5,
+            ),
+        ],
+        f"{channel_name}: Matched vs Unmatched Cells",
+        "Mean Intensity",
+        "Density",
+        use_log_scale,
+    )
 
-        if len(channel_data[c]["unmatched_cells"]) > 0:
-            sns.kdeplot(
-                channel_data[c]["unmatched_cells"],
-                ax=ax2,
-                label=f'Unmatched Cells (n={len(channel_data[c]["unmatched_cells"])})',
-                fill=True,
-                alpha=0.5,
-            )
+    # Plot 3: All Nuclei vs Unselected
+    create_kde_plot(
+        ax3,
+        [
+            (
+                channel_data["all_nuclei"],
+                f'All Nuclei (n={len(channel_data["all_nuclei"])})',
+                0.5,
+            ),
+            (
+                channel_data["unselected"],
+                f'Unselected Regions (n={len(channel_data["unselected"])})',
+                0.5,
+            ),
+        ],
+        f"{channel_name}: All Nuclei vs Unselected Regions",
+        "Mean Intensity",
+        "Density",
+        use_log_scale,
+    )
 
-        ax2.set_title(f"{channel_name}: Matched vs Unmatched Cells")
-        ax2.set_xlabel("Mean Intensity")
-        ax2.set_ylabel("Density")
-        ax2.legend()
+    plt.tight_layout()
 
-        if use_log_scale:
-            ax2.set_xscale("log")
-            ax2.set_xlabel("Mean Intensity (log scale)")
+    # Handle saving or displaying
+    if output_dir:
+        # Use channel name in filename (replace spaces and slashes with underscores for safety)
+        safe_name = str(channel_name).replace(" ", "_").replace("/", "_")
+        plt.savefig(
+            os.path.join(output_dir, f"ch{channel_idx}-{safe_name}_density_plots.png"),
+            dpi=300,
+        )
+        plt.close()
+    else:
+        plt.show()
 
-        # Plot 3: All Nuclei vs Unselected
-        if len(channel_data[c]["all_nuclei"]) > 0:
-            sns.kdeplot(
-                channel_data[c]["all_nuclei"],
-                ax=ax3,
-                label=f'All Nuclei (n={len(channel_data[c]["all_nuclei"])})',
-                fill=True,
-                alpha=0.5,
-            )
 
-        if len(channel_data[c]["unselected"]) > 0:
-            sns.kdeplot(
-                channel_data[c]["unselected"],
-                ax=ax3,
-                label=f'Unselected Regions (n={len(channel_data[c]["unselected"])})',
-                fill=True,
-                alpha=0.5,
-            )
+def create_kde_plot(ax, data_items, title, xlabel, ylabel, use_log_scale):
+    """Helper function to create a KDE plot on the given axis"""
+    import seaborn as sns
+    import numpy as np
 
-        ax3.set_title(f"{channel_name}: All Nuclei vs Unselected Regions")
-        ax3.set_xlabel("Mean Intensity")
-        ax3.set_ylabel("Density")
-        ax3.legend()
+    # Plot each data item with KDE
+    for data, label, alpha in data_items:
+        if len(data) > 0:
+            sns.kdeplot(data, ax=ax, label=label, fill=True, alpha=alpha)
 
-        if use_log_scale:
-            ax3.set_xscale("log")
-            ax3.set_xlabel("Mean Intensity (log scale)")
+    # Set plot labels
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.legend()
 
-        plt.tight_layout()
+    # Handle log scale if requested
+    if use_log_scale:
+        try:
+            # Set log scale
+            ax.set_xscale("log")
+            ax.set_xlabel(f"{xlabel} (log scale)")
 
-        # Handle potential log(0) issues by setting xlim
-        if use_log_scale:
-            for ax in [ax1, ax2, ax3]:
-                try:
-                    lines = ax.get_lines()
-                    min_vals = []
-                    for line in lines:
-                        data = line.get_xdata()
-                        positive_data = data[data > 0]
-                        if len(positive_data) > 0:
-                            min_vals.append(np.min(positive_data))
+            # Fix log(0) issues by setting proper xlim
+            lines = ax.get_lines()
+            min_vals = []
+            for line in lines:
+                data = line.get_xdata()
+                positive_data = data[data > 0]
+                if len(positive_data) > 0:
+                    min_vals.append(np.min(positive_data))
 
-                    if min_vals:
-                        min_val = max(0.1, min(min_vals) * 0.9)
-                        ax.set_xlim(left=min_val)
-                except:
-                    # Fallback if there's an issue
-                    ax.set_xlim(left=0.1)
+            if min_vals:
+                min_val = max(0.1, min(min_vals) * 0.9)
+                ax.set_xlim(left=min_val)
+        except Exception:
+            # Fallback if there's an issue
+            ax.set_xlim(left=0.1)
 
-        if output_dir:
-            # Use channel name in filename (replace spaces and slashes with underscores for safety)
-            safe_name = str(channel_name).replace(" ", "_").replace("/", "_")
-            plt.savefig(
-                os.path.join(output_dir, f"ch{c}-{safe_name}_density_plots.png"),
-                dpi=300,
-            )
-            plt.close()
-        else:
-            plt.show()
 
-        logging.info(
-            f"Channel {c} ({channel_name}) processed in {time.time() - channel_start:.2f}s"
+def compute_global_density_metrics(mask, image_mpp=0.5):
+    """
+    Compute global density metrics for a mask.
+
+    Args:
+        mask (np.ndarray): Labeled mask
+        image_mpp (float): Microns per pixel
+
+    Returns:
+        dict: Dictionary with global density metrics
+    """
+    return compute_mask_density(mask, image_mpp)
+
+
+def compute_local_density_metrics(mask, image_mpp=0.5, window_size_microns=200):
+    """
+    Compute local density metrics for a mask.
+
+    Args:
+        mask (np.ndarray): Labeled mask
+        image_mpp (float): Microns per pixel
+        window_size_microns (float): Size of window for local density calculation
+
+    Returns:
+        dict: Dictionary with local density metrics
+    """
+    local_densities = compute_local_densities(
+        mask, image_mpp=image_mpp, window_size_microns=window_size_microns
+    )
+    return compute_local_density_stats(local_densities)
+
+
+def update_patch_metrics(cell_mask, nucleus_mask, cell_matched_mask, nucleus_matched_mask, image_mpp=0.5):
+    """
+    Compute all density metrics for a single patch.
+
+    Args:
+        original_seg_res (dict): Original segmentation results
+        repaired_seg_res (dict): Repaired segmentation results
+        image_mpp (float): Microns per pixel
+
+    Returns:
+        dict: Dictionary with all density metrics
+    """
+    # Global density metrics
+    metrics = {
+        "global": {
+            "cell": compute_global_density_metrics(cell_mask, image_mpp),
+            "nucleus": compute_global_density_metrics(nucleus_mask, image_mpp),
+            "repaired_cell": compute_global_density_metrics(
+                cell_matched_mask, image_mpp
+            ),
+            "repaired_nucleus": compute_global_density_metrics(
+                nucleus_matched_mask, image_mpp
+            ),
+        },
+        "local": {
+            "cell": compute_local_density_metrics(cell_mask, image_mpp),
+            "nucleus": compute_local_density_metrics(nucleus_mask, image_mpp),
+            "repaired_cell": compute_local_density_metrics(
+                cell_matched_mask, image_mpp
+            ),
+            "repaired_nucleus": compute_local_density_metrics(
+                nucleus_matched_mask, image_mpp
+            ),
+        },
+    }
+
+    return metrics
+
+
+def update_metadata_with_density_metrics(
+    patches_metadata_df, informative_idx, metrics_list
+):
+    """
+    Update metadata dataframe with density metrics.
+
+    Args:
+        patches_metadata_df (pd.DataFrame): Metadata dataframe
+        informative_idx (pd.Series): Boolean mask for the rows to update
+        metrics_list (list): List of dictionaries with metrics for each patch
+    """
+    # Initialize metric lists
+    global_metrics = {
+        "cell_mask_nobj": [],
+        "cell_mask_areamm2": [],
+        "cell_mask_density": [],
+        "nucleus_mask_nobj": [],
+        "nucleus_mask_areamm2": [],
+        "nucleus_mask_density": [],
+        "repaired_cell_mask_nobj": [],
+        "repaired_cell_mask_areamm2": [],
+        "repaired_cell_mask_density": [],
+        "repaired_nucleus_mask_nobj": [],
+        "repaired_nucleus_mask_areamm2": [],
+        "repaired_nucleus_mask_density": [],
+    }
+
+    local_metrics = {
+        "cell_mask_local_density_mean": [],
+        "cell_mask_local_density_median": [],
+        "cell_mask_local_density_std": [],
+        "cell_mask_local_density_qunatile_25": [],
+        "cell_mask_local_density_qunatile_75": [],
+        "nucleus_mask_local_density_mean": [],
+        "nucleus_mask_local_density_median": [],
+        "nucleus_mask_local_density_std": [],
+        "nucleus_mask_local_density_qunatile_25": [],
+        "nucleus_mask_local_density_qunatile_75": [],
+        "repaired_cell_mask_local_density_mean": [],
+        "repaired_cell_mask_local_density_median": [],
+        "repaired_cell_mask_local_density_std": [],
+        "repaired_cell_mask_local_density_qunatile_25": [],
+        "repaired_cell_mask_local_density_qunatile_75": [],
+        "repaired_nucleus_mask_local_density_mean": [],
+        "repaired_nucleus_mask_local_density_median": [],
+        "repaired_nucleus_mask_local_density_std": [],
+        "repaired_nucleus_mask_local_density_qunatile_25": [],
+        "repaired_nucleus_mask_local_density_qunatile_75": [],
+    }
+
+    # Extract metrics for each patch
+    for metrics in metrics_list:
+        # Global metrics
+        global_metrics["cell_mask_nobj"].append(metrics["global"]["cell"]["n_objects"])
+        global_metrics["cell_mask_areamm2"].append(
+            metrics["global"]["cell"]["area_mm2"]
+        )
+        global_metrics["cell_mask_density"].append(metrics["global"]["cell"]["density"])
+        global_metrics["nucleus_mask_nobj"].append(
+            metrics["global"]["nucleus"]["n_objects"]
+        )
+        global_metrics["nucleus_mask_areamm2"].append(
+            metrics["global"]["nucleus"]["area_mm2"]
+        )
+        global_metrics["nucleus_mask_density"].append(
+            metrics["global"]["nucleus"]["density"]
+        )
+        global_metrics["repaired_cell_mask_nobj"].append(
+            metrics["global"]["repaired_cell"]["n_objects"]
+        )
+        global_metrics["repaired_cell_mask_areamm2"].append(
+            metrics["global"]["repaired_cell"]["area_mm2"]
+        )
+        global_metrics["repaired_cell_mask_density"].append(
+            metrics["global"]["repaired_cell"]["density"]
+        )
+        global_metrics["repaired_nucleus_mask_nobj"].append(
+            metrics["global"]["repaired_nucleus"]["n_objects"]
+        )
+        global_metrics["repaired_nucleus_mask_areamm2"].append(
+            metrics["global"]["repaired_nucleus"]["area_mm2"]
+        )
+        global_metrics["repaired_nucleus_mask_density"].append(
+            metrics["global"]["repaired_nucleus"]["density"]
         )
 
-    logging.info(f"All density plots completed in {time.time() - start_time:.2f}s")
-    return channel_data
+        # Local metrics
+        local_metrics["cell_mask_local_density_mean"].append(
+            metrics["local"]["cell"]["mean"]
+        )
+        local_metrics["cell_mask_local_density_median"].append(
+            metrics["local"]["cell"]["median"]
+        )
+        local_metrics["cell_mask_local_density_std"].append(
+            metrics["local"]["cell"]["std"]
+        )
+        local_metrics["cell_mask_local_density_qunatile_25"].append(
+            metrics["local"]["cell"]["qunatile_25"]
+        )
+        local_metrics["cell_mask_local_density_qunatile_75"].append(
+            metrics["local"]["cell"]["qunatile_75"]
+        )
 
+        local_metrics["nucleus_mask_local_density_mean"].append(
+            metrics["local"]["nucleus"]["mean"]
+        )
+        local_metrics["nucleus_mask_local_density_median"].append(
+            metrics["local"]["nucleus"]["median"]
+        )
+        local_metrics["nucleus_mask_local_density_std"].append(
+            metrics["local"]["nucleus"]["std"]
+        )
+        local_metrics["nucleus_mask_local_density_qunatile_25"].append(
+            metrics["local"]["nucleus"]["qunatile_25"]
+        )
+        local_metrics["nucleus_mask_local_density_qunatile_75"].append(
+            metrics["local"]["nucleus"]["qunatile_75"]
+        )
+
+        local_metrics["repaired_cell_mask_local_density_mean"].append(
+            metrics["local"]["repaired_cell"]["mean"]
+        )
+        local_metrics["repaired_cell_mask_local_density_median"].append(
+            metrics["local"]["repaired_cell"]["median"]
+        )
+        local_metrics["repaired_cell_mask_local_density_std"].append(
+            metrics["local"]["repaired_cell"]["std"]
+        )
+        local_metrics["repaired_cell_mask_local_density_qunatile_25"].append(
+            metrics["local"]["repaired_cell"]["qunatile_25"]
+        )
+        local_metrics["repaired_cell_mask_local_density_qunatile_75"].append(
+            metrics["local"]["repaired_cell"]["qunatile_75"]
+        )
+
+        local_metrics["repaired_nucleus_mask_local_density_mean"].append(
+            metrics["local"]["repaired_nucleus"]["mean"]
+        )
+        local_metrics["repaired_nucleus_mask_local_density_median"].append(
+            metrics["local"]["repaired_nucleus"]["median"]
+        )
+        local_metrics["repaired_nucleus_mask_local_density_std"].append(
+            metrics["local"]["repaired_nucleus"]["std"]
+        )
+        local_metrics["repaired_nucleus_mask_local_density_qunatile_25"].append(
+            metrics["local"]["repaired_nucleus"]["qunatile_25"]
+        )
+        local_metrics["repaired_nucleus_mask_local_density_qunatile_75"].append(
+            metrics["local"]["repaired_nucleus"]["qunatile_75"]
+        )
+
+    # Update dataframe
+    for metric, values in global_metrics.items():
+        patches_metadata_df.loc[informative_idx, metric] = values
+
+    for metric, values in local_metrics.items():
+        patches_metadata_df.loc[informative_idx, metric] = values
+
+    return patches_metadata_df
+
+
+def compute_local_density_stats(local_density_list: List[float]) -> Dict[str, float]:
+    """
+    Compute summary stats (mean, median, std) for a list of local densities.
+    """
+    if len(local_density_list) == 0:
+        return {
+            "mean": 0.0,
+            "median": 0.0,
+            "std": 0.0,
+            "qunatile_25": 0.0,
+            "qunatile_75": 0.0,
+        }
+    return {
+        "mean": float(np.mean(local_density_list)),
+        "median": float(np.median(local_density_list)),
+        "std": float(np.std(local_density_list)),
+        "qunatile_25": float(np.quantile(local_density_list, 0.25)),
+        "qunatile_75": float(np.quantile(local_density_list, 0.75)),
+    }
+
+
+def compute_local_densities(
+    mask: np.ndarray,
+    image_mpp: float = 0.5,
+    window_size_microns: float = 200,
+    step_microns: Optional[float] = None,
+) -> List[float]:
+    """
+    Subdivides a labeled mask into smaller windows and computes
+    cell density within each window. Returns a list of local densities.
+
+    Args:
+        mask (np.ndarray): Labeled mask (H, W) with int labels.
+        image_mpp (float): Microns per pixel.
+        window_size_microns (float): Side length of each sub-window, in microns.
+        step_microns (float): Step size for sliding the window; defaults to window_size_microns (non-overlapping).
+
+    Returns:
+        List[float]: A list of local densities (cells / mm^2).
+    """
+    if mask.ndim == 3:
+        mask = np.squeeze(mask)
+
+    if step_microns is None:
+        step_microns = window_size_microns
+
+    # Convert from microns to pixels
+    window_size_pixels = int(window_size_microns / image_mpp)
+    step_pixels = int(step_microns / image_mpp)
+
+    height, width = mask.shape
+
+    # regionprops to get centroids
+    props = regionprops(mask)
+    centroids = [prop.centroid for prop in props]  # (row, col)
+
+    local_densities = []
+
+    for top in range(0, height, step_pixels):
+        for left in range(0, width, step_pixels):
+            bottom = min(top + window_size_pixels, height)
+            right = min(left + window_size_pixels, width)
+
+            # Count how many cells fall into this sub-window (centroid in bounding box)
+            cell_count = 0
+            for cy, cx in centroids:
+                if (cy >= top) and (cy < bottom) and (cx >= left) and (cx < right):
+                    cell_count += 1
+
+            sub_height = bottom - top
+            sub_width = right - left
+            # area in mm^2
+            sub_area_mm2 = sub_height * sub_width * (image_mpp**2) / 1e6
+
+            if sub_area_mm2 > 0:
+                local_density = cell_count / sub_area_mm2
+            else:
+                local_density = 0.0
+
+            local_densities.append(local_density)
+
+    return local_densities
+
+def compute_mask_density(mask, image_mpp: float = 0.5) -> float:
+    """
+    Computes cell density from a labeled mask.
+
+    Args:
+        mask (np.ndarray): Labeled mask of shape (H, W) or (1, H, W). Each unique non-zero label is a cell/nucleus.
+        image_mpp (float): Microns per pixel.
+
+    Returns:
+        float: Cell/nucleus density in cells per mm².
+    """
+    if mask.ndim == 3:
+        mask = np.squeeze(mask)  # shape becomes (H, W)
+
+    n_objects = len(np.unique(mask)) - (1 if 0 in mask else 0)  # exclude background
+    tissue_pixels = np.count_nonzero(mask)  # actual tissue area in pixels
+    area_mm2 = tissue_pixels * (image_mpp**2) / 1e6
+
+    if area_mm2 == 0:
+        return 0.0  # avoid division by zero
+
+    density = n_objects / area_mm2
+    return {
+        "n_objects": n_objects,
+        "area_mm2": area_mm2,
+        "density": density,
+    }
 
 def main():
     """

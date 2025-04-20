@@ -49,343 +49,17 @@ def run_cell_segmentation(
     codex_patches.valid_patches = valid_patches
 
     seg_res_batch = segment(valid_patches, config)
-    # file_name = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/out/explore-eval-scores-dev/exp-10/seg_res_batch.pickle"
-    # with open(file_name, "wb") as f:
-    #     pickle.dump(seg_res_batch, f)
     repaired_seg_res_batch = repair_masks_batch(seg_res_batch)
 
     # Add segmentation related metrics to the metadata
-
-    # --- Matched fraction ------------------------------------------
     matched_fraction_list = [res["matched_fraction"] for res in repaired_seg_res_batch]
     patches_metadata_df.loc[idx, "matched_fraction"] = matched_fraction_list
-
-    # --- Global density measures ------------------------------------------
-    res = compute_mask_density_batch(seg_res_batch)
-    patches_metadata_df.loc[idx, "cell_mask_nobj"] = res["cell_mask_nobj_list"]
-    patches_metadata_df.loc[idx, "cell_mask_areamm2"] = res["cell_mask_areamm2_list"]
-    patches_metadata_df.loc[idx, "cell_mask_density"] = res["cell_mask_density_list"]
-    patches_metadata_df.loc[idx, "nucleus_mask_nobj"] = res["nucleus_mask_nobj_list"]
-    patches_metadata_df.loc[idx, "nucleus_mask_areamm2"] = res[
-        "nucleus_mask_areamm2_list"
-    ]
-    patches_metadata_df.loc[idx, "nucleus_mask_density"] = res[
-        "nucleus_mask_density_list"
-    ]
-
-    res = compute_mask_density_batch(repaired_seg_res_batch)
-    patches_metadata_df.loc[idx, "repaired_cell_mask_nobj"] = res["cell_mask_nobj_list"]
-    patches_metadata_df.loc[idx, "repaired_cell_mask_areamm2"] = res[
-        "cell_mask_areamm2_list"
-    ]
-    patches_metadata_df.loc[idx, "repaired_cell_mask_density"] = res[
-        "cell_mask_density_list"
-    ]
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_nobj"] = res[
-        "nucleus_mask_nobj_list"
-    ]
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_areamm2"] = res[
-        "nucleus_mask_areamm2_list"
-    ]
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_density"] = res[
-        "nucleus_mask_density_list"
-    ]
-
-    # --- Local density measures -------------------------------------------
-    # For cell mask (original code)
-    cell_local_means = []
-    cell_local_medians = []
-    cell_local_stds = []
-    cell_local_qunatile_25 = []
-    cell_local_qunatile_75 = []
-
-    # For nucleus mask
-    nucleus_local_means = []
-    nucleus_local_medians = []
-    nucleus_local_stds = []
-    nucleus_local_qunatile_25 = []
-    nucleus_local_qunatile_75 = []
-
-    # For repaired cell mask
-    repaired_cell_local_means = []
-    repaired_cell_local_medians = []
-    repaired_cell_local_stds = []
-    repaired_cell_local_qunatile_25 = []
-    repaired_cell_local_qunatile_75 = []
-
-    # For repaired nucleus mask
-    repaired_nucleus_local_means = []
-    repaired_nucleus_local_medians = []
-    repaired_nucleus_local_stds = []
-    repaired_nucleus_local_qunatile_25 = []
-    repaired_nucleus_local_qunatile_75 = []
-
-    image_mpp = config.get("data", {}).get("image_mpp", 0.5)
-
-    for i, seg_res in enumerate(seg_res_batch):
-        # Original cell mask analysis
-        cell_mask = seg_res["cell"]
-        local_densities = compute_local_densities(
-            cell_mask, image_mpp=image_mpp, window_size_microns=200
-        )
-        stats = compute_local_density_stats(local_densities)
-        cell_local_means.append(stats["mean"])
-        cell_local_medians.append(stats["median"])
-        cell_local_stds.append(stats["std"])
-        cell_local_qunatile_25.append(stats["qunatile_25"])
-        cell_local_qunatile_75.append(stats["qunatile_75"])
-
-        # Nucleus mask analysis
-        nucleus_mask = seg_res["nucleus"]
-        local_densities = compute_local_densities(
-            nucleus_mask, image_mpp=image_mpp, window_size_microns=200
-        )
-        stats = compute_local_density_stats(local_densities)
-        nucleus_local_means.append(stats["mean"])
-        nucleus_local_medians.append(stats["median"])
-        nucleus_local_stds.append(stats["std"])
-        nucleus_local_qunatile_25.append(stats["qunatile_25"])
-        nucleus_local_qunatile_75.append(stats["qunatile_75"])
-
-        # Repaired cell mask analysis
-        repaired_cell_mask = repaired_seg_res_batch[i]["cell_matched_mask"]
-        local_densities = compute_local_densities(
-            repaired_cell_mask, image_mpp=image_mpp, window_size_microns=200
-        )
-        stats = compute_local_density_stats(local_densities)
-        repaired_cell_local_means.append(stats["mean"])
-        repaired_cell_local_medians.append(stats["median"])
-        repaired_cell_local_stds.append(stats["std"])
-        repaired_cell_local_qunatile_25.append(stats["qunatile_25"])
-        repaired_cell_local_qunatile_75.append(stats["qunatile_75"])
-
-        # Repaired nucleus mask analysis
-        repaired_nucleus_mask = repaired_seg_res_batch[i]["nucleus_matched_mask"]
-        local_densities = compute_local_densities(
-            repaired_nucleus_mask, image_mpp=image_mpp, window_size_microns=200
-        )
-        stats = compute_local_density_stats(local_densities)
-        repaired_nucleus_local_means.append(stats["mean"])
-        repaired_nucleus_local_medians.append(stats["median"])
-        repaired_nucleus_local_stds.append(stats["std"])
-        repaired_nucleus_local_qunatile_25.append(stats["qunatile_25"])
-        repaired_nucleus_local_qunatile_75.append(stats["qunatile_75"])
-
-    # Store the local density summary in metadata for cell mask
-    patches_metadata_df.loc[idx, "cell_mask_local_density_mean"] = cell_local_means
-    patches_metadata_df.loc[idx, "cell_mask_local_density_median"] = cell_local_medians
-    patches_metadata_df.loc[idx, "cell_mask_local_density_std"] = cell_local_stds
-    patches_metadata_df.loc[idx, "cell_mask_local_density_qunatile_25"] = (
-        cell_local_qunatile_25
-    )
-    patches_metadata_df.loc[idx, "cell_mask_local_density_qunatile_75"] = (
-        cell_local_qunatile_75
-    )
-
-    # Store the local density summary for nucleus mask
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_mean"] = (
-        nucleus_local_means
-    )
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_median"] = (
-        nucleus_local_medians
-    )
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_std"] = nucleus_local_stds
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_qunatile_25"] = (
-        nucleus_local_qunatile_25
-    )
-    patches_metadata_df.loc[idx, "nucleus_mask_local_density_qunatile_75"] = (
-        nucleus_local_qunatile_75
-    )
-
-    # Store the local density summary for repaired cell mask
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_mean"] = (
-        repaired_cell_local_means
-    )
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_median"] = (
-        repaired_cell_local_medians
-    )
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_std"] = (
-        repaired_cell_local_stds
-    )
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_qunatile_25"] = (
-        repaired_cell_local_qunatile_25
-    )
-    patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_qunatile_75"] = (
-        repaired_cell_local_qunatile_75
-    )
-
-    # Store the local density summary for repaired nucleus mask
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_mean"] = (
-        repaired_nucleus_local_means
-    )
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_median"] = (
-        repaired_nucleus_local_medians
-    )
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_std"] = (
-        repaired_nucleus_local_stds
-    )
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_qunatile_25"] = (
-        repaired_nucleus_local_qunatile_25
-    )
-    patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_qunatile_75"] = (
-        repaired_nucleus_local_qunatile_75
-    )
 
     # Save everything
     codex_patches.set_seg_res(repaired_seg_res_batch, seg_res_batch)
     codex_patches.set_metadata(patches_metadata_df)
     codex_patches.save_seg_res()
     codex_patches.save_metadata()
-
-
-def compute_mask_density_batch(seg_res_batch, image_mpp: float = 0.5) -> List[float]:
-
-    cell_mask_nobj_list = []
-    cell_mask_areamm2_list = []
-    cell_mask_density_list = []
-    nucleus_mask_nobj_list = []
-    nucleus_mask_areamm2_list = []
-    nucleus_mask_density_list = []
-
-    for idx, seg_res in enumerate(seg_res_batch):
-        logging.info(f"Calculating mask density: {idx}")
-        # the key can be "cell" or "cell_matched_mask"
-        the_key = "cell_matched_mask" if "cell_matched_mask" in seg_res else "cell"
-        cell_mask = seg_res[the_key]
-        the_key = (
-            "nucleus_matched_mask" if "nucleus_matched_mask" in seg_res else "nucleus"
-        )
-        nucleus_mask = seg_res[the_key]
-
-        res = compute_mask_density(cell_mask, image_mpp)
-        cell_mask_nobj_list.append(res["n_objects"])
-        cell_mask_areamm2_list.append(res["area_mm2"])
-        cell_mask_density_list.append(res["density"])
-
-        res = compute_mask_density(nucleus_mask, image_mpp)
-        nucleus_mask_nobj_list.append(res["n_objects"])
-        nucleus_mask_areamm2_list.append(res["area_mm2"])
-        nucleus_mask_density_list.append(res["density"])
-
-    return {
-        "cell_mask_nobj_list": cell_mask_nobj_list,
-        "cell_mask_areamm2_list": cell_mask_areamm2_list,
-        "cell_mask_density_list": cell_mask_density_list,
-        "nucleus_mask_nobj_list": nucleus_mask_nobj_list,
-        "nucleus_mask_areamm2_list": nucleus_mask_areamm2_list,
-        "nucleus_mask_density_list": nucleus_mask_density_list,
-    }
-
-
-def compute_mask_density(mask, image_mpp: float = 0.5) -> float:
-    """
-    Computes cell density from a labeled mask.
-
-    Args:
-        mask (np.ndarray): Labeled mask of shape (H, W) or (1, H, W). Each unique non-zero label is a cell/nucleus.
-        image_mpp (float): Microns per pixel.
-
-    Returns:
-        float: Cell/nucleus density in cells per mm².
-    """
-    if mask.ndim == 3:
-        mask = np.squeeze(mask)  # shape becomes (H, W)
-
-    n_objects = len(np.unique(mask)) - (1 if 0 in mask else 0)  # exclude background
-    tissue_pixels = np.count_nonzero(mask)  # actual tissue area in pixels
-    area_mm2 = tissue_pixels * (image_mpp**2) / 1e6
-
-    if area_mm2 == 0:
-        return 0.0  # avoid division by zero
-
-    density = n_objects / area_mm2
-    return {
-        "n_objects": n_objects,
-        "area_mm2": area_mm2,
-        "density": density,
-    }
-
-
-def compute_local_densities(
-    mask: np.ndarray,
-    image_mpp: float = 0.5,
-    window_size_microns: float = 200,
-    step_microns: Optional[float] = None,
-) -> List[float]:
-    """
-    Subdivides a labeled mask into smaller windows and computes
-    cell density within each window. Returns a list of local densities.
-
-    Args:
-        mask (np.ndarray): Labeled mask (H, W) with int labels.
-        image_mpp (float): Microns per pixel.
-        window_size_microns (float): Side length of each sub-window, in microns.
-        step_microns (float): Step size for sliding the window; defaults to window_size_microns (non-overlapping).
-
-    Returns:
-        List[float]: A list of local densities (cells / mm^2).
-    """
-    if mask.ndim == 3:
-        mask = np.squeeze(mask)
-
-    if step_microns is None:
-        step_microns = window_size_microns
-
-    # Convert from microns to pixels
-    window_size_pixels = int(window_size_microns / image_mpp)
-    step_pixels = int(step_microns / image_mpp)
-
-    height, width = mask.shape
-
-    # regionprops to get centroids
-    props = regionprops(mask)
-    centroids = [prop.centroid for prop in props]  # (row, col)
-
-    local_densities = []
-
-    for top in range(0, height, step_pixels):
-        for left in range(0, width, step_pixels):
-            bottom = min(top + window_size_pixels, height)
-            right = min(left + window_size_pixels, width)
-
-            # Count how many cells fall into this sub-window (centroid in bounding box)
-            cell_count = 0
-            for cy, cx in centroids:
-                if (cy >= top) and (cy < bottom) and (cx >= left) and (cx < right):
-                    cell_count += 1
-
-            sub_height = bottom - top
-            sub_width = right - left
-            # area in mm^2
-            sub_area_mm2 = sub_height * sub_width * (image_mpp**2) / 1e6
-
-            if sub_area_mm2 > 0:
-                local_density = cell_count / sub_area_mm2
-            else:
-                local_density = 0.0
-
-            local_densities.append(local_density)
-
-    return local_densities
-
-
-def compute_local_density_stats(local_density_list: List[float]) -> Dict[str, float]:
-    """
-    Compute summary stats (mean, median, std) for a list of local densities.
-    """
-    if len(local_density_list) == 0:
-        return {
-            "mean": 0.0,
-            "median": 0.0,
-            "std": 0.0,
-        }
-    return {
-        "mean": float(np.mean(local_density_list)),
-        "median": float(np.median(local_density_list)),
-        "std": float(np.std(local_density_list)),
-        "qunatile_25": float(np.quantile(local_density_list, 0.25)),
-        "qunatile_75": float(np.quantile(local_density_list, 0.75)),
-    }
 
 
 def segment(
@@ -419,8 +93,6 @@ def segment(
     # is there any negative values in the segmentation predictions?
     if np.any(segmentation_predictions < 0):
         logging.warning("Negative values found in segmentation predictions.")
-        # save segmentation_predictions to a file for debug
-        # np.save("/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/aegle/segmentation_predictions_debug.npy", segmentation_predictions)
     else:
         logging.info("No negative values found in segmentation predictions.")
 
@@ -450,80 +122,6 @@ def segment(
     gc.collect()
 
     return segmentation_output
-
-
-# def get_matched_masks(
-#     seg_res_batch: List[dict], do_mismatch_repair: bool
-# ) -> Tuple[List[dict], float]:
-#     """
-#     Returns masks with matched cells and nuclei based on the segmentation output.
-
-#     Args:
-#         seg_res_batch (List[dict]): List of dictionaries containing segmentation results for each patch.
-#         do_mismatch_repair (bool): Whether to apply mismatch repair during the matching process.
-
-#     Returns:
-#         Tuple[List[dict], float]: A tuple containing:
-#             - matched_output (List[dict]): The updated segmentation output with matched masks for each patch.
-#             - fraction_matched_cells (float): The fraction of matched cells across all patches.
-#     """
-#     matched_output = []
-#     total_matched_cells = 0
-
-#     # Iterate over each patch segmentation
-#     for patch_segmentation in seg_res_batch:
-
-#         whole_cell_mask = patch_segmentation["cell"]
-#         nucleus_mask = patch_segmentation["nucleus"]
-#         cell_membrane_mask = patch_segmentation["cell_boundary"]
-
-#         # Extract coordinates for cell, nucleus, and cell membrane
-#         cell_coords_dict = _get_mask_coordinates(whole_cell_mask)
-#         nucleus_coords_dict = _get_mask_coordinates(nucleus_mask)
-#         cell_membrane_coords_dict = _get_mask_coordinates(cell_membrane_mask)
-
-#         # Perform matching between cells and nuclei
-#         cell_matched_list, nucleus_matched_list = _match_cells_to_nuclei(
-#             cell_coords_dict,
-#             nucleus_coords_dict,
-#             cell_membrane_coords_dict,
-#             nucleus_mask,
-#             do_mismatch_repair,
-#         )
-
-#         # Create new masks with matched cells and nuclei
-#         cell_matched_mask = get_mask_from_labels(
-#             cell_matched_list, whole_cell_mask.shape
-#         )
-#         nucleus_matched_mask = get_mask_from_labels(
-#             nucleus_matched_list, nucleus_mask.shape
-#         )
-#         cell_membrane_matched_mask = get_boundary(cell_matched_mask)
-#         nucleus_membrane_matched_mask = get_boundary(nucleus_matched_mask)
-
-#         # Update the patch segmentation with the matched masks
-#         matched_patch_segmentation = {
-#             "cell": cell_matched_mask,
-#             "nucleus": nucleus_matched_mask,
-#             "cell_boundary": cell_membrane_matched_mask,
-#             "nucleus_boundary": nucleus_membrane_matched_mask,
-#         }
-#         matched_output.append(matched_patch_segmentation)
-
-#         # Calculate statistics for fraction of matched cells
-#         matched_cell_num = len(np.unique(cell_matched_mask)) - 1
-#         total_cell_num = len(np.unique(whole_cell_mask)) - 1
-#         total_nuclei_num = len(np.unique(nucleus_mask)) - 1
-
-#         mismatched_cell_num = total_cell_num - matched_cell_num
-#         mismatched_nuclei_num = total_nuclei_num - matched_cell_num
-#         denominator = mismatched_cell_num + mismatched_nuclei_num + total_matched_cells
-#         fraction_matched_cells = (
-#             matched_cell_num / denominator if denominator > 0 else 0
-#         )
-#         logging.info(f"Fraction of matched cells: {fraction_matched_cells}")
-
-#     return matched_output, fraction_matched_cells
 
 
 def _load_segmentation_model(config: dict) -> Mesmer:
@@ -645,17 +243,6 @@ def _build_segmentation_output(
     return segmentation_output
 
 
-# def _get_mask_coordinates(mask: np.ndarray) -> Dict[int, np.ndarray]:
-#     """
-#     Get coordinates and labels for each unique object in the mask.
-#     Returns:
-#         Dict[int, np.ndarray]: Mapping from label to coordinates. np.ndarray is a list of (row, col) coordinates.
-#     """
-#     props = regionprops(mask)
-#     coords_dict = {prop.label: prop.coords for prop in props}
-#     return coords_dict
-
-
 def get_mask_from_labels(
     cell_list: List[Tuple[int, np.ndarray]], shape: Tuple[int]
 ) -> np.ndarray:
@@ -675,79 +262,6 @@ def get_mask_from_labels(
         ]
         mask[valid_coords[:, 0], valid_coords[:, 1]] = label
     return mask
-
-
-def _match_cells_to_nuclei(
-    cell_coords: Dict[int, np.ndarray],
-    nucleus_coords: Dict[int, np.ndarray],
-    cell_membrane_coords: Dict[int, np.ndarray],
-    nucleus_mask: np.ndarray,
-    do_mismatch_repair: bool,
-) -> Tuple[List[Tuple[int, np.ndarray]], List[Tuple[int, np.ndarray]]]:
-    """
-    Matches cells and nuclei based on coordinates.
-    """
-    cell_matched_list = []
-    nucleus_matched_list = []
-    cell_matched_labels = set()
-    nucleus_matched_labels = set()
-
-    for cell_label, cell_coord in cell_coords.items():
-        if len(cell_coord) == 0:
-            raise ValueError("Empty cell coordinates detected.")
-
-        # The label of the cell membrane is the same as the cell
-        cell_membrane_coord = cell_membrane_coords.get(cell_label, np.array([]))
-
-        # Find candidate nuclei overlapping with the current cell
-        nucleus_candidates = np.unique(nucleus_mask[tuple(cell_coord.T)])
-        best_mismatch_fraction = 1
-        best_match = None
-
-        for nucleus_id in nucleus_candidates:
-            if nucleus_id == 0 or nucleus_id in nucleus_matched_labels:
-                continue
-
-            current_nucleus_coords = nucleus_coords.get(nucleus_id)
-            if current_nucleus_coords is None:
-                continue
-
-            match_result = get_matched_cells(
-                cell_coord,
-                cell_membrane_coord,
-                current_nucleus_coords,
-                mismatch_repair=do_mismatch_repair,
-            )
-
-            if match_result is not None:
-                whole_cell, nucleus, mismatch_fraction = match_result
-                if mismatch_fraction == 0:
-                    # Perfect match found; add and break
-                    cell_matched_list.append((cell_label, whole_cell))
-                    nucleus_matched_list.append((nucleus_id, nucleus))
-                    cell_matched_labels.add(cell_label)
-                    nucleus_matched_labels.add(nucleus_id)
-                    break
-                elif mismatch_fraction < best_mismatch_fraction:
-                    best_mismatch_fraction = mismatch_fraction
-                    best_match = {
-                        "cell": whole_cell,
-                        "nucleus": nucleus,
-                        "cell_label": cell_label,
-                        "nucleus_label": nucleus_id,
-                    }
-
-        # If no perfect match was found, add the best match (if any)
-        if best_match and cell_label not in cell_matched_labels:
-            cell_matched_list.append((best_match["cell_label"], best_match["cell"]))
-            nucleus_matched_list.append(
-                (best_match["nucleus_label"], best_match["nucleus"])
-            )
-            cell_matched_labels.add(best_match["cell_label"])
-            nucleus_matched_labels.add(best_match["nucleus_label"])
-
-    return cell_matched_list, nucleus_matched_list
-
 
 def get_matched_cells(
     cell_arr: np.ndarray,
@@ -818,81 +332,78 @@ def visualize_cell_segmentation(
     Returns:
         None
     """
+    # TODO: Fix this visualization function
+    # make_outline_overlay(rgb_data, predictions)
+    raise NotImplementedError("Visualization function not implemented.")
 
-    make_outline_overlay(rgb_data, predictions)
 
-
-# def get_matched_cells(
-#     cell_arr: np.ndarray,
-#     cell_membrane_arr: np.ndarray,
-#     nucleus_arr: np.ndarray,
-#     mismatch_repair: bool,
-# ) -> Tuple[np.ndarray, np.ndarray, float]:
+# def _match_cells_to_nuclei(
+#     cell_coords: Dict[int, np.ndarray],
+#     nucleus_coords: Dict[int, np.ndarray],
+#     cell_membrane_coords: Dict[int, np.ndarray],
+#     nucleus_mask: np.ndarray,
+#     do_mismatch_repair: bool,
+# ) -> Tuple[List[Tuple[int, np.ndarray]], List[Tuple[int, np.ndarray]]]:
 #     """
-#     Determine if a cell and nucleus match based on overlap, optionally performing mismatch repair.
-
-#     Args:
-#         cell_arr (np.ndarray): Coordinates of the cell.
-#         cell_membrane_arr (np.ndarray): Coordinates of the cell membrane.
-#         nucleus_arr (np.ndarray): Coordinates of the nucleus.
-#         mismatch_repair (bool): Whether to apply mismatch repair.
-
-#     Returns:
-#         Tuple[np.ndarray, np.ndarray, float]:
-#             - whole_cell (np.ndarray): Coordinates of the whole cell.
-#             - nucleus (np.ndarray): Coordinates of the nucleus.
-#             - mismatch_fraction (float): Fraction of mismatched pixels.
+#     Matches cells and nuclei based on coordinates.
 #     """
-#     cell_set = set(map(tuple, cell_arr))
-#     membrane_set = set(map(tuple, cell_membrane_arr))
-#     nucleus_set = set(map(tuple, nucleus_arr))
+#     cell_matched_list = []
+#     nucleus_matched_list = []
+#     cell_matched_labels = set()
+#     nucleus_matched_labels = set()
 
-#     cell_interior = cell_set - membrane_set
-#     mismatched_pixels = nucleus_set - cell_interior
-#     mismatch_fraction = len(mismatched_pixels) / len(nucleus_set) if nucleus_set else 1
+#     for cell_label, cell_coord in cell_coords.items():
+#         if len(cell_coord) == 0:
+#             raise ValueError("Empty cell coordinates detected.")
 
-#     if not mismatch_repair:
-#         if len(mismatched_pixels) == 0:
-#             return (
-#                 np.array(list(cell_set)),
-#                 np.array(list(nucleus_set)),
-#                 mismatch_fraction,
+#         # The label of the cell membrane is the same as the cell
+#         cell_membrane_coord = cell_membrane_coords.get(cell_label, np.array([]))
+
+#         # Find candidate nuclei overlapping with the current cell
+#         nucleus_candidates = np.unique(nucleus_mask[tuple(cell_coord.T)])
+#         best_mismatch_fraction = 1
+#         best_match = None
+
+#         for nucleus_id in nucleus_candidates:
+#             if nucleus_id == 0 or nucleus_id in nucleus_matched_labels:
+#                 continue
+
+#             current_nucleus_coords = nucleus_coords.get(nucleus_id)
+#             if current_nucleus_coords is None:
+#                 continue
+
+#             match_result = get_matched_cells(
+#                 cell_coord,
+#                 cell_membrane_coord,
+#                 current_nucleus_coords,
+#                 mismatch_repair=do_mismatch_repair,
 #             )
-#         else:
-#             return False, False, mismatch_fraction
-#     else:
-#         if len(mismatched_pixels) < len(nucleus_set):
-#             matched_nucleus = nucleus_set & cell_interior
-#             return (
-#                 np.array(list(cell_set)),
-#                 np.array(list(matched_nucleus)),
-#                 mismatch_fraction,
+
+#             if match_result is not None:
+#                 whole_cell, nucleus, mismatch_fraction = match_result
+#                 if mismatch_fraction == 0:
+#                     # Perfect match found; add and break
+#                     cell_matched_list.append((cell_label, whole_cell))
+#                     nucleus_matched_list.append((nucleus_id, nucleus))
+#                     cell_matched_labels.add(cell_label)
+#                     nucleus_matched_labels.add(nucleus_id)
+#                     break
+#                 elif mismatch_fraction < best_mismatch_fraction:
+#                     best_mismatch_fraction = mismatch_fraction
+#                     best_match = {
+#                         "cell": whole_cell,
+#                         "nucleus": nucleus,
+#                         "cell_label": cell_label,
+#                         "nucleus_label": nucleus_id,
+#                     }
+
+#         # If no perfect match was found, add the best match (if any)
+#         if best_match and cell_label not in cell_matched_labels:
+#             cell_matched_list.append((best_match["cell_label"], best_match["cell"]))
+#             nucleus_matched_list.append(
+#                 (best_match["nucleus_label"], best_match["nucleus"])
 #             )
-#         else:
-#             return False, False, mismatch_fraction
+#             cell_matched_labels.add(best_match["cell_label"])
+#             nucleus_matched_labels.add(best_match["nucleus_label"])
 
-
-# def get_mask(cell_list: List[np.ndarray], shape: Tuple[int]) -> np.ndarray:
-#     """
-#     Create a mask from a list of cell coordinates, handling out-of-bounds coordinates.
-
-#     Args:
-#         cell_list (List[np.ndarray]): List of cell coordinates.
-#         shape (Tuple[int]): Shape of the output mask.
-
-#     Returns:
-#         np.ndarray: Mask with cell labels.
-#     """
-#     mask = np.zeros(shape, dtype=int)
-#     max_row, max_col = shape
-
-#     for cell_num, cell in enumerate(cell_list):
-#         # Filter out out-of-bounds coordinates
-#         valid_coords = cell[
-#             (cell[:, 0] >= 0)
-#             & (cell[:, 0] < max_row)
-#             & (cell[:, 1] >= 0)
-#             & (cell[:, 1] < max_col)
-#         ]
-#         mask[valid_coords[:, 0], valid_coords[:, 1]] = cell_num + 1
-#     return mask
+#     return cell_matched_list, nucleus_matched_list

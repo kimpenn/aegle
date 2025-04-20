@@ -12,8 +12,10 @@ from aegle.visualization import save_patches_rgb, save_image_rgb
 from aegle.segment import run_cell_segmentation, visualize_cell_segmentation
 from aegle.evaluation import run_seg_evaluation
 from aegle.cell_profiling import run_cell_profiling
-from aegle.quick_evaluation import run_quick_evaluation
-
+from aegle.segmentation_analysis.segmentation_analysis import run_segmentation_analysis
+# from aegle.segmentation_analysis.intensity_analysis import bias_analysis, distribution_analysis
+# from aegle.segmentation_analysis.spatial_analysis import density_metrics
+os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"
 
 def run_pipeline(config, args):
     """
@@ -121,30 +123,23 @@ def run_pipeline(config, args):
         # TODO: if the number of cells are too large we should skip the evaluation
         run_seg_evaluation(codex_patches, config, args)
 
-    # if config["segmentation"].get("save_segmentation_pickle", False):
-    #     file_name = "codex_patches.pkl"
-    #     file_name = os.path.join(args.out_dir, file_name)
-    #     logging.info(f"Saving CodexPatches object to {file_name}")
-    #     with open(file_name, "wb") as f:
-    #         pickle.dump(codex_patches, f)
+    # if config.get("visualization", {}).get("visualize_segmentation", False):
+    # TODO: Fix this visualization function
+    #     visualize_cell_segmentation(
+    #         codex_patches.valid_patches,
+    #         codex_patches.repaired_seg_res_batch,
+    #         config,
+    #         args,
+    #     )
+    #     logging.info("Segmentation visualization completed.")
 
-    if config.get("visualization", {}).get("visualize_segmentation", False):
-
-        visualize_cell_segmentation(
-            codex_patches.valid_patches,
-            codex_patches.repaired_seg_res_batch,
-            config,
-            args,
-        )
-        logging.info("Segmentation visualization completed.")
-
-        visualize_cell_segmentation(
-            codex_patches.valid_patches,
-            codex_patches.original_seg_res_batch,
-            config,
-            args,
-        )
-        logging.info("Segmentation visualization completed.")
+    #     visualize_cell_segmentation(
+    #         codex_patches.valid_patches,
+    #         codex_patches.original_seg_res_batch,
+    #         config,
+    #         args,
+    #     )
+    #     logging.info("Segmentation visualization completed.")
 
     # ---------------------------------
     # (D) Cell Profiling
@@ -153,11 +148,124 @@ def run_pipeline(config, args):
     run_cell_profiling(codex_patches, config, args)
     logging.info("Cell profiling completed.")
 
+    # ---------------------------------
+    # (E) Segmentation Analysis
+    # ---------------------------------
+    logging.info("Running segmentation analysis...")
+    run_segmentation_analysis(codex_patches, config, args)
+    logging.info("Segmentation analysis completed.")
+
     logging.info("Pipeline run completed.")
 
-    # ---------------------------------
-    # (E) Quick Evaluation of Segmentation and Repaired segmentation
-    # ---------------------------------
-    logging.info("Running quick evaluation of segmentation and repaired segmentation.")
-    run_quick_evaluation(codex_patches, config, args)
-    logging.info("Quick evaluation completed.")
+
+# def run_segmentation_analysis(codex_patches: CodexPatches, config: dict, args=None) -> None:
+#     """Run segmentation analysis including bias and density analysis.
+
+#     Args:
+#         codex_patches: CodexPatches object containing patches and segmentation data
+#         config: Configuration Dictionary for evaluation options
+#         args: Optional additional arguments
+#     """
+#     # Extract segmentation data and metadata
+#     original_seg_res_batch = codex_patches.original_seg_res_batch
+#     repaired_seg_res_batch = codex_patches.repaired_seg_res_batch
+#     patches_metadata_df = codex_patches.get_patches_metadata()
+#     antibody_df = codex_patches.antibody_df
+#     logging.info(f"antibody_df:\n{antibody_df}")
+#     antibody_list = antibody_df["antibody_name"].to_list()
+
+#     # Filter for informative patches
+#     informative_idx = patches_metadata_df["is_infomative"] == True
+#     logging.info(f"Number of informative patches: {informative_idx.sum()}")
+#     image_ndarray = codex_patches.all_channel_patches[informative_idx]
+#     logging.info(f"image_ndarray.shape: {image_ndarray.shape}")
+
+#     output_dir = config.get("output_dir", "./output")
+
+#     # --- Matched fraction ------------------------------------------
+#     # This is precalculated after segmentation in segmentation.py
+#     matched_fraction_list = [res["matched_fraction"] for res in repaired_seg_res_batch]
+#     patches_metadata_df.loc[informative_idx, "matched_fraction"] = matched_fraction_list
+
+#     # Get microns per pixel from config
+#     image_mpp = config.get("data", {}).get("image_mpp", 0.5)
+
+#     # List to store all density metrics
+#     all_density_metrics = []
+
+#     # Process each patch
+#     res_list = []
+#     for idx, repaired_seg_res in enumerate(repaired_seg_res_batch):
+#         logging.info(f"Processing patch {idx+1}/{len(repaired_seg_res_batch)}")
+#         if repaired_seg_res is None:
+#             logging.warning(f"Repaired segmentation result for patch {idx} is None.")
+#             continue
+
+#         # Visualize results if specified in config
+#         patch_output_dir = f"{output_dir}/patch_{idx}"
+        
+#         # Extract masks from original and repaired segmentation results
+#         original_seg_res = original_seg_res_batch[idx]
+#         repaired_seg_res = repaired_seg_res_batch[idx]
+
+#         # Get masks from original segmentation results
+#         cell_mask = original_seg_res.get("cell")
+#         nucleus_mask = original_seg_res.get("nucleus")
+#         logging.info(f"cell_mask.shape: {cell_mask.shape}")
+#         logging.info(f"nucleus_mask.shape: {nucleus_mask.shape}")
+
+#         # Get masks from repaired segmentation results
+#         cell_matched_mask = repaired_seg_res["cell_matched_mask"]
+#         nucleus_matched_mask = repaired_seg_res["nucleus_matched_mask"]
+#         logging.info(f"cell_matched_mask.shape: {cell_matched_mask.shape}")
+#         logging.info(f"nucleus_matched_mask.shape: {nucleus_matched_mask.shape}")
+
+#         # Compute density metrics
+#         density_metrics = density_metrics.update_patch_metrics(
+#             cell_mask, nucleus_mask, cell_matched_mask, nucleus_matched_mask, image_mpp
+#         )
+#         all_density_metrics.append(density_metrics)
+
+#         # Analyze repair bias across channels
+#         bias_results = bias_analysis.analyze_intensity_bias_across_channels(
+#             image_ndarray[idx],
+#             cell_mask,
+#             nucleus_mask,
+#             cell_matched_mask,
+#             nucleus_matched_mask,
+#         )
+
+#         # Visualize bias analysis results
+#         bias_analysis.visualize_channel_bias(
+#             bias_results,
+#             output_dir=os.path.join(patch_output_dir, "bias_analysis"),
+#             channels_per_figure=config["channels_per_figure"],
+#         )
+
+#         # Create antibody intensity density plots for this patch
+#         density_results = density_analysis.visualize_intensity_distributions(
+#             image_ndarray[idx],
+#             cell_mask,
+#             nucleus_mask,
+#             cell_matched_mask,
+#             nucleus_matched_mask,
+#             output_dir=os.path.join(patch_output_dir, "density_plots"),
+#             use_log_scale=True,
+#             channel_names=antibody_list,
+#         )
+
+#         # Store results
+#         evaluation_result = {
+#             "patch_idx": idx,
+#             "bias_analysis": bias_results,
+#             "density_analysis": density_results,
+#             "density_metrics": density_metrics,
+#         }
+#         res_list.append(evaluation_result)
+
+#     # Update metadata with density metrics
+#     patches_metadata_df = density_metrics.update_metadata_with_density_metrics(
+#         patches_metadata_df, informative_idx, all_density_metrics
+#     )
+#     codex_patches.seg_evaluation_metrics = res_list
+#     codex_patches.set_metadata(patches_metadata_df)

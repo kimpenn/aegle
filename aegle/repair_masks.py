@@ -213,10 +213,10 @@ def get_indices_sparse(data):
     return [np.unravel_index(row.data, data.shape) for row in M]
 
 
-def get_matched_cells(cell_arr, cell_membrane_arr, nucleus_arr, mismatch_repair):
+def get_matched_cells(cell_arr, cell_membrane_arr, nuclear_arr, mismatch_repair):
     a = set((tuple(i) for i in cell_arr))
     b = set((tuple(i) for i in cell_membrane_arr))
-    c = set((tuple(i) for i in nucleus_arr))
+    c = set((tuple(i) for i in nuclear_arr))
     d = a - b
     mismatch_pixel_num = len(list(c - d))
     mismatch_fraction = len(list(c - d)) / len(list(c))
@@ -224,12 +224,12 @@ def get_matched_cells(cell_arr, cell_membrane_arr, nucleus_arr, mismatch_repair)
         if mismatch_pixel_num == 0:
             return np.array(list(a)), np.array(list(c)), 0
         else:
-            return False, False, False
+            return np.array([]), np.array([]), 0
     else:
         if mismatch_pixel_num < len(c):
             return np.array(list(a)), np.array(list(d & c)), mismatch_fraction
         else:
-            return False, False, False
+            return np.array([]), np.array([]), 0
 
 
 def calculate_matching_statistics(

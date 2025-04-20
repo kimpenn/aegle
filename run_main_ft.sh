@@ -26,23 +26,42 @@ declare -a EXPERIMENTS=(
   # "D18_Scan1_2"
   # "D18_Scan1_3"
   # "H33_scan1"
-  "D18_Scan1_1_markerset_1"
-  # "D18_Scan1_1_markerset_2"
+  # "D18_Scan1_1_markerset_1"
+  "D18_Scan1_1_markerset_2"
   # "D18_Scan1_1_markerset_3"
-  # "D18_Scan1_1_markerset_4"
+  # "D18_Scan1_1_markerset_4" 
 )
+
+# Count total experiments
+TOTAL_EXPS=${#EXPERIMENTS[@]}
+CURRENT_EXP=1
+
+echo "Starting sequential execution of $TOTAL_EXPS experiments at $(date)"
+echo "-----------------------------------------------------------"
 
 # Loop through the experiments and call run_main.sh for each
 for EXP_ID in "${EXPERIMENTS[@]}"; do
+  START_TIME=$(date +%s)
   LOG_FILE="${LOG_DIR}/${EXP_ID}.log"
-  echo "Initiating experiment $EXP_ID"
+  echo "Initiating experiment $EXP_ID ($CURRENT_EXP of $TOTAL_EXPS)"
+  echo "Start time: $(date)"
   {
-  echo "Current time: $(date)"
-  echo "Running experiment $EXP_ID"
-  time bash ${RUN_FILE} "$EXP_SET_NAME" "$EXP_ID" "$ROOT_DIR" "$DATA_DIR" "$CONFIG_DIR" "$OUT_DIR"
-  echo "Experiment $EXP_ID completed."
+    echo "Current time: $(date)"
+    echo "Running experiment $EXP_ID ($CURRENT_EXP of $TOTAL_EXPS)"
+    time bash ${RUN_FILE} "$EXP_SET_NAME" "$EXP_ID" "$ROOT_DIR" "$DATA_DIR" "$CONFIG_DIR" "$OUT_DIR"
+    echo "Experiment $EXP_ID completed."
   } > "$LOG_FILE" 2>&1 
 
+  END_TIME=$(date +%s)
+  DURATION=$((END_TIME - START_TIME))
+  
+  echo "Completed experiment $EXP_ID ($CURRENT_EXP of $TOTAL_EXPS)"
+  echo "End time: $(date)"
+  echo "Duration: $((DURATION / 60)) minutes and $((DURATION % 60)) seconds"
+  echo "-----------------------------------------------------------"
+  
+  ((CURRENT_EXP++))
 done
 
-echo "All experiments completed."
+echo "All $TOTAL_EXPS experiments completed sequentially at $(date)"
+echo "-----------------------------------------------------------"
