@@ -112,7 +112,7 @@ def save_patch_rgb(patch, patch_id, patch_vis_dir):
     logging.info(f"Saved visualization for patch {patch_id} at {image_file}")
 
 
-def save_image_rgb(image, filename, args):
+def save_image_rgb(image, filename, args, downsample_factor=None, enhance_contrast=True):
     """
     Save an RGB image to the specified output directory.
 
@@ -120,30 +120,46 @@ def save_image_rgb(image, filename, args):
         image (np.ndarray): The image to save.
         filename (str): The filename for the saved image.
         args (Namespace): Command-line arguments containing output directory.
+        downsample_factor (int, optional): If provided, downsample image by this factor for faster processing.
+        enhance_contrast (bool): Whether to apply adaptive histogram equalization (slower but better visualization).
     """
     image_file = os.path.join(args.out_dir, filename)
-    logging.info(f"Saving image to {image_file}")
+    logging.info(f"Saving image to {image_file}, shape: {image.shape}")
+    
+    # Downsample if requested (for very large images)
+    if downsample_factor and downsample_factor > 1:
+        logging.info(f"Downsampling by factor of {downsample_factor}")
+        h, w = image.shape[0], image.shape[1]
+        new_h, new_w = h // downsample_factor, w // downsample_factor
+        downsampled_image = np.zeros((new_h, new_w, image.shape[2]), dtype=image.dtype)
+        
+        for i in range(new_h):
+            for j in range(new_w):
+                downsampled_image[i, j] = image[i * downsample_factor, j * downsample_factor]
+        
+        image = downsampled_image
+        logging.info(f"Downsampled image shape: {image.shape}")
 
     # Use create_rgb to get the initial image
     img = create_rgb(image)
 
-    # Convert PIL Image to numpy array for processing
-    img_array = np.array(img)
+    if enhance_contrast:
+        # Convert PIL Image to numpy array for processing
+        img_array = np.array(img)
 
-    # Enhance contrast using adaptive histogram equalization
-    # Note: exposure.equalize_adapthist expects images in [0, 1] range
-    img_array_float = img_array / 255.0  # Normalize to [0, 1]
-    img_array_eq = exposure.equalize_adapthist(img_array_float, clip_limit=0.03)
+        # Enhance contrast using adaptive histogram equalization
+        # Note: exposure.equalize_adapthist expects images in [0, 1] range
+        img_array_float = img_array / 255.0  # Normalize to [0, 1]
+        img_array_eq = exposure.equalize_adapthist(img_array_float, clip_limit=0.03)
 
-    # Convert back to [0, 255] range and uint8 format
-    img_array_eq = (img_array_eq * 255).astype(np.uint8)
+        # Convert back to [0, 255] range and uint8 format
+        img_array_eq = (img_array_eq * 255).astype(np.uint8)
 
-    # Convert back to PIL Image
-    img_eq = Image.fromarray(img_array_eq)
+        # Convert back to PIL Image
+        img = Image.fromarray(img_array_eq)
 
-    # Save the processed image
-    img_eq.save(image_file)
-    logging.info(f"=== Image shape: {image.shape}")
+    # Save the processed image with optimized settings
+    img.save(image_file, optimize=True, quality=90)
     logging.info(f"Saved image visualization at {image_file}")
 
 

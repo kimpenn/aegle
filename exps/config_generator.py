@@ -4,12 +4,12 @@ from ruamel.yaml import YAML
 import ast
 
 # TODO:: Change this according to the csv file
-# experiment_set_name = "test0206_main"
-experiment_set_name = "test_analysis"
+experiment_set_name = "test0206_main"
+# experiment_set_name = "test_analysis"
 # TODO:: Change this according to the analysis step
 # "preprocess", "main", "analysis"
-# analysis_step = "main"  
-analysis_step = "analysis"  
+analysis_step = "main"  
+# analysis_step = "analysis"  
 base_dir = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps"
 # Path to the input CSV file
 design_table_path = (
@@ -130,7 +130,7 @@ def generate_config_files(design_table_path, default_config_path, output_dir):
                 "visualize_patches", "save_all_channel_patches", 
                 "visualize_segmentation", "save_segmentation_images", 
                 "save_segmentation_pickle", "save_disrupted_patches", 
-                "compute_metrics", "skip_viz"
+                "compute_metrics", "skip_viz", "enhance_contrast"
                 ]:
                 v = str_to_bool(v)
             elif v == "None":

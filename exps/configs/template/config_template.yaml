@@ -1,14 +1,14 @@
-# Top-level configuration for CODEX pipeline
-exp_id: D18_Scan1_1_markerset_1
+# Top-level configuration template for CODEX pipeline
+exp_id: experiment_name
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
-  file_name: FallopianTube/D18/Scan1/D18_Scan1_tissue_1.ome.tiff
+  file_name: path/to/image.ome.tiff
 
   # Path to the TSV file containing antibody definitions (one row per channel)
-  antibodies_file: FallopianTube/D18/Scan1/extras/antibodies.tsv
+  antibodies_file: path/to/antibodies.tsv
 
   # Microns per pixel for this image; used in downstream calculations (e.g., segmentation scaling)
   image_mpp: 0.5
@@ -26,10 +26,15 @@ channels:
   # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
   wholecell_channel:
     - Pan-Cytokeratin
+    - E-cadherin
+
+# -----------------------------------------------------------------------------
+# (C) Patching Parameters
+# -----------------------------------------------------------------------------
 patching:
   # Size (height, width) of each patch (in pixels)
-  patch_height: -1
-  patch_width: -1
+  patch_height: 1024
+  patch_width: 1024
 
   # Overlap fraction between adjacent patches (0.1 means 10% overlap)
   overlap: 0.1
@@ -39,17 +44,24 @@ patching:
 # -----------------------------------------------------------------------------
 visualization:
   # Whether to save an RGB visualization of the entire sample (e.g., nuclear vs. whole-cell)
-  visualize_whole_sample: false
+  visualize_whole_sample: true
 
-  # How to downsample the visualization image (null = no downsampling, -1 = auto-downsampling, 
-  # or positive integer for specific downsample factor)
-  downsample_factor: -1.0
+  # Downsampling factor for the whole sample visualization:
+  # - null: No downsampling (default, but could be slow for large images)
+  # - -1: Auto-calculate downsampling factor based on image size (recommended for large images)
+  # - Any positive integer (e.g. 2, 4, 8): Downsample by this specific factor
+  downsample_factor: -1
 
-  # Whether to apply contrast enhancement to the visualization (slower but better quality)
+  # Whether to apply contrast enhancement using adaptive histogram equalization
+  # true: Better visualization quality but slower processing
+  # false: Faster processing but potentially less clear visualization 
   enhance_contrast: true
 
   # Whether to save RGB visualizations of all patches
   visualize_patches: false
+
+  # Maximum number of worker threads for patch visualization (null = use all available)
+  workers: 4
 
   # Whether to save the raw multi-channel patches to disk
   save_all_channel_patches: false
@@ -75,7 +87,7 @@ patch_qc:
 # -----------------------------------------------------------------------------
 segmentation:
   # Path to the segmentation model directory (e.g., for DeepCell or another tool)
-  model_path: /workspaces/codex-analysis/data/deepcell/MultiplexSegmentation
+  model_path: /path/to/segmentation/model
 
   # If True, save segmentation masks as images
   save_segmentation_images: true
@@ -89,10 +101,10 @@ segmentation:
 # -----------------------------------------------------------------------------
 testing:
   data_disruption:
-    # Disruption type can be "downsampling" or "gaussian"
+    # Disruption type can be "downsampling" or "gaussian" or NULL
     type: NULL
 
-    # Intensity level of disruption (1-5, for instance)
+    # Intensity level of disruption
     level: -1.0
 
     # Whether to save the disrupted patches to disk (for debugging/testing)
@@ -102,4 +114,4 @@ testing:
 # (H) Evaluation Metrics
 # -----------------------------------------------------------------------------
 evaluation:
-  compute_metrics: false
+  compute_metrics: false 

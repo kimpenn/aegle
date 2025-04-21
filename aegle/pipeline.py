@@ -3,6 +3,7 @@ import numpy as np
 import logging
 import pickle
 import shutil
+import time
 
 from aegle.codex_image import CodexImage
 from aegle.codex_patches import CodexPatches
@@ -59,14 +60,36 @@ def run_pipeline(config, args):
 
     # Optional: Visualize whole sample image
     if config.get("visualization", {}).get("visualize_whole_sample", False):
+        logging.info("----- Visualizing whole sample image...")
+        start_time = time.time()
+        
+        # Get visualization settings from config or use defaults
+        downsample_factor = config.get("visualization", {}).get("downsample_factor", None)
+        enhance_contrast = config.get("visualization", {}).get("enhance_contrast", True)
+        
+        # Check if we should auto-downsample
+        image_shape = codex_image.extended_extracted_channel_image.shape
+        total_pixels = image_shape[0] * image_shape[1]
+        
+        # Auto-downsample if explicitly requested (-1) or implicitly needed (large image)
+        if total_pixels > 100000000 and downsample_factor == -1:
+            # Calculate a reasonable downsample factor based on image size
+            # Aim for ~25-50 million pixels in the final image
+            auto_downsample_factor = max(2, int(np.sqrt(total_pixels / 25000000)))
+            logging.info(f"Auto-downsampling image (original size: {image_shape})")
+            logging.info(f"Calculated downsample factor: {auto_downsample_factor}")
+            downsample_factor = auto_downsample_factor
+        
         save_image_rgb(
             codex_image.extended_extracted_channel_image,
             "extended_extracted_channel_image.png",
             args,
+            downsample_factor=downsample_factor,
+            enhance_contrast=enhance_contrast
         )
-        save_image_rgb(
-            codex_image.extracted_channel_image, "extracted_channel_image.png", args
-        )
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        logging.info(f"Whole sample visualization completed in {elapsed_time:.2f} seconds.")
 
     # Step 2: Initialize CodexPatches object and generate patches
     logging.info("----- Initializing CodexPatches object and generating patches.")
