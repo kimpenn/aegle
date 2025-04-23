@@ -17,6 +17,9 @@ def calculate_count_density_metrics(
     nucleus_matched_mask: np.ndarray,
     nucleus_unmatched_mask: np.ndarray,
     image_mpp: float = 0.5,
+    calculate_global_density: bool = True,
+    calculate_local_density: bool = True,
+    window_size_microns: float = 200,
 ) -> Dict:
     """
     Compute all density metrics for a single patch.
@@ -28,74 +31,81 @@ def calculate_count_density_metrics(
         nucleus_matched_mask: Repaired nucleus mask
         nucleus_unmatched_mask: Mask of nuclei present in original but not repaired segmentation
         image_mpp: Microns per pixel
+        calculate_global_density: Whether to calculate global density metrics
+        calculate_local_density: Whether to calculate local density metrics
+        window_size_microns: Size of window for local density calculation, in microns
 
     Returns:
         Dictionary with all cell density metrics
     """
-    logger.info("Starting cell density metrics calculation")
+    logger.debug("Starting cell density metrics calculation")
     start_time = time.time()
-    window_size_microns = 200
+    metrics = {}
+    
     # Global density metrics
-    logger.info("Calculating global cell density metrics for cell mask...")
-    cell_metrics = compute_mask_density(cell_mask, image_mpp)
-    logger.info("Calculating global cell density metrics for nucleus mask...")
-    nucleus_metrics = compute_mask_density(nucleus_mask, image_mpp)
-    logger.info("Calculating global cell density metrics for repaired cell mask...")
-    repaired_cell_metrics = compute_mask_density(cell_matched_mask, image_mpp)
-    logger.info("Calculating global cell density metrics for repaired nucleus mask...")
-    repaired_nucleus_metrics = compute_mask_density(nucleus_matched_mask, image_mpp)
-    logger.info("Calculating global cell density metrics for unmatched nucleus mask...")
-    unmatched_nucleus_metrics = compute_mask_density(nucleus_unmatched_mask, image_mpp)
-
-    # Local density metrics
-    logger.info("Calculating local cell density metrics for cell mask...")
-    cell_local_densities = compute_local_densities(cell_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
-    logger.info("Calculating local cell density metrics for nucleus mask...")
-    nucleus_local_densities = compute_local_densities(nucleus_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
-    logger.info("Calculating local cell density metrics for repaired cell mask...")
-    repaired_cell_local_densities = compute_local_densities(cell_matched_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
-    logger.info("Calculating local cell density metrics for repaired nucleus mask...")
-    repaired_nucleus_local_densities = compute_local_densities(nucleus_matched_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
-    logger.info("Calculating local cell density metrics for unmatched nucleus mask...")
-    unmatched_nucleus_local_densities = compute_local_densities(nucleus_unmatched_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
-
-    # Local density stats
-    logger.info("Calculating local cell density stats for cell mask...")
-    cell_local_stats = compute_local_density_stats(cell_local_densities)
-    logger.info("Calculating local cell density stats for nucleus mask...")
-    nucleus_local_stats = compute_local_density_stats(nucleus_local_densities)
-    logger.info("Calculating local cell density stats for repaired cell mask...")
-    repaired_cell_local_stats = compute_local_density_stats(repaired_cell_local_densities)
-    logger.info("Calculating local cell density stats for repaired nucleus mask...")
-    repaired_nucleus_local_stats = compute_local_density_stats(repaired_nucleus_local_densities)
-    logger.info("Calculating local cell density stats for unmatched nucleus mask...")
-    unmatched_nucleus_local_stats = compute_local_density_stats(unmatched_nucleus_local_densities)
-
-    metrics = {
-        "global": {
+    if calculate_global_density:
+        logger.debug("Calculating global cell density metrics...")
+        
+        cell_metrics = compute_mask_density(cell_mask, image_mpp)
+        nucleus_metrics = compute_mask_density(nucleus_mask, image_mpp)
+        repaired_cell_metrics = compute_mask_density(cell_matched_mask, image_mpp)
+        repaired_nucleus_metrics = compute_mask_density(nucleus_matched_mask, image_mpp)
+        unmatched_nucleus_metrics = compute_mask_density(nucleus_unmatched_mask, image_mpp)
+        
+        metrics["global"] = {
             "cell": cell_metrics,
             "nucleus": nucleus_metrics,
             "repaired_cell": repaired_cell_metrics,
             "repaired_nucleus": repaired_nucleus_metrics,
             "unmatched_nucleus": unmatched_nucleus_metrics,
-        },
-        "local": {
+        }
+    else:
+        logger.debug("Skipping global density metric calculation")
+        metrics["global"] = {}
+
+    # Local density metrics
+    if calculate_local_density:
+        logger.debug("Calculating local cell density metrics...")
+        
+        # Compute local densities
+        cell_local_densities = compute_local_densities(cell_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
+        nucleus_local_densities = compute_local_densities(nucleus_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
+        repaired_cell_local_densities = compute_local_densities(cell_matched_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
+        repaired_nucleus_local_densities = compute_local_densities(nucleus_matched_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
+        unmatched_nucleus_local_densities = compute_local_densities(nucleus_unmatched_mask, image_mpp=image_mpp, window_size_microns=window_size_microns)
+
+        # Compute local density stats
+        cell_local_stats = compute_local_density_stats(cell_local_densities)
+        nucleus_local_stats = compute_local_density_stats(nucleus_local_densities)
+        repaired_cell_local_stats = compute_local_density_stats(repaired_cell_local_densities)
+        repaired_nucleus_local_stats = compute_local_density_stats(repaired_nucleus_local_densities)
+        unmatched_nucleus_local_stats = compute_local_density_stats(unmatched_nucleus_local_densities)
+        
+        metrics["local"] = {
             "cell": cell_local_stats,
             "nucleus": nucleus_local_stats,
             "repaired_cell": repaired_cell_local_stats,
             "repaired_nucleus": repaired_nucleus_local_stats,
             "unmatched_nucleus": unmatched_nucleus_local_stats,
-        },
-        "local_density_list": {
+        }
+        
+        metrics["local_density_list"] = {
             "cell": cell_local_densities,
             "nucleus": nucleus_local_densities,
             "repaired_cell": repaired_cell_local_densities,
             "repaired_nucleus": repaired_nucleus_local_densities,
             "unmatched_nucleus": unmatched_nucleus_local_densities,
-        },
-        "window_size_microns": window_size_microns,
-    }
-    logger.info(f"Total number of windows: {len(cell_local_densities)}")
+        }
+        
+        metrics["window_size_microns"] = window_size_microns
+        logger.info(f"Calculated local density metrics for {len(cell_local_densities)} windows with size: {window_size_microns} µm; Quantiles of nucleus local densities:  {nucleus_local_stats['quantile_25']:.2f}, {nucleus_local_stats['median']:.2f}, {nucleus_local_stats['quantile_75']:.2f}")
+    else:
+        logger.info("Skipping local density metric calculation")
+        # Add empty data structures to ensure consistent return format
+        metrics["local"] = {}
+        metrics["local_density_list"] = {}
+        metrics["window_size_microns"] = window_size_microns
+
     elapsed_time = time.time() - start_time
     logger.info(f"Density metrics calculation completed in {elapsed_time:.2f} seconds")
     return metrics
@@ -137,7 +147,7 @@ def compute_mask_density(mask: np.ndarray, image_mpp: float = 0.5) -> Dict:
         }
 
     density = n_objects / area_mm2
-    logger.info(f"Computed density: {density:.2f} objects/mm² for {n_objects} objects")
+    logger.info(f"Computed global cell density: {density:.2f} objects/mm² for {n_objects} objects")
     return {
         "n_objects": n_objects,
         "area_mm2": area_mm2,
@@ -232,7 +242,7 @@ def compute_local_density_stats(local_density_list: List[float]) -> Dict[str, fl
             - quantile_25: 25th percentile
             - quantile_75: 75th percentile
     """
-    logger.info("Starting local density stats computation")
+    logger.debug("Starting local density stats computation")
     
     if len(local_density_list) == 0:
         logger.warning("Empty local density list provided")
@@ -267,115 +277,109 @@ def update_metadata_with_density_metrics(
     Args:
         patches_metadata_df: Metadata dataframe
         informative_idx: Boolean mask for the rows to update
-        metrics_list: List of dictionaries with metrics for each patch
+        metrics_list: List of dictionaries with metrics for each patch, each containing a 'patch_id' key
     """
-    logger.info("Starting metadata update with density metrics")
+    logger.debug("Starting metadata update with density metrics")
     start_time = time.time()
 
-    # Initialize metric lists
-    global_metrics = {
-        "cell_mask_nobj": [],
-        "cell_mask_areamm2": [],
-        "cell_mask_density": [],
-        "nucleus_mask_nobj": [],
-        "nucleus_mask_areamm2": [],
-        "nucleus_mask_density": [],
-        "repaired_cell_mask_nobj": [],
-        "repaired_cell_mask_areamm2": [],
-        "repaired_cell_mask_density": [],
-        "repaired_nucleus_mask_nobj": [],
-        "repaired_nucleus_mask_areamm2": [],
-        "repaired_nucleus_mask_density": [],
-        "unmatched_nucleus_mask_nobj": [],
-        "unmatched_nucleus_mask_areamm2": [],
-        "unmatched_nucleus_mask_density": [],
-    }
-
-    local_metrics = {
-        "cell_mask_local_density_mean": [],
-        "cell_mask_local_density_median": [],
-        "cell_mask_local_density_std": [],
-        "cell_mask_local_density_quantile_25": [],
-        "cell_mask_local_density_quantile_75": [],
-        "nucleus_mask_local_density_mean": [],
-        "nucleus_mask_local_density_median": [],
-        "nucleus_mask_local_density_std": [],
-        "nucleus_mask_local_density_quantile_25": [],
-        "nucleus_mask_local_density_quantile_75": [],
-        "repaired_cell_mask_local_density_mean": [],
-        "repaired_cell_mask_local_density_median": [],
-        "repaired_cell_mask_local_density_std": [],
-        "repaired_cell_mask_local_density_quantile_25": [],
-        "repaired_cell_mask_local_density_quantile_75": [],
-        "repaired_nucleus_mask_local_density_mean": [],
-        "repaired_nucleus_mask_local_density_median": [],
-        "repaired_nucleus_mask_local_density_std": [],
-        "repaired_nucleus_mask_local_density_quantile_25": [],
-        "repaired_nucleus_mask_local_density_quantile_75": [],
-        "unmatched_nucleus_mask_local_density_mean": [],
-        "unmatched_nucleus_mask_local_density_median": [],
-        "unmatched_nucleus_mask_local_density_std": [],
-        "unmatched_nucleus_mask_local_density_quantile_25": [],
-        "unmatched_nucleus_mask_local_density_quantile_75": [],
-    }
-
-    # Extract metrics for each patch
-    for metrics in metrics_list:
-        # Global metrics
-        global_metrics["cell_mask_nobj"].append(metrics["global"]["cell"]["n_objects"])
-        global_metrics["cell_mask_areamm2"].append(metrics["global"]["cell"]["area_mm2"])
-        global_metrics["cell_mask_density"].append(metrics["global"]["cell"]["density"])
-        global_metrics["nucleus_mask_nobj"].append(metrics["global"]["nucleus"]["n_objects"])
-        global_metrics["nucleus_mask_areamm2"].append(metrics["global"]["nucleus"]["area_mm2"])
-        global_metrics["nucleus_mask_density"].append(metrics["global"]["nucleus"]["density"])
-        global_metrics["repaired_cell_mask_nobj"].append(metrics["global"]["repaired_cell"]["n_objects"])
-        global_metrics["repaired_cell_mask_areamm2"].append(metrics["global"]["repaired_cell"]["area_mm2"])
-        global_metrics["repaired_cell_mask_density"].append(metrics["global"]["repaired_cell"]["density"])
-        global_metrics["repaired_nucleus_mask_nobj"].append(metrics["global"]["repaired_nucleus"]["n_objects"])
-        global_metrics["repaired_nucleus_mask_areamm2"].append(metrics["global"]["repaired_nucleus"]["area_mm2"])
-        global_metrics["repaired_nucleus_mask_density"].append(metrics["global"]["repaired_nucleus"]["density"])
-        global_metrics["unmatched_nucleus_mask_nobj"].append(metrics["global"]["unmatched_nucleus"]["n_objects"])
-        global_metrics["unmatched_nucleus_mask_areamm2"].append(metrics["global"]["unmatched_nucleus"]["area_mm2"])
-        global_metrics["unmatched_nucleus_mask_density"].append(metrics["global"]["unmatched_nucleus"]["density"])
-
-        # Local metrics
-        local_metrics["cell_mask_local_density_mean"].append(metrics["local"]["cell"]["mean"])
-        local_metrics["cell_mask_local_density_median"].append(metrics["local"]["cell"]["median"])
-        local_metrics["cell_mask_local_density_std"].append(metrics["local"]["cell"]["std"])
-        local_metrics["cell_mask_local_density_quantile_25"].append(metrics["local"]["cell"]["quantile_25"])
-        local_metrics["cell_mask_local_density_quantile_75"].append(metrics["local"]["cell"]["quantile_75"])
-
-        local_metrics["nucleus_mask_local_density_mean"].append(metrics["local"]["nucleus"]["mean"])
-        local_metrics["nucleus_mask_local_density_median"].append(metrics["local"]["nucleus"]["median"])
-        local_metrics["nucleus_mask_local_density_std"].append(metrics["local"]["nucleus"]["std"])
-        local_metrics["nucleus_mask_local_density_quantile_25"].append(metrics["local"]["nucleus"]["quantile_25"])
-        local_metrics["nucleus_mask_local_density_quantile_75"].append(metrics["local"]["nucleus"]["quantile_75"])
-
-        local_metrics["repaired_cell_mask_local_density_mean"].append(metrics["local"]["repaired_cell"]["mean"])
-        local_metrics["repaired_cell_mask_local_density_median"].append(metrics["local"]["repaired_cell"]["median"])
-        local_metrics["repaired_cell_mask_local_density_std"].append(metrics["local"]["repaired_cell"]["std"])
-        local_metrics["repaired_cell_mask_local_density_quantile_25"].append(metrics["local"]["repaired_cell"]["quantile_25"])
-        local_metrics["repaired_cell_mask_local_density_quantile_75"].append(metrics["local"]["repaired_cell"]["quantile_75"])
-
-        local_metrics["repaired_nucleus_mask_local_density_mean"].append(metrics["local"]["repaired_nucleus"]["mean"])
-        local_metrics["repaired_nucleus_mask_local_density_median"].append(metrics["local"]["repaired_nucleus"]["median"])
-        local_metrics["repaired_nucleus_mask_local_density_std"].append(metrics["local"]["repaired_nucleus"]["std"])
-        local_metrics["repaired_nucleus_mask_local_density_quantile_25"].append(metrics["local"]["repaired_nucleus"]["quantile_25"])
-        local_metrics["repaired_nucleus_mask_local_density_quantile_75"].append(metrics["local"]["repaired_nucleus"]["quantile_75"])
-
-        local_metrics["unmatched_nucleus_mask_local_density_mean"].append(metrics["local"]["unmatched_nucleus"]["mean"])
-        local_metrics["unmatched_nucleus_mask_local_density_median"].append(metrics["local"]["unmatched_nucleus"]["median"])
-        local_metrics["unmatched_nucleus_mask_local_density_std"].append(metrics["local"]["unmatched_nucleus"]["std"])
-        local_metrics["unmatched_nucleus_mask_local_density_quantile_25"].append(metrics["local"]["unmatched_nucleus"]["quantile_25"])
-        local_metrics["unmatched_nucleus_mask_local_density_quantile_75"].append(metrics["local"]["unmatched_nucleus"]["quantile_75"])
-
-    # Update dataframe
-    for metric, values in global_metrics.items():
-        patches_metadata_df.loc[informative_idx, metric] = values
-
-    for metric, values in local_metrics.items():
-        patches_metadata_df.loc[informative_idx, metric] = values
-
+    # Extract information from metrics list and organize by patch_id
+    patch_metrics = {}
+    for metric_dict in metrics_list:
+        if 'patch_id' in metric_dict:
+            patch_id = metric_dict['patch_id']
+            patch_metrics[patch_id] = metric_dict
+        else:
+            logger.warning("Found metrics without patch_id, skipping")
+    
+    # Get the informative patches
+    informative_patches = patches_metadata_df[informative_idx].copy()
+    
+    # Update each patch's metrics
+    for idx, row in informative_patches.iterrows():
+        patch_id = str(row['patch_id'])
+        
+        if patch_id not in patch_metrics:
+            logger.warning(f"No metrics found for patch {patch_id}, skipping")
+            continue
+            
+        metrics = patch_metrics[patch_id]
+        
+        # Extract global metrics
+        global_data = metrics.get("global", {})
+        
+        # Update cell metrics
+        cell_data = global_data.get("cell", {})
+        patches_metadata_df.loc[idx, "cell_mask_nobj"] = cell_data.get("n_objects", 0)
+        patches_metadata_df.loc[idx, "cell_mask_areamm2"] = cell_data.get("area_mm2", 0)
+        patches_metadata_df.loc[idx, "cell_mask_density"] = cell_data.get("density", 0.0)
+        
+        # Update nucleus metrics
+        nucleus_data = global_data.get("nucleus", {})
+        patches_metadata_df.loc[idx, "nucleus_mask_nobj"] = nucleus_data.get("n_objects", 0)
+        patches_metadata_df.loc[idx, "nucleus_mask_areamm2"] = nucleus_data.get("area_mm2", 0)
+        patches_metadata_df.loc[idx, "nucleus_mask_density"] = nucleus_data.get("density", 0.0)
+        
+        # Update repaired cell metrics
+        repaired_cell_data = global_data.get("repaired_cell", {})
+        patches_metadata_df.loc[idx, "repaired_cell_mask_nobj"] = repaired_cell_data.get("n_objects", 0)
+        patches_metadata_df.loc[idx, "repaired_cell_mask_areamm2"] = repaired_cell_data.get("area_mm2", 0)
+        patches_metadata_df.loc[idx, "repaired_cell_mask_density"] = repaired_cell_data.get("density", 0.0)
+        
+        # Update repaired nucleus metrics
+        repaired_nucleus_data = global_data.get("repaired_nucleus", {})
+        patches_metadata_df.loc[idx, "repaired_nucleus_mask_nobj"] = repaired_nucleus_data.get("n_objects", 0)
+        patches_metadata_df.loc[idx, "repaired_nucleus_mask_areamm2"] = repaired_nucleus_data.get("area_mm2", 0)
+        patches_metadata_df.loc[idx, "repaired_nucleus_mask_density"] = repaired_nucleus_data.get("density", 0.0)
+        
+        # Update unmatched nucleus metrics
+        unmatched_nucleus_data = global_data.get("unmatched_nucleus", {})
+        patches_metadata_df.loc[idx, "unmatched_nucleus_mask_nobj"] = unmatched_nucleus_data.get("n_objects", 0)
+        patches_metadata_df.loc[idx, "unmatched_nucleus_mask_areamm2"] = unmatched_nucleus_data.get("area_mm2", 0)
+        patches_metadata_df.loc[idx, "unmatched_nucleus_mask_density"] = unmatched_nucleus_data.get("density", 0.0)
+        
+        # Extract local metrics
+        local_data = metrics.get("local", {})
+        
+        # Update cell local metrics
+        cell_local_data = local_data.get("cell", {})
+        patches_metadata_df.loc[idx, "cell_mask_local_density_mean"] = cell_local_data.get("mean", 0.0)
+        patches_metadata_df.loc[idx, "cell_mask_local_density_median"] = cell_local_data.get("median", 0.0)
+        patches_metadata_df.loc[idx, "cell_mask_local_density_std"] = cell_local_data.get("std", 0.0)
+        patches_metadata_df.loc[idx, "cell_mask_local_density_quantile_25"] = cell_local_data.get("quantile_25", 0.0)
+        patches_metadata_df.loc[idx, "cell_mask_local_density_quantile_75"] = cell_local_data.get("quantile_75", 0.0)
+        
+        # Update nucleus local metrics
+        nucleus_local_data = local_data.get("nucleus", {})
+        patches_metadata_df.loc[idx, "nucleus_mask_local_density_mean"] = nucleus_local_data.get("mean", 0.0)
+        patches_metadata_df.loc[idx, "nucleus_mask_local_density_median"] = nucleus_local_data.get("median", 0.0)
+        patches_metadata_df.loc[idx, "nucleus_mask_local_density_std"] = nucleus_local_data.get("std", 0.0)
+        patches_metadata_df.loc[idx, "nucleus_mask_local_density_quantile_25"] = nucleus_local_data.get("quantile_25", 0.0)
+        patches_metadata_df.loc[idx, "nucleus_mask_local_density_quantile_75"] = nucleus_local_data.get("quantile_75", 0.0)
+        
+        # Update repaired cell local metrics
+        repaired_cell_local_data = local_data.get("repaired_cell", {})
+        patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_mean"] = repaired_cell_local_data.get("mean", 0.0)
+        patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_median"] = repaired_cell_local_data.get("median", 0.0)
+        patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_std"] = repaired_cell_local_data.get("std", 0.0)
+        patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_quantile_25"] = repaired_cell_local_data.get("quantile_25", 0.0)
+        patches_metadata_df.loc[idx, "repaired_cell_mask_local_density_quantile_75"] = repaired_cell_local_data.get("quantile_75", 0.0)
+        
+        # Update repaired nucleus local metrics
+        repaired_nucleus_local_data = local_data.get("repaired_nucleus", {})
+        patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_mean"] = repaired_nucleus_local_data.get("mean", 0.0)
+        patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_median"] = repaired_nucleus_local_data.get("median", 0.0)
+        patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_std"] = repaired_nucleus_local_data.get("std", 0.0)
+        patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_quantile_25"] = repaired_nucleus_local_data.get("quantile_25", 0.0)
+        patches_metadata_df.loc[idx, "repaired_nucleus_mask_local_density_quantile_75"] = repaired_nucleus_local_data.get("quantile_75", 0.0)
+        
+        # Update unmatched nucleus local metrics
+        unmatched_nucleus_local_data = local_data.get("unmatched_nucleus", {})
+        patches_metadata_df.loc[idx, "unmatched_nucleus_mask_local_density_mean"] = unmatched_nucleus_local_data.get("mean", 0.0)
+        patches_metadata_df.loc[idx, "unmatched_nucleus_mask_local_density_median"] = unmatched_nucleus_local_data.get("median", 0.0)
+        patches_metadata_df.loc[idx, "unmatched_nucleus_mask_local_density_std"] = unmatched_nucleus_local_data.get("std", 0.0)
+        patches_metadata_df.loc[idx, "unmatched_nucleus_mask_local_density_quantile_25"] = unmatched_nucleus_local_data.get("quantile_25", 0.0)
+        patches_metadata_df.loc[idx, "unmatched_nucleus_mask_local_density_quantile_75"] = unmatched_nucleus_local_data.get("quantile_75", 0.0)
+    
     elapsed_time = time.time() - start_time
-    logger.info(f"Metadata update completed in {elapsed_time:.2f} seconds")
+    logger.debug(f"Metadata update completed in {elapsed_time:.2f} seconds")
     return patches_metadata_df 

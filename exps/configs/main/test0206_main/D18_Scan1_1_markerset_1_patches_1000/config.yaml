@@ -1,14 +1,14 @@
-# Top-level configuration template for CODEX pipeline
-exp_id: experiment_name
+# Top-level configuration for CODEX pipeline
+exp_id: D18_Scan1_1_markerset_1_patches_1000
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
-  file_name: path/to/image.ome.tiff
+  file_name: FallopianTube/D18/Scan1/D18_Scan1_tissue_1.ome.tiff
 
   # Path to the TSV file containing antibody definitions (one row per channel)
-  antibodies_file: path/to/antibodies.tsv
+  antibodies_file: FallopianTube/D18/Scan1/extras/antibodies.tsv
 
   # Microns per pixel for this image; used in downstream calculations (e.g., segmentation scaling)
   image_mpp: 0.5
@@ -26,15 +26,10 @@ channels:
   # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
   wholecell_channel:
     - Pan-Cytokeratin
-    - E-cadherin
-
-# -----------------------------------------------------------------------------
-# (C) Patching Parameters
-# -----------------------------------------------------------------------------
 patching:
   # Size (height, width) of each patch (in pixels)
-  patch_height: 1024
-  patch_width: 1024
+  patch_height: 1000
+  patch_width: 1000
 
   # Overlap fraction between adjacent patches (0.1 means 10% overlap)
   overlap: 0.1
@@ -46,22 +41,15 @@ visualization:
   # Whether to save an RGB visualization of the entire sample (e.g., nuclear vs. whole-cell)
   visualize_whole_sample: true
 
-  # Downsampling factor for the whole sample visualization:
-  # - null: No downsampling (default, but could be slow for large images)
-  # - -1: Auto-calculate downsampling factor based on image size (recommended for large images)
-  # - Any positive integer (e.g. 2, 4, 8): Downsample by this specific factor
-  downsample_factor: -1
+  # How to downsample the visualization image (null = no downsampling, -1 = auto-downsampling, 
+  # or positive integer for specific downsample factor)
+  downsample_factor: -1.0
 
-  # Whether to apply contrast enhancement using adaptive histogram equalization
-  # true: Better visualization quality but slower processing
-  # false: Faster processing but potentially less clear visualization 
+  # Whether to apply contrast enhancement to the visualization (slower but better quality)
   enhance_contrast: true
 
   # Whether to save RGB visualizations of all patches
   visualize_patches: false
-
-  # Maximum number of worker threads for patch visualization (null = use all available)
-  workers: 4
 
   # Whether to save the raw multi-channel patches to disk
   save_all_channel_patches: false
@@ -87,7 +75,7 @@ patch_qc:
 # -----------------------------------------------------------------------------
 segmentation:
   # Path to the segmentation model directory (e.g., for DeepCell or another tool)
-  model_path: /path/to/segmentation/model
+  model_path: /workspaces/codex-analysis/data/deepcell/MultiplexSegmentation
 
   # If True, save segmentation masks as images
   save_segmentation_images: true
@@ -101,10 +89,10 @@ segmentation:
 # -----------------------------------------------------------------------------
 testing:
   data_disruption:
-    # Disruption type can be "downsampling" or "gaussian" or NULL
+    # Disruption type can be "downsampling" or "gaussian"
     type: NULL
 
-    # Intensity level of disruption
+    # Intensity level of disruption (1-5, for instance)
     level: -1.0
 
     # Whether to save the disrupted patches to disk (for debugging/testing)
@@ -114,15 +102,15 @@ testing:
 # (H) Evaluation Metrics
 # -----------------------------------------------------------------------------
 evaluation:
-  compute_metrics: false 
+  compute_metrics: true
 
 # -----------------------------------------------------------------------------
 # (I) Parallel Processing Settings
 # -----------------------------------------------------------------------------
 parallel_processing:
   # Number of worker processes to use for parallelizable operations
-  # Set to number of CPU cores available (default: 4)
-  workers: 4
+  # Based on your system with 128 cores, use 4 workers as requested
+  workers: 10
   
   # Maximum memory per worker in GB (0 = no limit)
-  max_memory_per_worker: 0 
+  max_memory_per_worker: 0

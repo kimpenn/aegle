@@ -356,7 +356,7 @@ class CodexPatches:
                     if isinstance(data, (list, np.ndarray))
                     else str(data)[:500]
                 )
-                self.logger.info(f"Sample content: {sample_content}")
+                self.logger.debug(f"Sample content: {sample_content}")
 
                 file_name = os.path.join(self.args.out_dir, file_name)
                 self.logger.info(f"Saving to {file_name}...")

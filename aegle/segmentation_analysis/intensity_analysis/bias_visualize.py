@@ -38,22 +38,22 @@ def visualize_channel_intensity_bias(
         channels_per_figure: Number of channels to plot per figure
         channel_names: Optional list of channel names to visualize. If None, all channels will be used.
     """
-    logger.info("Starting channel intensity bias visualization")
+    logger.debug("Starting channel intensity bias visualization")
     
     # Create output directory if needed
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-        logger.info(f"Created output directory: {output_dir}")
+        logger.debug(f"Created output directory: {output_dir}")
         
         # Create statistics subfolder
         stats_dir = os.path.join(output_dir, "channel_statistics")
         os.makedirs(stats_dir, exist_ok=True)
-        logger.info(f"Created statistics directory: {stats_dir}")
+        logger.debug(f"Created statistics directory: {stats_dir}")
 
     # Get channel names
     if channel_names is None:
         channel_names = sorted(intensity_data.keys())
-        logger.info(f"Using all available channels: {len(channel_names)} channels")
+        logger.debug(f"Using all available channels: {len(channel_names)} channels")
     else:
         # Validate that all requested channels exist in results
         missing_channels = [ch for ch in channel_names if ch not in intensity_data]
@@ -63,7 +63,7 @@ def visualize_channel_intensity_bias(
             if not channel_names:
                 logger.error("No valid channels found in results")
                 return
-        logger.info(f"Using specified channels: {len(channel_names)} channels: {channel_names}")
+        logger.debug(f"Using specified channels: {len(channel_names)} channels: {channel_names}")
 
     num_channels = len(channel_names)
     if num_channels == 0:
@@ -76,7 +76,7 @@ def visualize_channel_intensity_bias(
 
     # Calculate number of figures needed
     num_figures = (num_channels + channels_per_figure - 1) // channels_per_figure
-    logger.info(f"Will create {num_figures} figures with {channels_per_figure} channels per figure")
+    logger.debug(f"Will create {num_figures} figures with {channels_per_figure} channels per figure")
 
     for fig_idx in range(num_figures):
         start_idx = fig_idx * channels_per_figure
@@ -124,11 +124,11 @@ def visualize_channel_intensity_bias(
             
     # Plot individual statistics for each channel
     if output_dir:
-        logger.info("Creating individual statistics plots for each channel")
+        logger.debug("Creating individual statistics plots for each channel")
         plot_channel_statistics(intensity_data, channel_names, stats_dir)
 
     # Create summary plot for all channels
-    logger.info("Creating summary plot for all channels")
+    logger.debug("Creating summary plot for all channels")
     plt.figure(figsize=(16, 8))
     x = np.arange(num_channels)
     cell_bias = [
@@ -180,13 +180,13 @@ def visualize_channel_intensity_bias(
         logger.debug(f"Saved significant bias summary to {summary_path}")
 
     if significant_bias:
-        logger.info(f"Channels with significant bias (>{threshold}% change):")
+        logger.debug(f"Channels with significant bias (>{threshold}% change):")
         for ch, cell_ch, nuc_ch in significant_bias:
-            logger.info(f"{ch}: Cell: {cell_ch:.2f}%, Nucleus: {nuc_ch:.2f}%")
+            logger.debug(f"{ch}: Cell: {cell_ch:.2f}%, Nucleus: {nuc_ch:.2f}%")
     else:
-        logger.info(f"No channels show significant bias (>{threshold}% change)")
+        logger.debug(f"No channels show significant bias (>{threshold}% change)")
     
-    logger.info("Channel intensity bias visualization completed")
+    logger.debug("Channel intensity bias visualization completed")
     
 def plot_channel_statistics(intensity_data, channel_names, output_dir):
     """
@@ -264,7 +264,7 @@ def save_channel_statistics_as_csv(intensity_data, channel_names, output_dir):
         channel_names: List of channel names to include
         output_dir: Directory to save the CSV file
     """
-    logger.info("Saving channel statistics to CSV")
+    logger.debug("Saving channel statistics to CSV")
     
     # Create a DataFrame to store the statistics
     stats_data = []
@@ -312,4 +312,4 @@ def save_channel_statistics_as_csv(intensity_data, channel_names, output_dir):
     df = pd.DataFrame(stats_data)
     csv_path = os.path.join(output_dir, "channel_statistics.csv")
     df.to_csv(csv_path, index=False)
-    logger.info(f"Saved channel statistics to {csv_path}") 
+    logger.debug(f"Saved channel statistics to {csv_path}") 

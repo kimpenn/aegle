@@ -11,6 +11,9 @@ RUN_FILE="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/scripts/run_main.sh"
 DATA_DIR="${ROOT_DIR}/data"
 CONFIG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/exps/configs/main/${EXP_SET_NAME}"
 
+# Define logging level (can be DEBUG, INFO, WARNING, ERROR)
+LOG_LEVEL="INFO"
+
 # Define the output and log directories
 LOG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/logs/main/${EXP_SET_NAME}"
 OUT_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/out/main/${EXP_SET_NAME}"
@@ -22,14 +25,18 @@ mkdir -p "${LOG_DIR}"
 declare -a EXPERIMENTS=(
   # "test-1"
   # "D18_Scan1_0"
-  "D18_Scan1_1"
+  # "D18_Scan1_1"
   # "D18_Scan1_2"
   # "D18_Scan1_3"
   # "H33_scan1"
   # "D18_Scan1_1_markerset_1"
   # "D18_Scan1_1_markerset_2"
   # "D18_Scan1_1_markerset_3"
-  # "D18_Scan1_1_markerset_4" 
+  # "D18_Scan1_1_markerset_4"
+  # "D18_Scan1_1_markerset_1_patches_1000"
+  "D18_Scan1_1_markerset_2_patches_1000"
+  # "D18_Scan1_1_markerset_3_patches_1000"
+  # "D18_Scan1_1_markerset_4_patches_1000"   
 )
 
 # Count total experiments
@@ -37,6 +44,7 @@ TOTAL_EXPS=${#EXPERIMENTS[@]}
 CURRENT_EXP=1
 
 echo "Starting sequential execution of $TOTAL_EXPS experiments at $(date)"
+echo "Log level set to: $LOG_LEVEL"
 echo "-----------------------------------------------------------"
 
 # Loop through the experiments and call run_main.sh for each
@@ -48,7 +56,8 @@ for EXP_ID in "${EXPERIMENTS[@]}"; do
   {
     echo "Current time: $(date)"
     echo "Running experiment $EXP_ID ($CURRENT_EXP of $TOTAL_EXPS)"
-    time bash ${RUN_FILE} "$EXP_SET_NAME" "$EXP_ID" "$ROOT_DIR" "$DATA_DIR" "$CONFIG_DIR" "$OUT_DIR"
+    echo "Log level: $LOG_LEVEL"
+    time bash ${RUN_FILE} "$EXP_SET_NAME" "$EXP_ID" "$ROOT_DIR" "$DATA_DIR" "$CONFIG_DIR" "$OUT_DIR" "$LOG_LEVEL"
     echo "Experiment $EXP_ID completed."
   } > "$LOG_FILE" 2>&1 
 

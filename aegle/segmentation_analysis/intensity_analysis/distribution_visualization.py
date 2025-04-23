@@ -38,17 +38,17 @@ def visualize_intensity_distributions(
         use_log_scale: Whether to use log scale for intensity values
         channel_names: Optional list of channel names to visualize. If None, all channels will be used.
     """
-    logger.info("Starting intensity distribution visualization")
+    logger.debug("Starting intensity distribution visualization")
     
     # Create output directory if needed
     if output_dir:
-        logger.info(f"Creating output directory: {output_dir}")
+        logger.debug(f"Creating output directory: {output_dir}")
         os.makedirs(output_dir, exist_ok=True)
 
     # Get list of channel names
     if channel_names is None:
         channel_names = sorted(intensity_data.keys())
-        logger.info(f"Using all available channels: {len(channel_names)} channels")
+        logger.debug(f"Using all available channels: {len(channel_names)} channels")
     else:
         # Validate that all requested channels exist in results
         missing_channels = [ch for ch in channel_names if ch not in intensity_data]
@@ -58,13 +58,13 @@ def visualize_intensity_distributions(
             if not channel_names:
                 logger.error("No valid channels found in results")
                 return
-        logger.info(f"Using specified channels: {len(channel_names)} channels: {channel_names}")
+        logger.debug(f"Using specified channels: {len(channel_names)} channels: {channel_names}")
 
     num_channels = len(channel_names)
-    logger.info(f"Processing {num_channels} channels")
+    logger.debug(f"Processing {num_channels} channels")
 
     for channel_idx, channel_name in enumerate(channel_names):
-        logger.info(f"Visualizing distribution for channel {channel_idx + 1}/{num_channels}: {channel_name}")
+        logger.debug(f"Visualizing distribution for channel {channel_idx + 1}/{num_channels}: {channel_name}")
         
         # Get intensity data for this channel
         channel_intensities = intensity_data[channel_name]["intensities"]
@@ -154,11 +154,11 @@ def visualize_intensity_distributions(
             safe_channel_name = sanitize_filename(channel_name)
             file_name = f"{channel_idx:02d}-intensity_distribution_{safe_channel_name}.png"
             file_path = os.path.join(output_dir, file_name)
-            logger.info(f"Saving plot to {file_path}")
+            logger.debug(f"Saving plot to {file_path}")
             plt.savefig(file_path, dpi=300)
             plt.close()
         else:
-            logger.info("Displaying plot (no output directory specified)")
+            logger.debug("Displaying plot (no output directory specified)")
             plt.show()
 
-    logger.info("Completed intensity distribution visualization") 
+    logger.debug("Completed intensity distribution visualization") 

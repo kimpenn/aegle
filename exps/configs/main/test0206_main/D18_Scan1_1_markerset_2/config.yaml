@@ -41,7 +41,7 @@ patching:
 # -----------------------------------------------------------------------------
 visualization:
   # Whether to save an RGB visualization of the entire sample (e.g., nuclear vs. whole-cell)
-  visualize_whole_sample: false
+  visualize_whole_sample: true
 
   # How to downsample the visualization image (null = no downsampling, -1 = auto-downsampling, 
   # or positive integer for specific downsample factor)

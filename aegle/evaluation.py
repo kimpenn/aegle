@@ -1,34 +1,30 @@
+# evaluation.py
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 import logging
 from skimage.filters import threshold_mean  # , threshold_otsu
 from skimage.morphology import area_closing, closing, disk
 from skimage.segmentation import morphological_geodesic_active_contour as MorphGAC
+import concurrent.futures
+from functools import partial
 
 from aegle.codex_patches import CodexPatches
 from aegle.evaluation_func import *
 
 
-def run_seg_evaluation(
-    codex_patches: CodexPatches,
-    config: dict,
-    args: Optional[dict] = None,
-):
-    original_seg_res_batch = codex_patches.original_seg_res_batch
-    repaired_seg_res_batch = codex_patches.repaired_seg_res_batch
-    patches_metadata_df = codex_patches.get_patches_metadata()
-    idx = patches_metadata_df["is_infomative"] == True
-
-    image_ndarray = codex_patches.extracted_channel_patches[idx]
-    # reshape image_ndarray from batch, w, h, c to batch, c, w, h
-    image_ndarray = image_ndarray.transpose(0, 3, 1, 2)
-    # add an extra dimsion at axis 2
-    image_ndarray = np.expand_dims(image_ndarray, axis=2)
-    res_list = []
-    for idx, repaired_seg_res in enumerate(repaired_seg_res_batch):
-        original_seg_res_single = original_seg_res_batch[idx]
-
-        logging.info(f"Evaluating segmentations for Patch: {idx}")
+def _process_single_patch(idx, repaired_seg_res, original_seg_res_single, image_ndarray, config):
+    # Get cell count in the cell mask
+    cell_mask = repaired_seg_res["cell_matched_mask"]
+    unique_cell_ids = np.unique(cell_mask)
+    # Subtract 1 for background (value 0)
+    cell_count = len(unique_cell_ids) - (1 if 0 in unique_cell_ids else 0)
+    
+    # Skip patches with fewer than 20 cells
+    if cell_count < 20:
+        logging.warning(f"Skipping evaluation for patch {idx} with only {cell_count} cells (minimum 20 required)")
+        return {"QualityScore": float("nan")}
+    
+    try:
         img_dict_single = {
             "name": f"img_{idx}",
             "data": image_ndarray[idx : idx + 1, :, :, :, :],
@@ -47,9 +43,62 @@ def run_seg_evaluation(
             pixelsizex=pixel_size,
             pixelsizey=pixel_size,
         )
-        res_list.append(res)
-        logging.info(f"QualityScore: {res['QualityScore']}")
+        logging.info(f"Evaluated segmentations for Patch: {idx}, Cell count: {cell_count}, QualityScore: {res['QualityScore']}")
+        return res
+    except Exception as e:
+        logging.warning(f"Error evaluating patch {idx}: {str(e)}")
+        # Add a placeholder result with NaN values to maintain order
+        return {"QualityScore": float("nan")}
 
+
+def run_seg_evaluation(
+    codex_patches: CodexPatches,
+    config: dict,
+    args: Optional[dict] = None,
+):
+    original_seg_res_batch = codex_patches.original_seg_res_batch
+    repaired_seg_res_batch = codex_patches.repaired_seg_res_batch
+    patches_metadata_df = codex_patches.get_patches_metadata()
+    idx = patches_metadata_df["is_infomative"] == True
+
+    image_ndarray = codex_patches.extracted_channel_patches[idx]
+    # reshape image_ndarray from batch, w, h, c to batch, c, w, h
+    image_ndarray = image_ndarray.transpose(0, 3, 1, 2)
+    # add an extra dimsion at axis 2
+    image_ndarray = np.expand_dims(image_ndarray, axis=2)
+    
+    logging.info(f"original_seg_res_batch: {len(original_seg_res_batch)}")
+    logging.info(f"repaired_seg_res_batch: {len(repaired_seg_res_batch)}")
+    logging.info(f"codex_patches.extracted_channel_patches: {codex_patches.extracted_channel_patches.shape}")
+    logging.info(f"patches_metadata_df informative: {patches_metadata_df['is_infomative'].sum()}")
+    logging.info(f"image_ndarray: {image_ndarray.shape}")
+
+    # Run evaluation in parallel with 2 workers
+    logging.info("Starting parallel evaluation with 2 workers")
+    res_list = [None] * len(repaired_seg_res_batch)
+    
+    process_func = partial(_process_single_patch, 
+                          image_ndarray=image_ndarray,
+                          config=config)
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
+        # Create futures for each patch
+        future_to_idx = {
+            executor.submit(process_func, idx, repaired_seg_res, original_seg_res_batch[idx]): idx
+            for idx, repaired_seg_res in enumerate(repaired_seg_res_batch)
+        }
+        
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                res = future.result()
+                res_list[idx] = res
+            except Exception as e:
+                logging.error(f"Patch {idx} generated an exception: {str(e)}")
+                res_list[idx] = {"QualityScore": float("nan")}
+    
+    logging.info("Parallel evaluation completed")
     codex_patches.seg_evaluation_metrics = res_list
 
 

@@ -98,7 +98,7 @@ testing:
     level: 3.0
 
     # Whether to save the disrupted patches to disk (for debugging/testing)
-    save_disrupted_patches: true
+    save_disrupted_patches: false
 
 # -----------------------------------------------------------------------------
 # (H) Evaluation Metrics

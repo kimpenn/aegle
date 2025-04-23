@@ -42,7 +42,7 @@ def calculate_mean_intensity_per_object(
 
 def _process_mask(channel_img, mask, mask_name):
     """Helper function to calculate intensities for a mask in parallel"""
-    logging.info(f"--- Calculating mean intensity per object for {mask_name} mask")
+    logging.debug(f"--- Calculating mean intensity per object for {mask_name} mask")
     return calculate_mean_intensity_per_object(channel_img, mask)
 
 def extract_channel_intensities(
@@ -68,7 +68,7 @@ def extract_channel_intensities(
         Dictionary containing mean intensities per object for each mask type
     """
     # Calculate mean intensity per object for each mask type in parallel
-    logging.info(f"--- Calculating mean intensity per object for each mask type")
+    logging.debug(f"--- Calculating mean intensity per object for each mask type")
     
     # Define masks to process
     masks = {
@@ -175,7 +175,7 @@ def extract_intensity_data_across_channels(
     Returns:
         Dictionary containing intensity data for each channel
     """
-    logger.info("Extracting intensity data across channels")
+    logger.debug("Extracting intensity data across channels")
     
     num_channels = image_ndarray.shape[-1]
     if channel_names is None:
@@ -185,7 +185,7 @@ def extract_intensity_data_across_channels(
     
     for channel_idx in range(num_channels):
         channel_name = channel_names[channel_idx]
-        logger.info(f"- Processing channel {channel_idx+1}/{num_channels}: {channel_name}")
+        logger.debug(f"- Processing channel {channel_idx+1}/{num_channels}: {channel_name}")
         
         # Extract channel data
         channel_img = image_ndarray[..., channel_idx]
@@ -225,5 +225,5 @@ def extract_intensity_data_across_channels(
             "bias_metrics": bias_metrics,
         }
     
-    logger.info("Completed intensity data extraction")
+    logger.debug("Completed intensity data extraction")
     return intensity_data 

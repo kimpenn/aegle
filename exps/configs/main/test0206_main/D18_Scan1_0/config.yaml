@@ -26,8 +26,8 @@ channels:
   # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
   wholecell_channel:
     - Pan-Cytokeratin
-    - ' Collagen IV'
-    - ' FUT4'
+    - Collagen IV
+    - FUT4
 patching:
   # Size (height, width) of each patch (in pixels)
   patch_height: -1
@@ -98,7 +98,7 @@ testing:
     level: 3.0
 
     # Whether to save the disrupted patches to disk (for debugging/testing)
-    save_disrupted_patches: true
+    save_disrupted_patches: false
 
 # -----------------------------------------------------------------------------
 # (H) Evaluation Metrics

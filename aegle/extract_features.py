@@ -49,7 +49,7 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
     props_df.set_index(props_df["label"], inplace=True)
 
     # *** KEY OPTIMIZATION 1: Pre-compute labels matrix once ***
-    logger.info("Pre-computing labels matrix for all nuclei")
+    logger.debug("Pre-computing labels matrix for all nuclei")
     labels_matrix = (
         np.isin(segmentation_masks, nucleus_ids).astype(int) * segmentation_masks
     ).astype(np.int64)
@@ -73,7 +73,7 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
         batch_end = min(batch_idx + batch_size, n_channels)
         batch_channels = channels_to_quantify[batch_idx:batch_end]
 
-        logger.info(
+        logger.debug(
             "Processing channel batch %d/%d (channels %d-%d)",
             batch_idx // batch_size + 1,
             (n_channels + batch_size - 1) // batch_size,
@@ -86,7 +86,7 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
         # For simplicity, I'll keep the loop structure here
         for rel_idx, chan in enumerate(batch_channels):
             idx = batch_idx + rel_idx
-            logger.info("Processing channel %s (%d/%d)", chan, idx + 1, n_channels)
+            logger.debug("Processing channel %s (%d/%d)", chan, idx + 1, n_channels)
 
             chan_data = image_dict[chan]
 

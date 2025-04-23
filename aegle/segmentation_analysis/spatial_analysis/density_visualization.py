@@ -28,7 +28,7 @@ def visualize_density_distributions(
         output_dir: Directory to save plots (if None, plots will be displayed)
         save_plots: Whether to save the plots to files
     """
-    logger.info("Starting density distribution visualization")
+    logger.debug("Starting density distribution visualization")
     window_size_microns = density_metrics["window_size_microns"]
     
     # Extract density lists from metrics
@@ -56,10 +56,10 @@ def visualize_density_distributions(
     # Create output directory if needed
     if save_plots and output_dir:
         os.makedirs(output_dir, exist_ok=True)
-        logger.info(f"Created output directory: {output_dir}")
+        logger.debug(f"Created output directory: {output_dir}")
 
     # 1. Create comparison histograms
-    logger.info("Creating histogram comparison plots")
+    logger.debug("Creating histogram comparison plots")
     
     # Pairs to compare in plots
     plot_comparisons = [
@@ -102,7 +102,7 @@ def visualize_density_distributions(
         plt.show()
 
     # 2. Create comparison density plots
-    logger.info("Creating density plot comparisons")
+    logger.debug("Creating density plot comparisons")
     
     # Create density plots in a 3x2 grid
     fig2, axs2 = plt.subplots(3, 2, figsize=(16, 15))
@@ -123,13 +123,13 @@ def visualize_density_distributions(
     if save_plots and output_dir:
         output_path = os.path.join(output_dir, 'density_comparison_kde.png')
         plt.savefig(output_path, dpi=300)
-        logger.info(f"Saved density plot comparison to: {output_path}")
+        logger.debug(f"Saved density plot comparison to: {output_path}")
         plt.close()
     else:
         plt.show()
 
     # 3. Create individual histograms with mean and median
-    logger.info("Creating individual histograms with mean/median")
+    logger.debug("Creating individual histograms with mean/median")
     num_plots = len(data_lists)
     rows = (num_plots + 1) // 2  # Round up division
     fig3, axs3 = plt.subplots(rows, 2, figsize=(16, 4 * rows))
@@ -168,13 +168,13 @@ def visualize_density_distributions(
     if save_plots and output_dir:
         output_path = os.path.join(output_dir, 'individual_histograms.png')
         plt.savefig(output_path, dpi=300)
-        logger.info(f"Saved individual histograms to: {output_path}")
+        logger.debug(f"Saved individual histograms to: {output_path}")
         plt.close()
     else:
         plt.show()
 
     # 4. Create individual density plots with mean and median
-    logger.info("Creating individual density plots with mean/median")
+    logger.debug("Creating individual density plots with mean/median")
     fig4, axs4 = plt.subplots(rows, 2, figsize=(16, 4 * rows))
     fig4.suptitle('Individual Density Plots with Mean and Median', fontsize=16)
 
@@ -208,13 +208,13 @@ def visualize_density_distributions(
     if save_plots and output_dir:
         output_path = os.path.join(output_dir, 'individual_density_plots.png')
         plt.savefig(output_path, dpi=300)
-        logger.info(f"Saved individual density plots to: {output_path}")
+        logger.debug(f"Saved individual density plots to: {output_path}")
         plt.close()
     else:
         plt.show()
 
     # 5. Create combined density plot
-    logger.info("Creating combined density plot")
+    logger.debug("Creating combined density plot")
     plt.figure(figsize=(12, 7))
 
     # Create distinct line styles and patterns for better visual distinction
@@ -248,9 +248,9 @@ def visualize_density_distributions(
     if save_plots and output_dir:
         output_path = os.path.join(output_dir, f'combined_density_plot_{window_size_microns}um.png')
         plt.savefig(output_path, dpi=300)
-        logger.info(f"Saved combined density plot to: {output_path}")
+        logger.debug(f"Saved combined density plot to: {output_path}")
         plt.close()
     else:
         plt.show()
     
-    logger.info("Completed density distribution visualization") 
+    logger.debug("Completed density distribution visualization") 
