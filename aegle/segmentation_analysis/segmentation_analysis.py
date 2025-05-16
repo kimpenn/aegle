@@ -236,7 +236,7 @@ def run_segmentation_analysis(codex_patches: CodexPatches, config: dict, args=No
             logger.warning("No density metrics calculated to update metadata with")
     
     # Save results
-    codex_patches.seg_evaluation_metrics = res_list
+    codex_patches.seg_analysis_metrics = res_list
     codex_patches.set_metadata(patches_metadata_df)
     codex_patches.save_metadata()
     

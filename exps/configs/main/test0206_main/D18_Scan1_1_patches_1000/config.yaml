@@ -1,5 +1,5 @@
 # Top-level configuration for CODEX pipeline
-exp_id: D18_Scan1_1_markerset_1
+exp_id: D18_Scan1_1
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
@@ -26,10 +26,12 @@ channels:
   # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
   wholecell_channel:
     - Pan-Cytokeratin
+    - Collagen IV
+    - FUT4
 patching:
   # Size (height, width) of each patch (in pixels)
-  patch_height: -1
-  patch_width: -1
+  patch_height: 1000
+  patch_width: 1000
 
   # Overlap fraction between adjacent patches (0.1 means 10% overlap)
   overlap: 0.1
@@ -75,7 +77,7 @@ patch_qc:
 # -----------------------------------------------------------------------------
 segmentation:
   # Path to the segmentation model directory (e.g., for DeepCell or another tool)
-  model_path: /workspaces/codex-analysis/data/deepcell/MultiplexSegmentation/v7
+  model_path: /workspaces/codex-analysis/data/deepcell/MultiplexSegmentation
 
   # If True, save segmentation masks as images
   save_segmentation_images: true
@@ -103,3 +105,15 @@ testing:
 # -----------------------------------------------------------------------------
 evaluation:
   compute_metrics: false
+
+# -----------------------------------------------------------------------------
+# (I) Parallel Processing Settings
+# -----------------------------------------------------------------------------
+parallel_processing:
+  # Number of worker processes to use for parallelizable operations
+  # Based on your system with 128 cores, use 4 workers as requested
+  workers: 10
+  
+  # Maximum memory per worker in GB (0 = no limit)
+  max_memory_per_worker: 0
+  

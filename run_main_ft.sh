@@ -34,9 +34,10 @@ declare -a EXPERIMENTS=(
   # "D18_Scan1_1_markerset_3"
   # "D18_Scan1_1_markerset_4"
   # "D18_Scan1_1_markerset_1_patches_1000"
-  "D18_Scan1_1_markerset_2_patches_1000"
   # "D18_Scan1_1_markerset_3_patches_1000"
   # "D18_Scan1_1_markerset_4_patches_1000"   
+  "D18_Scan1_1_patches_1000"
+  "D18_Scan1_1_markerset_2_patches_1000"
 )
 
 # Count total experiments

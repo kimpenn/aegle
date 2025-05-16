@@ -136,6 +136,9 @@ def _load_segmentation_model(config: dict) -> Mesmer:
     """
     try:
         # Read `model_path` from the segmentation config
+        # Currently, the model weight is downloaded by
+        # wget https://deepcell-data.s3-us-west-1.amazonaws.com/saved-models/MultiplexSegmentation-7.tar.gz 
+        # ref: https://github.com/hubmapconsortium/segmentations/blob/4f1f5e5aa9941274d3959932d43be15909c38177/Dockerfile#L63 
         model_path = config.get("segmentation", {}).get(
             "model_path",
             "/workspaces/codex-analysis/data/deepcell/MultiplexSegmentation",
