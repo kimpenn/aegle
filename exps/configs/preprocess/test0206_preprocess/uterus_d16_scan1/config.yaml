@@ -1,0 +1,12 @@
+exp_id: uterus_d16_scan1
+data:
+  file_name: uterus/D16/Scan1/D16_Scan1.qptiff
+
+bftools:
+  showinf_path: /workspaces/codex-analysis/bftools/showinf
+tissue_extraction:
+  n_tissue: 4
+  downscale_factor: 1024
+  min_area: 500
+  visualize: true
+  manual_mask_csv: "/workspaces/codex-analysis/data/uterus/D16/Scan1/tissue_masks.csv"

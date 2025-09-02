@@ -129,12 +129,14 @@ def plot_clustering_on_mask(
     logging.info(
         f"Expected {max_cell_id} cluster labels, received {len(cluster_labels)}"
     )
+    unique_labels = np.unique(cluster_labels)
+    logging.info(f"Unique cluster labels: {unique_labels}")
+    logging.info(f"Max cluster label: {max(unique_labels)}")
+    logging.info(f"Number of cluster labels: {len(unique_labels)}")
 
     # Get consistent color mapping
     if color_dict is None:
         color_dict = get_cluster_colors(cluster_labels, palette_name)
-
-    unique_labels = np.unique(cluster_labels)
     
     # Build a map from "cell ID" -> "cluster"
     id_to_cluster = np.zeros(max_cell_id + 1, dtype=int)

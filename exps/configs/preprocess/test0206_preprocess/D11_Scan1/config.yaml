@@ -1,0 +1,11 @@
+exp_id: D11_Scan1
+data:
+  file_name: FallopianTube/D11/Scan1/D11_Scan1.er.qptiff
+
+bftools:
+  showinf_path: /workspaces/codex-analysis/bftools/showinf
+tissue_extraction:
+  n_tissue: 4
+  downscale_factor: 64
+  min_area: 500
+  visualize: true

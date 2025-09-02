@@ -1,0 +1,437 @@
+#!/usr/bin/env python
+# coding: utf-8
+"""
+Memory-efficient tissue region extraction for very large TIFF / QPTIFF.
+
+Author: Da Kuang & ChatGPT (May-2025)
+"""
+
+import os
+import sys
+import argparse
+import logging
+import yaml
+import json
+from typing import List, Tuple, Optional
+
+import numpy as np
+import pandas as pd
+import tifffile as tiff
+import cv2
+import matplotlib.pyplot as plt
+from skimage.draw import polygon2mask
+from skimage.measure import label, regionprops
+from skimage.filters import sobel, threshold_otsu
+from skimage.segmentation import watershed
+from scipy import ndimage as ndi
+import zarr
+
+###############################################################################
+# (A) ARGUMENT & CONFIG
+###############################################################################
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser("Extract tissue ROIs from huge TIFF/QPTIFF")
+    p.add_argument("--config", required=True, help="YAML config file")
+    p.add_argument(
+        "--data_dir",
+        default="/workspaces/codex-analysis/data",
+        help="base dir for images",
+    )
+    p.add_argument("--out_dir", default="output_tissue_regions", help="output folder")
+    return p.parse_args()
+
+
+def load_config(cfg_path: str) -> dict:
+    if not os.path.exists(cfg_path):
+        logging.error(f"Config not found: {cfg_path}")
+        sys.exit(1)
+    with open(cfg_path, "r") as f:
+        cfg = yaml.safe_load(f)
+    logging.info(f"Config:\n{json.dumps(cfg, indent=2)}")
+    return cfg
+
+
+###############################################################################
+# (B) LOW-LEVEL IO UTILITIES  (never read full image!)
+###############################################################################
+
+
+def get_tiff_metadata(tiff_path: str) -> Tuple[int, int, int, np.dtype]:
+    """Return (H, W, C, dtype) without loading pixels."""
+    with tiff.TiffFile(tiff_path) as tf:
+        s0 = tf.series[0]
+        if s0.ndim == 3:  # (C,Y,X) or (Y,X,C) depending on writer
+            if s0.shape[0] < s0.shape[-1]:  # (C,Y,X)
+                C, H, W = s0.shape
+            else:  # (Y,X,C)
+                H, W, C = s0.shape
+        else:  # 2-D
+            H, W = s0.shape
+            C = 1
+        dtype = s0.dtype
+    return H, W, C, dtype
+
+
+# def open_as_zarr(tiff_path: str):
+#     """Return zarr-like array (no data loaded yet)."""
+#     return tiff.TiffFile(tiff_path).series[0].aszarr()
+
+def open_as_zarr(tiff_path: str):
+    """
+    Return a zarr.Array backed by the first image plane, regardless of
+    tifffile version (Array / Store / Group).
+    """
+    obj = tiff.TiffFile(tiff_path).series[0].aszarr()
+    logging.info(f"[open_as_zarr] aszarr() returned type: {type(obj)}")
+
+    # Case 1 ─ already zarr.Array (has ndim/shape)
+    if hasattr(obj, "ndim"):
+        logging.info(f"[open_as_zarr] Case 1: Already zarr.Array with shape {obj.shape}")
+        return obj  # ✅
+
+    # Case 2 ─ Store-like objects (including ZarrTiffStore): try wrap directly
+    logging.info(f"[open_as_zarr] Case 2: Trying zarr.open() on {type(obj)}")
+    try:
+        arr = zarr.open(obj, mode="r")
+        logging.info(f"[open_as_zarr] zarr.open() returned type: {type(arr)}")
+        if hasattr(arr, "ndim"):
+            logging.info(f"[open_as_zarr] Case 2a: zarr.open() returned Array with shape {arr.shape}")
+            return arr  # ✅
+        # If zarr.open returns a Group, get the first array
+        if hasattr(arr, "array_keys"):
+            first_key = sorted(arr.array_keys())[0]
+            logging.info(f"[open_as_zarr] Case 2b: zarr.open() returned Group, using key '{first_key}'")
+            return arr[first_key]  # ✅
+    except Exception as e:
+        logging.info(f"[open_as_zarr] Case 2 failed: {e}")
+        pass  # fall-through to Case 3
+
+    # Case 3 ─ zarr.Group: pick the first array (usually key '0')
+    if isinstance(obj, zarr.hierarchy.Group):
+        first_key = sorted(obj.array_keys())[0]
+        logging.info(f"[open_as_zarr] Case 3: Direct zarr.Group, using key '{first_key}'")
+        return obj[first_key]  # ✅
+
+    # Case 4 ─ ZarrTiffStore fallback: try direct zarr.Array construction
+    if 'ZarrTiffStore' in str(type(obj)):
+        logging.info(f"[open_as_zarr] Case 4: ZarrTiffStore fallback")
+        try:
+            result = zarr.Array(obj, path='0', read_only=True)
+            logging.info(f"[open_as_zarr] Case 4 success: zarr.Array with shape {result.shape}")
+            return result
+        except Exception as e:
+            logging.info(f"[open_as_zarr] Case 4 failed: {e}")
+            pass
+
+    # Otherwise unsupported
+    logging.error(f"[open_as_zarr] All cases failed for type: {type(obj)}")
+    raise TypeError(f"aszarr() produced unsupported type: {type(obj)}")
+
+    # Otherwise unsupported
+    raise TypeError(f"aszarr() produced unsupported type: {type(obj)}")
+
+
+def read_crop_from_tiff(
+    zarr_img, bbox: Tuple[int, int, int, int], channels: Optional[List[int]] = None
+) -> np.ndarray:
+    """
+    Random-access read a crop from big TIFF.
+
+    Parameters
+    ----------
+    zarr_img : zarr-like array  (C,Y,X) or (Y,X)
+    bbox     : (minr, maxr, minc, maxc)   in original resolution
+    channels : list of channel indices; None = all
+
+    Returns
+    -------
+    crop : ndarray (H, W, C)  channels last
+    """
+    minr, maxr, minc, maxc = bbox
+    if zarr_img.ndim == 2:  # single channel
+        crop = zarr_img[minr:maxr, minc:maxc][None, ...]  # add C dim
+    else:  # (C,Y,X)
+        if channels is None:
+            crop = zarr_img[:, minr:maxr, minc:maxc]
+        else:
+            crop = zarr_img[channels, minr:maxr, minc:maxc]
+    return np.asarray(crop).transpose(1, 2, 0)  # → (H, W, C)
+
+
+###############################################################################
+# (C) VISUALIZATION  (only low-res thumbs)
+###############################################################################
+
+
+def read_lowres_preview(
+    zarr_img, down_factor: int = 64, channel: int = 0
+) -> np.ndarray:
+    """Return a down-sampled single-channel preview."""
+    if zarr_img.ndim == 2:
+        return zarr_img[::down_factor, ::down_factor]
+    return zarr_img[channel, ::down_factor, ::down_factor]
+
+
+def visualize_polygon_overlay(
+    preview: np.ndarray,
+    polygons: List[np.ndarray],
+    out_path: str,
+    down_factor_preview: int,
+):
+    """Save overlay PNG; preview already downsampled."""
+    from matplotlib.patches import Polygon as PatchPolygon
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.imshow(preview, cmap="gray")
+    for poly in polygons:
+        xy_scaled = np.stack(
+            [poly[:, 1] / down_factor_preview, poly[:, 0] / down_factor_preview], axis=1
+        )
+        ax.add_patch(PatchPolygon(xy_scaled, edgecolor="red", fill=False, lw=1.5))
+    ax.set_axis_off()
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    logging.info(f"[Visualization] Polygon overlay saved ➜ {out_path}")
+
+
+###############################################################################
+# (D) STREAM CROP BY POLYGON  (memory safe)
+###############################################################################
+
+
+def stream_crops_by_polygon(
+    tiff_path: str,
+    polygons: List[np.ndarray],
+    out_dir: str,
+    base_name: str,
+    dtype: np.dtype,
+    channels_keep: Optional[List[int]] = None,
+):
+    """Iterate polygons → read, mask, write; memory peaks < single ROI size."""
+    os.makedirs(out_dir, exist_ok=True)
+    zarr_img = open_as_zarr(tiff_path)
+    H, W, *_ = get_tiff_metadata(tiff_path)
+
+    for i, poly in enumerate(polygons):
+        # full-size mask shape = (H,W) but we only need bbox
+        mask_full = polygon2mask((H, W), poly)
+
+        region = regionprops(label(mask_full.astype(np.uint8)))[0]
+        minr, minc, maxr, maxc = region.bbox
+        bbox = (minr, maxr, minc, maxc)
+
+        crop = read_crop_from_tiff(zarr_img, bbox, channels_keep).astype(dtype)
+
+        mask_crop = mask_full[minr:maxr, minc:maxc]
+        crop[~mask_crop, :] = 0  # broadcast to all channels
+
+        out_path = os.path.join(out_dir, f"{base_name}_manual_{i}.ome.tiff")
+        tiff.imwrite(
+            out_path,
+            crop.transpose(2, 0, 1),
+            compression="lzw",
+            ome=True,
+            metadata={"axes": "CYX"},
+            bigtiff=True,
+        )
+        logging.info(
+            f"[Write] Saved #{i}  crop  shape={crop.shape}  --> {out_path}"
+        )
+
+    # 关闭 zarr（防止文件句柄泄漏）
+    zarr_img.store.close()
+
+
+###############################################################################
+# (E) AUTOMATIC ROI DETECTION  (uses lowres preview only)
+###############################################################################
+
+
+def automatic_rois_from_preview(
+    zarr_img, down_factor: int, n_tissue: int, min_area: int, outdir_vis: str
+) -> List[dict]:
+    """
+    1) Build low-res grayscale preview, watershed segmentation
+    2) Return list of bbox dict in full-res coords
+    """
+    H_full, W_full = zarr_img.shape[-2:]  # works for 2-D or 3-D (C,Y,X)
+
+    # preview （单通道 or mean of few channels）——避免读全部通道
+    if zarr_img.ndim == 3:
+        preview_gray = np.asarray(zarr_img[0, ::down_factor, ::down_factor])
+    else:
+        preview_gray = np.asarray(zarr_img[::down_factor, ::down_factor])
+
+    # ----- segmentation -----
+    elevation = sobel(preview_gray)
+    markers = np.zeros_like(preview_gray, dtype=np.uint8)
+    thr = threshold_otsu(preview_gray)
+    markers[preview_gray < thr] = 1
+    markers[preview_gray >= thr] = 2
+    seg = watershed(elevation, markers)
+    binary = ndi.binary_fill_holes(seg == 2)
+    labeled, num = ndi.label(binary)
+    logging.info(f"[AutoROI] components={num}")
+
+    areas_masks = []
+    for lbl in range(1, num + 1):
+        m = labeled == lbl
+        a = np.count_nonzero(m)
+        if a >= min_area:
+            areas_masks.append((m, a))
+    areas_masks.sort(key=lambda x: x[1], reverse=True)
+    top_masks = [m for m, _ in areas_masks[:n_tissue]]
+
+    # optional preview
+    if outdir_vis:
+        os.makedirs(outdir_vis, exist_ok=True)
+        vis_path = os.path.join(outdir_vis, "auto_tissue_masks_preview.png")
+        fig, axs = plt.subplots(1, len(top_masks), figsize=(4 * len(top_masks), 4))
+        if len(top_masks) == 1:
+            axs = [axs]
+        for i, m in enumerate(top_masks):
+            axs[i].imshow(m, cmap="gray")
+            axs[i].set_title(f"Tissue {i}")
+            axs[i].axis("off")
+        plt.tight_layout()
+        plt.savefig(vis_path, dpi=150)
+        plt.close()
+        logging.info(f"[Visualization] auto masks preview ➜ {vis_path}")
+
+    # convert to full-res bbox
+    rois = []
+    for m in top_masks:
+        rprops = regionprops(label(m.astype(np.uint8)))[0]
+        pr0, pc0, pr1, pc1 = rprops.bbox
+        rois.append(
+            {
+                "min_row": pr0 * down_factor,
+                "min_col": pc0 * down_factor,
+                "max_row": pr1 * down_factor,
+                "max_col": pc1 * down_factor,
+            }
+        )
+    return rois
+
+
+def stream_crops_by_bbox(
+    tiff_path: str,
+    rois: List[dict],
+    out_dir: str,
+    base_name: str,
+    dtype: np.dtype,
+    channels_keep: Optional[List[int]] = None,
+):
+    """Stream read each bbox and write OME-TIFF."""
+    os.makedirs(out_dir, exist_ok=True)
+    zarr_img = open_as_zarr(tiff_path)
+    for i, roi in enumerate(rois):
+        bbox = (roi["min_row"], roi["max_row"], roi["min_col"], roi["max_col"])
+        crop = read_crop_from_tiff(zarr_img, bbox, channels_keep).astype(dtype)
+
+        out_path = os.path.join(out_dir, f"{base_name}_auto_{i}.ome.tiff")
+        tiff.imwrite(
+            out_path,
+            crop.transpose(2, 0, 1),
+            compression="lzw",
+            ome=True,
+            metadata={"axes": "CYX"},
+            bigtiff=True,
+        )
+        logging.info(f"[Write] Saved auto ROI #{i}  {crop.shape}  -> {out_path}")
+    zarr_img.store.close()
+
+
+###############################################################################
+# (F) MAIN PIPELINE
+###############################################################################
+
+
+def run_extraction(cfg: dict, args: argparse.Namespace):
+    img_rel = cfg["data"]["file_name"]
+    tiff_path = os.path.join(args.data_dir, img_rel)
+    os.makedirs(args.out_dir, exist_ok=True)
+
+    # metadata
+    H, W, C, dtype = get_tiff_metadata(tiff_path)
+    logging.info(f"[Meta] H={H}  W={W}  C={C}  dtype={dtype}")
+
+    tissue_cfg = cfg.get("tissue_extraction", {})
+    manual_csv = tissue_cfg.get("manual_mask_csv")
+    down_factor = tissue_cfg.get("downscale_factor", 1024)
+    n_tissue = tissue_cfg.get("n_tissue", 4)
+    min_area = tissue_cfg.get("min_area", 500)
+    visualize = tissue_cfg.get("visualize", True)
+
+    base_name = os.path.splitext(os.path.basename(img_rel))[0]  # e.g. D16_Scan1
+
+    # -------------------------------------------------------------------------
+    # CASE 1: manual polygons
+    # -------------------------------------------------------------------------
+    if manual_csv and os.path.exists(manual_csv):
+        logging.info(f"Using manual polygons: {manual_csv}")
+        df = pd.read_csv(manual_csv)
+        polygons = [
+            g[["axis-0", "axis-1"]].to_numpy(dtype=float)
+            for _, g in df.groupby("index")
+            if len(g) >= 3
+        ]
+
+        # preview overlay (low-res)
+        if visualize:
+            zarr_img = open_as_zarr(tiff_path)
+            preview = read_lowres_preview(zarr_img, down_factor=down_factor)
+            vis_path = os.path.join(args.out_dir, "manual_polygon_overlay.png")
+            visualize_polygon_overlay(preview, polygons, vis_path, down_factor)
+            zarr_img.store.close()
+
+        stream_crops_by_polygon(
+            tiff_path, polygons, args.out_dir, base_name, dtype, channels_keep=None
+        )
+        return
+
+    # -------------------------------------------------------------------------
+    # CASE 2: automatic watershed on low-res preview
+    # -------------------------------------------------------------------------
+    logging.info("Running automatic ROI detection")
+    zarr_img = open_as_zarr(tiff_path)
+    rois = automatic_rois_from_preview(
+        zarr_img,
+        down_factor=down_factor,
+        n_tissue=n_tissue,
+        min_area=min_area,
+        outdir_vis=args.out_dir if visualize else "",
+    )
+    zarr_img.store.close()
+
+    stream_crops_by_bbox(
+        tiff_path, rois, args.out_dir, base_name, dtype, channels_keep=None
+    )
+
+
+###############################################################################
+# (G) ENTRY
+###############################################################################
+
+
+def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] %(message)s",
+    )
+    args = parse_args()
+    cfg = load_config(args.config)
+
+    # Make out_dir include sub-folder like uterus/D16/Scan1
+    subdir = os.path.dirname(cfg["data"]["file_name"])
+    args.out_dir = os.path.join(args.out_dir, subdir)
+
+    run_extraction(cfg, args)
+    logging.info("Done ✓")
+
+
+if __name__ == "__main__":
+    main()

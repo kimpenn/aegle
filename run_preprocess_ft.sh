@@ -1,7 +1,10 @@
 #!/bin/bash
 
+# Define the maximum number of concurrent experiments (default: 2)
+MAX_CONCURRENT=${1:-2}
+
 # Define the experiment set name (same logic as in the main script)
-EXP_SET_NAME="preprocess/test0206_preprocess"
+EXP_SET_NAME="preprocess/preprocess_ft"  # test0206_preprocess
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -23,15 +26,23 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names (or ID's)
 declare -a EXPERIMENTS=(
-  "d18_scan1"
-  # "d18_scan2"
-  # "H33_scan1"
-  "d11_scan1"
+  # "D10"
+  "D11"
+  # "D13"
+  # "D14"
+  # "D15"
+  # "D16"
+  # "D17"
+  # "D18"
 )
 
-# Loop through the experiments and call run_extract_tissue.sh for each
-for EXP_ID in "${EXPERIMENTS[@]}"; do
-  LOG_FILE="${LOG_DIR}/${EXP_ID}.log"
+echo "Starting processing with maximum $MAX_CONCURRENT concurrent experiments"
+
+# Function to run a single experiment
+run_experiment() {
+  local EXP_ID=$1
+  local LOG_FILE="${LOG_DIR}/${EXP_ID}.log"
+  
   echo "Initiating tissue extraction for experiment $EXP_ID"
   {
     echo "Current time: $(date)"
@@ -59,6 +70,46 @@ for EXP_ID in "${EXPERIMENTS[@]}"; do
     echo "Antibody extraction for ${EXP_ID} completed."
 
   } > "$LOG_FILE" 2>&1
+  
+  echo "Experiment $EXP_ID finished at $(date)"
+}
+
+# Counter for active jobs
+declare -a PIDS=()
+
+# Loop through the experiments with concurrency control
+for EXP_ID in "${EXPERIMENTS[@]}"; do
+  # If we've reached the maximum concurrent jobs, wait for one to finish
+  while [ ${#PIDS[@]} -ge $MAX_CONCURRENT ]; do
+    # Check which jobs have finished
+    for i in "${!PIDS[@]}"; do
+      if ! kill -0 "${PIDS[$i]}" 2>/dev/null; then
+        # Job has finished, remove it from the array
+        unset "PIDS[$i]"
+      fi
+    done
+    
+    # Rebuild the array to remove gaps
+    PIDS=("${PIDS[@]}")
+    
+    # If still at max, wait a bit before checking again
+    if [ ${#PIDS[@]} -ge $MAX_CONCURRENT ]; then
+      sleep 1
+    fi
+  done
+  
+  # Start the experiment in background
+  run_experiment "$EXP_ID" &
+  PID=$!
+  PIDS+=($PID)
+  
+  echo "Started experiment $EXP_ID with PID $PID (${#PIDS[@]}/$MAX_CONCURRENT slots used)"
+done
+
+# Wait for all remaining jobs to complete
+echo "Waiting for all remaining experiments to complete..."
+for PID in "${PIDS[@]}"; do
+  wait $PID
 done
 
 echo "All tissue extractions completed."

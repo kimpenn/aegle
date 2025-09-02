@@ -1,5 +1,5 @@
 # Top-level configuration for CODEX pipeline
-exp_id: D18_Scan1_1
+exp_id: D18_Scan1_1_patches_1000
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
@@ -29,9 +29,15 @@ channels:
     - Collagen IV
     - FUT4
 patching:
+  # Split mode can be "full_image", "halves", "quarters", or "patches"
+  split_mode: full_image
+
+  # Split direction can be "vertical" or "horizontal"
+  split_direction: NULL
+
   # Size (height, width) of each patch (in pixels)
-  patch_height: 1000
-  patch_width: 1000
+  patch_height: -1
+  patch_width: -1
 
   # Overlap fraction between adjacent patches (0.1 means 10% overlap)
   overlap: 0.1
@@ -41,7 +47,7 @@ patching:
 # -----------------------------------------------------------------------------
 visualization:
   # Whether to save an RGB visualization of the entire sample (e.g., nuclear vs. whole-cell)
-  visualize_whole_sample: true
+  visualize_whole_sample: false
 
   # How to downsample the visualization image (null = no downsampling, -1 = auto-downsampling, 
   # or positive integer for specific downsample factor)
@@ -77,13 +83,16 @@ patch_qc:
 # -----------------------------------------------------------------------------
 segmentation:
   # Path to the segmentation model directory (e.g., for DeepCell or another tool)
-  model_path: /workspaces/codex-analysis/data/deepcell/MultiplexSegmentation
+  model_path: /workspaces/codex-analysis/data/deepcell/v7/MultiplexSegmentation
 
   # If True, save segmentation masks as images
   save_segmentation_images: true
 
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
   save_segmentation_pickle: true
+
+  # If True, run segmentation analysis
+  segmentation_analysis: false
 
 # -----------------------------------------------------------------------------
 # (G) Testing Data Disruption (Optional) 
@@ -105,15 +114,3 @@ testing:
 # -----------------------------------------------------------------------------
 evaluation:
   compute_metrics: false
-
-# -----------------------------------------------------------------------------
-# (I) Parallel Processing Settings
-# -----------------------------------------------------------------------------
-parallel_processing:
-  # Number of worker processes to use for parallelizable operations
-  # Based on your system with 128 cores, use 4 workers as requested
-  workers: 10
-  
-  # Maximum memory per worker in GB (0 = no limit)
-  max_memory_per_worker: 0
-  

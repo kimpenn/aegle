@@ -1,0 +1,14 @@
+exp_id: D14
+data:
+  file_name: 
+    /workspaces/codex-analysis/data/FallopianTube/D14/img0009/img0009.qptiff
+
+bftools:
+  showinf_path: /workspaces/codex-analysis/bftools/showinf
+tissue_extraction:
+  n_tissue: 4
+  downscale_factor: 64
+  min_area: 500
+  visualize: true
+  manual_mask_json: 
+    /workspaces/codex-analysis/data/FallopianTube/D14/img0009/img0009_annotations.json

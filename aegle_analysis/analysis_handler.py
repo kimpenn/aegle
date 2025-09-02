@@ -16,6 +16,7 @@ from aegle_analysis.data import (
     process_dapi,
     load_segmentation_data,
     prepare_data_for_analysis,
+    log1p_transform,
 )
 
 from aegle_analysis.analysis import (
@@ -121,6 +122,11 @@ def run_analysis(config, args):
     logging.info(f"Normalizing data with {norm_method}...")
     data_df = prepare_data_for_analysis(exp_df, norm=norm_method)
     logging.info(f"data_df: {data_df}")
+    
+    # ================= 3.5. PREPARE LOG1P-TRANSFORMED RAW DATA =================
+    logging.info("Preparing log1p-transformed raw data for calculating raw means...")
+    log1p_data_df = log1p_transform(exp_df)
+    logging.info(f"log1p_data_df: {log1p_data_df}")
 
     # ================= 4. CLUSTERING =================
     logging.info("Running clustering analysis...")
@@ -137,24 +143,98 @@ def run_analysis(config, args):
     logging.info("Performing differential expression analysis...")
     cluster_labels = adata.obs["leiden"]
     logging.info(f"Cluster labels: {cluster_labels}")
-    de_results = one_vs_rest_wilcoxon(data_df, cluster_labels)
+    # Pass both normalized and log1p-transformed data to DE analysis
+    de_results = one_vs_rest_wilcoxon(data_df, cluster_labels, log1p_data_df)
 
     # Export DE results
     export_de_results(de_results, de_dir)
 
-    # Build and save log fold change matrix
-    lfc_matrix = build_fold_change_matrix(de_results)
-    lfc_matrix.to_csv(os.path.join(de_dir, "log_fold_change_matrix.csv"))
+    # Build and save both fold change matrices
+    logging.info("Building fold change matrices...")
+    lfc_matrix = build_fold_change_matrix(de_results, use_log=True, use_raw=False)
+    fc_matrix = build_fold_change_matrix(de_results, use_log=False, use_raw=False)
+    lfc_raw_matrix = build_fold_change_matrix(de_results, use_log=True, use_raw=True)
+    fc_raw_matrix = build_fold_change_matrix(de_results, use_log=False, use_raw=True)
+    
+    # Build top 5 markers matrices
+    logging.info("Building top 5 markers fold change matrices...")
+    lfc_matrix_top5 = build_fold_change_matrix(de_results, use_log=True, use_raw=False, top_n_markers=5)
+    fc_matrix_top5 = build_fold_change_matrix(de_results, use_log=False, use_raw=False, top_n_markers=5)
+    lfc_raw_matrix_top5 = build_fold_change_matrix(de_results, use_log=True, use_raw=True, top_n_markers=5)
+    fc_raw_matrix_top5 = build_fold_change_matrix(de_results, use_log=False, use_raw=True, top_n_markers=5)
+    
+    # Save all matrices
+    lfc_matrix.to_csv(os.path.join(de_dir, "log_fold_change_matrix_norm.csv"))
+    fc_matrix.to_csv(os.path.join(de_dir, "fold_change_matrix_norm.csv"))
+    lfc_raw_matrix.to_csv(os.path.join(de_dir, "log_fold_change_matrix_raw.csv"))
+    fc_raw_matrix.to_csv(os.path.join(de_dir, "fold_change_matrix_raw.csv"))
+    
+    # Save top 5 matrices
+    lfc_matrix_top5.to_csv(os.path.join(de_dir, "log_fold_change_matrix_norm_top5.csv"))
+    fc_matrix_top5.to_csv(os.path.join(de_dir, "fold_change_matrix_norm_top5.csv"))
+    lfc_raw_matrix_top5.to_csv(os.path.join(de_dir, "log_fold_change_matrix_raw_top5.csv"))
+    fc_raw_matrix_top5.to_csv(os.path.join(de_dir, "fold_change_matrix_raw_top5.csv"))
+    
+    # save log1p_data_df to csv
+    log1p_data_df.to_csv(os.path.join(de_dir, "log1p_data_df.csv"))
 
     # ================= 6. HEATMAP VISUALIZATION =================
     if not skip_viz:
-        logging.info("Generating cluster heatmap...")
+        logging.info("Generating cluster heatmaps...")
+        
+        # Log2 fold change heatmap
         plot_heatmap(
             lfc_matrix,
             title="Cluster vs. Rest: log2 Fold Change",
             center=0,
             cmap="RdBu_r",
-            output_path=os.path.join(plots_dir, "cluster_heatmap.png"),
+            output_path=os.path.join(plots_dir, "cluster_heatmap_log2fc.png"),
+        )
+        
+        # Regular fold change heatmap
+        plot_heatmap(
+            fc_matrix,
+            title="Cluster vs. Rest: Fold Change",
+            center=1,  # Center at 1 for fold change (no change)
+            cmap="RdBu_r",
+            output_path=os.path.join(plots_dir, "cluster_heatmap_fc.png"),
+        )
+
+        # Log2 fold change heatmap
+        plot_heatmap(
+            lfc_raw_matrix,
+            title="Cluster vs. Rest: log2 Fold Change (raw)",
+            center=0,
+            cmap="RdBu_r",
+            output_path=os.path.join(plots_dir, "cluster_heatmap_log2fc_raw.png"),
+        )
+
+        # Regular fold change heatmap
+        plot_heatmap(
+            fc_raw_matrix,
+            title="Cluster vs. Rest: Fold Change (raw)",
+            center=1,
+            cmap="RdBu_r",
+            output_path=os.path.join(plots_dir, "cluster_heatmap_fc_raw.png"),
+        )
+        
+        # Top 5 markers heatmaps
+        logging.info("Generating top 5 markers heatmaps...")
+        
+        plot_heatmap(
+            lfc_matrix_top5,
+            title="Cluster vs. Rest: log2 Fold Change (Top 5 Markers)",
+            center=0,
+            cmap="RdBu_r",
+            output_path=os.path.join(plots_dir, "cluster_heatmap_log2fc_top5.png"),
+        )
+        
+        plot_heatmap(
+            lfc_raw_matrix_top5,
+            title="Cluster vs. Rest: log2 Fold Change Raw (Top 5 Markers)",
+            center=0,
+            cmap="RdBu_r",
+            output_path=os.path.join(plots_dir, "cluster_heatmap_log2fc_raw_top5.png"),
         )
 
     # ================= 7. SPATIAL VISUALIZATION =================

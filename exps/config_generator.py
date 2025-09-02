@@ -4,8 +4,9 @@ from ruamel.yaml import YAML
 import ast
 
 # TODO:: Change this according to the csv file
-experiment_set_name = "test0206_main"
-# experiment_set_name = "test_analysis"
+# test0206_preprocess, test0206_main， test_analysis
+# preprocess_ft, main_ft, analysis_ft
+experiment_set_name = "main_ft"
 # TODO:: Change this according to the analysis step
 # "preprocess", "main", "analysis"
 analysis_step = "main"  
@@ -115,7 +116,10 @@ def generate_config_files(design_table_path, default_config_path, output_dir):
             elif keys[-1] in [
                 "patch_width",
                 "patch_height",
-                "patch_index"
+                "patch_index",
+                "n_tissue",
+                "downscale_factor",
+                "min_area"
             ]:
                 v = int(v)
             elif keys[-1] == "output_dim":
@@ -130,7 +134,8 @@ def generate_config_files(design_table_path, default_config_path, output_dir):
                 "visualize_patches", "save_all_channel_patches", 
                 "visualize_segmentation", "save_segmentation_images", 
                 "save_segmentation_pickle", "save_disrupted_patches", 
-                "compute_metrics", "skip_viz", "enhance_contrast"
+                "compute_metrics", "skip_viz", "enhance_contrast", "visualize", 
+                "segmentation_analysis"
                 ]:
                 v = str_to_bool(v)
             elif v == "None":

@@ -16,26 +16,31 @@ import numpy as np
 def one_vs_rest_wilcoxon(
     df: pd.DataFrame,
     cluster_series: pd.Series,
+    log1p_df: pd.DataFrame,
 ) -> Dict[str, pd.DataFrame]:
     """
     Performs one-vs-rest Wilcoxon rank-sum tests for each cluster.
 
     Args:
-        df: (n_cells, n_markers) DataFrame of intensities (already transformed if needed)
+        df: (n_cells, n_markers) DataFrame of normalized intensities for statistical testing
         cluster_series: Series of cluster labels for each row in df
+        log1p_df: (n_cells, n_markers) DataFrame of log1p-transformed raw intensities for calculating raw means
     Returns:
         Dictionary of cluster -> DataFrame with columns:
-            [feature, p_value, p_value_corrected, log2_fold_change]
+            [feature, p_value, p_value_corrected, log2_fold_change, mean_cluster_norm, mean_rest_norm, 
+             mean_cluster_log1p, mean_rest_log1p]
     """
     logging.info("Starting differential expression analysis...")
-
+    if log1p_df is None:
+        raise ValueError("log1p_df must be provided for calculating fold-change.")
+    
     # Debugging index mismatch
     logging.info(f"df index: {df.index}")
     logging.info(f"cluster_series index: {cluster_series.index}")
-
+    logging.info(f"log1p_df index: {log1p_df.index}")
     logging.info(f"df: {df}")
     logging.info(f"cluster_series: {cluster_series}")
-
+    
     if not df.index.equals(cluster_series.index):
         logging.warning(
             "Index mismatch detected between df and cluster_series. Reindexing cluster_series."
@@ -50,6 +55,11 @@ def one_vs_rest_wilcoxon(
         cluster_series = cluster_series.reindex(df.index)
 
     logging.info(f"updated cluster_series: {cluster_series}")
+
+    # If log1p_df is provided, ensure it has the same index as df
+    if log1p_df is not None and not df.index.equals(log1p_df.index):
+        logging.warning("Index mismatch between df and log1p_df. Reindexing log1p_df.")
+        log1p_df = log1p_df.reindex(df.index)
 
     features = df.columns
     unique_clusters = sorted(cluster_series.unique())
@@ -71,46 +81,73 @@ def one_vs_rest_wilcoxon(
         cluster_mask = cluster_series == cluster
         logging.info(f"cluster mask index: {cluster_mask.index}")
 
+        # Get samples for statistical testing (normalized data)
         cluster_samples = df.loc[cluster_mask]
         rest_samples = df.loc[~cluster_mask]
+        
+        # Get samples for calculating raw means (log1p-transformed data)
+        cluster_samples_log1p = log1p_df.loc[cluster_mask]
+        rest_samples_log1p = log1p_df.loc[~cluster_mask]
 
         p_values = []
         fc_list = []
         log2_fc_list = []
-        mean_cluster_list = []
-        mean_rest_list = []
+        fc_raw_list = []
+        log2_fc_raw_list = []
+        mean_cluster_norm_list = []
+        mean_rest_norm_list = []
+        mean_cluster_log1p_list = []
+        mean_rest_log1p_list = []
         A_value_list = []
         
         for feature in features:
-            # Wilcoxon rank-sum
+            # Wilcoxon rank-sum test on normalized data
             stat, p = ranksums(cluster_samples[feature], rest_samples[feature])
             p_values.append(p)
 
-            # Compute fold change
-            mean_clust = cluster_samples[feature].mean()
-            mean_rest = rest_samples[feature].mean()
+            # Compute fold change from normalized data (for consistency with statistical test)
+            mean_clust_norm = cluster_samples[feature].mean()
+            mean_rest_norm = rest_samples[feature].mean()
             
             # Calculate FC as effect size 
-            # TODO: Consider other effect size succh as Cliff’s Delta or AUC
+            # TODO: Consider other effect size such as Cliff's Delta or AUC
             
             # Fold Change (log2( (mean_clust + ε) / (mean_rest + ε) ))
             fc_value = (
-                (mean_clust + 1e-9) / (mean_rest + 1e-9)
-                if mean_rest > 0
+                (mean_clust_norm + 1e-9) / (mean_rest_norm + 1e-9)
+                if mean_rest_norm > 0
                 else np.nan
             )
             log2_fc_value = np.log2(fc_value) if fc_value > 0 else np.nan
+            
             # For MA-plot: A = 0.5 * (log2(mean_clust + 1) + log2(mean_rest + 1))
             A_value = 0.5 * (
-                np.log2(mean_clust + 1e-9) + np.log2(mean_rest + 1e-9)
+                np.log2(mean_clust_norm + 1e-9) + np.log2(mean_rest_norm + 1e-9)
             )
 
+            # Store normalized means
+            mean_cluster_norm_list.append(mean_clust_norm)
+            mean_rest_norm_list.append(mean_rest_norm)
 
+            # Calculate fold change from raw data
+            mean_clust_log1p = cluster_samples_log1p[feature].mean()
+            mean_rest_log1p = rest_samples_log1p[feature].mean()
+            mean_cluster_log1p_list.append(mean_clust_log1p)
+            mean_rest_log1p_list.append(mean_rest_log1p)
+             
+            fc_raw_value = (
+                (mean_clust_log1p + 1e-9) / (mean_rest_log1p + 1e-9)
+                if mean_rest_log1p > 0
+                else np.nan
+            )
+            log2_fc_raw_value = np.log2(fc_raw_value) if fc_raw_value > 0 else np.nan
+            
+            fc_raw_list.append(fc_raw_value)
+            log2_fc_raw_list.append(log2_fc_raw_value)
             fc_list.append(fc_value)
             log2_fc_list.append(log2_fc_value)
-            mean_cluster_list.append(mean_clust)
-            mean_rest_list.append(mean_rest)
             A_value_list.append(A_value)
+            
             logging.info(f"Feature: {feature}, p-value: {p}, log2_fc: {log2_fc_value}, fc: {fc_value}")
         
         corrected_p = multipletests(p_values, method="fdr_bh")[1]
@@ -120,9 +157,13 @@ def one_vs_rest_wilcoxon(
                 "p_value": p_values,
                 "p_value_corrected": corrected_p,
                 "fold_change": fc_list,
+                "fold_change_raw": fc_raw_list,
                 "log2_fold_change": log2_fc_list,
-                "mean_cluster": mean_cluster_list,
-                "mean_rest": mean_rest_list,
+                "log2_fold_change_raw": log2_fc_raw_list,
+                "mean_cluster_norm": mean_cluster_norm_list,
+                "mean_rest_norm": mean_rest_norm_list,
+                "mean_cluster_log1p": mean_cluster_log1p_list,
+                "mean_rest_log1p": mean_rest_log1p_list,
                 "A_value": A_value_list,
             }
         )
@@ -138,12 +179,21 @@ def one_vs_rest_wilcoxon(
     return results
 
 
-def build_fold_change_matrix(results: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+def build_fold_change_matrix(
+    results: Dict[str, pd.DataFrame], 
+    use_log: bool = True, 
+    use_raw: bool = False, 
+    top_n_markers: Optional[int] = None
+) -> pd.DataFrame:
     """
     Build a matrix of fold changes (either log2 or normal) from differential expression results.
 
     Args:
         results: Dictionary mapping cluster labels to differential expression results
+        use_log: If True, returns log2 fold change matrix. If False, returns regular fold change matrix.
+        use_raw: If True, returns raw fold change matrix. If False, returns normalized fold change matrix.
+        top_n_markers: If specified, only include top N markers per cluster based on absolute fold change.
+                      If None, include all markers.
 
     Returns:
         DataFrame with clusters as rows and features as columns, containing fold changes.
@@ -152,29 +202,58 @@ def build_fold_change_matrix(results: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         logging.error("Empty results dictionary. Returning empty DataFrame.")
         return pd.DataFrame()
 
-    # Determine if the results contain log2 fold change or regular fold change
+    # Determine which fold change column to use based on use_log parameter
     first_cluster = next(iter(results))
-    if "log2_fold_change" in results[first_cluster].columns:
+    if use_log and use_raw and "log2_fold_change_raw" in results[first_cluster].columns:
+        fc_col = "log2_fold_change_raw"
+    elif use_log and not use_raw and "log2_fold_change" in results[first_cluster].columns:
         fc_col = "log2_fold_change"
-    elif "fold_change" in results[first_cluster].columns:
-        fc_col = "fold_change"
+    elif not use_log and use_raw and "fold_change_raw" in results[first_cluster].columns:
+        fc_col = "fold_change_raw"
+    elif not use_log and not use_raw and "fold_change" in results[first_cluster].columns:
+        fc_col = "fold_change" 
     else:
         logging.error(
             "No valid fold change column found in results. Returning empty DataFrame."
         )
         return pd.DataFrame()
 
-    features = results[first_cluster]["feature"].values
+    # Get all features and clusters
+    all_features = results[first_cluster]["feature"].values
     unique_clusters = sorted(results.keys())
 
+    # If top_n_markers is specified, find top markers for each cluster
+    if top_n_markers is not None:
+        top_markers_set = set()
+        
+        for cluster, df_res in results.items():
+            # Sort by absolute fold change value and take top N
+            df_sorted = df_res.copy()
+            df_sorted['abs_fc'] = df_sorted[fc_col].abs()
+            df_sorted = df_sorted.sort_values('abs_fc', ascending=False)
+            
+            # Get top N markers for this cluster
+            top_markers_cluster = df_sorted.head(top_n_markers)["feature"].tolist()
+            top_markers_set.update(top_markers_cluster)
+            
+            logging.info(f"Cluster {cluster} top {top_n_markers} markers: {top_markers_cluster}")
+        
+        # Use only the union of top markers across all clusters
+        features_to_use = sorted(list(top_markers_set))
+        logging.info(f"Total unique top markers across all clusters: {len(features_to_use)}")
+    else:
+        # Use all features
+        features_to_use = all_features
+
     # Initialize matrix
-    fc_matrix = pd.DataFrame(index=unique_clusters, columns=features, dtype=float)
+    fc_matrix = pd.DataFrame(index=unique_clusters, columns=features_to_use, dtype=float)
 
     # Fill matrix with fold changes
     for cluster, df_res in results.items():
         for _, row in df_res.iterrows():
             feat = row["feature"]
-            fc_matrix.loc[cluster, feat] = row[fc_col]
+            if feat in features_to_use:  # Only include if feature is in our selected set
+                fc_matrix.loc[cluster, feat] = row[fc_col]
 
     # Replace any NaNs or inf
     fc_matrix = fc_matrix.replace([np.inf, -np.inf], np.nan).fillna(0)
@@ -272,7 +351,7 @@ def export_de_results(results: Dict[str, pd.DataFrame], output_dir: str, alpha=0
         df_res = df_res_full[df_res_full["p_value_corrected"] < alpha].copy()
 
         # 3) Sort by fold_change descending, etc.
-        df_res.sort_values(by="fold_change", ascending=False, inplace=True)
+        df_res.sort_values(by="fold_change_raw", ascending=False, inplace=True)
 
         # 4) Save the full DE list for each cluster (filtered by p-value, but not by fold change)
         output_path = os.path.join(output_dir, f"de_markers_cluster_{cluster}.csv")
@@ -280,8 +359,8 @@ def export_de_results(results: Dict[str, pd.DataFrame], output_dir: str, alpha=0
         logging.info(f"Saved DE results (filtered) for cluster {cluster} to {output_path}")
         
         # 5) Optionally, split into positive/negative fold_change
-        df_res_pos = df_res[df_res["fold_change"] > 1]  # e.g. fold change > 1
-        df_res_neg = df_res[df_res["fold_change"] < 1]  # e.g. fold change < 1
+        df_res_pos = df_res[df_res["fold_change_raw"] > 1]  # e.g. fold change > 1
+        df_res_neg = df_res[df_res["fold_change_raw"] < 1]  # e.g. fold change < 1
 
         df_res_pos.to_csv(os.path.join(output_dir, f"de_markers_cluster_{cluster}_pos.csv"), index=False)
         df_res_neg.to_csv(os.path.join(output_dir, f"de_markers_cluster_{cluster}_neg.csv"), index=False)
@@ -351,7 +430,7 @@ def plot_volcano(
         label_points: whether to label points with their feature names
         suffix: additional string to append to output filename
     """
-    # Make sure we don’t get NaNs messing with plotting
+    # Make sure we don't get NaNs messing with plotting
     df = df.dropna(subset=["log2_fold_change", "p_value_corrected"]).copy()
     df["neg_log10_p"] = -np.log10(df["p_value_corrected"] + 1e-300)
 

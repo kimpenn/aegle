@@ -1,0 +1,14 @@
+exp_id: D10
+data:
+  file_name: 
+    /workspaces/codex-analysis/data/FallopianTube/D10/img0003/img0003.qptiff
+
+bftools:
+  showinf_path: /workspaces/codex-analysis/bftools/showinf
+tissue_extraction:
+  n_tissue: 4
+  downscale_factor: 64
+  min_area: 500
+  visualize: true
+  manual_mask_json: 
+    /workspaces/codex-analysis/data/FallopianTube/D10/img0003/img0003_annotations.json

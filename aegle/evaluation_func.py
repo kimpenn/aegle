@@ -748,7 +748,8 @@ def get_matched_masks(cell_mask, nucleus_mask):
                 cell_matched_index_list.append(i_ind)
                 nucleus_matched_index_list.append(j_ind)
             else:
-                logging.debug(f"Skipped cell#{str(i)}")
+                # logging.debug(f"Skipped cell#{str(i)}")
+                pass
 
     if repaired_num > 0:
         logging.debug(

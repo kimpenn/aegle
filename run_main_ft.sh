@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the experiment set name
-EXP_SET_NAME="test0206_main"  # "explore-eval-scores-dev" or "explore-eval-scores"
+EXP_SET_NAME="main_ft"  # "explore-eval-scores-dev" or "explore-eval-scores", "test0206_main"
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -23,7 +23,41 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
+  # "D10_0"
+  # "D10_1"
+  # "D10_2"
+  # "D10_3"
+  "D11_0"
+  "D11_1"
+  "D11_2"
+  "D11_3"
+  # "D13_0"
+  # "D13_1"
+  # "D13_2"
+  # "D13_3"
+  # "D13_4"
+  # "D14_0"
+  # "D14_1"
+  # "D14_2"
+  # "D14_3"
+  # "D15_0"
+  # "D15_1"
+  # "D15_2"
+  # "D15_3"
+  # "D16_0"
+  # "D16_1"
+  # "D16_2"
+  # "D16_3"
+  # "D17_0"
+  # "D17_1"
+  # "D17_2"
+  # "D17_3"
+  # "D18_0"
+  # "D18_1"
+  # "D18_2"
+  # "D18_3"  
   # "test-1"
+  # "D16_Scan1_0"
   # "D18_Scan1_0"
   # "D18_Scan1_1"
   # "D18_Scan1_2"
@@ -36,8 +70,8 @@ declare -a EXPERIMENTS=(
   # "D18_Scan1_1_markerset_1_patches_1000"
   # "D18_Scan1_1_markerset_3_patches_1000"
   # "D18_Scan1_1_markerset_4_patches_1000"   
-  "D18_Scan1_1_patches_1000"
-  "D18_Scan1_1_markerset_2_patches_1000"
+  # "D18_Scan1_1_patches_1000"
+  # "D18_Scan1_1_markerset_2_patches_1000"
 )
 
 # Count total experiments

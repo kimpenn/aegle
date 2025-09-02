@@ -30,6 +30,12 @@ channels:
     - Beta-actin
     - FUT4
 patching:
+  # Split mode can be "full_image", "halves", "quarters", or "patches"
+  split_mode: full_image
+
+  # Split direction can be "vertical" or "horizontal"
+  split_direction: NULL
+
   # Size (height, width) of each patch (in pixels)
   patch_height: -1
   patch_width: -1
@@ -78,13 +84,16 @@ patch_qc:
 # -----------------------------------------------------------------------------
 segmentation:
   # Path to the segmentation model directory (e.g., for DeepCell or another tool)
-  model_path: /workspaces/codex-analysis/data/deepcell/MultiplexSegmentation
+  model_path: /workspaces/codex-analysis/data/deepcell/v7/MultiplexSegmentation
 
   # If True, save segmentation masks as images
   save_segmentation_images: true
 
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
   save_segmentation_pickle: true
+
+  # If True, run segmentation analysis
+  segmentation_analysis: false
 
 # -----------------------------------------------------------------------------
 # (G) Testing Data Disruption (Optional) 

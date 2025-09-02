@@ -130,8 +130,9 @@ def plot_heatmap(
 
     # Create clustermap
     g = sns.clustermap(
-        matrix,
+        matrix.T,
         cmap=cmap,
+        vmin=-1, vmax=1, # for log2 fold change
         center=center,
         robust=True,
         figsize=figsize,

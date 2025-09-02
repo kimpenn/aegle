@@ -13,6 +13,7 @@ from scipy.sparse import csr_matrix
 from aegle.codex_patches import CodexPatches
 from aegle.visualization import make_outline_overlay
 from aegle.repair_masks import repair_masks_batch
+from aegle.memory_monitor import memory_monitor
 
 Image = np.ndarray
 import pickle
@@ -34,32 +35,158 @@ def run_cell_segmentation(
     Returns:
         Tuple[List[dict], float, List[dict]]: Matched segmentation results, fraction matched, and original segmentation results.
     """
+    
+    memory_monitor.log_memory_usage("Start of run_cell_segmentation")
 
-    patches_ndarray = codex_patches.get_patches()
-    logging.info(f"Number of patches: {len(patches_ndarray)}")
-    logging.info(f"dtype of patches: {patches_ndarray.dtype}")
+    patches_info = codex_patches.get_patches()
     patches_metadata_df = codex_patches.get_patches_metadata()
 
-    # Select only valid patches
-    idx = patches_metadata_df["is_infomative"] == True
-    valid_patches = patches_ndarray[idx]
-    if valid_patches.size == 0:
-        logging.warning("No valid patches available for segmentation.")
-        return None
-    codex_patches.valid_patches = valid_patches
+    # Check if we're using disk-based patches
+    if isinstance(patches_info, dict) and patches_info.get("disk_based", False):
+        logging.info("Using disk-based patches for segmentation")
+        
+        # Select only valid patch indices
+        idx = patches_metadata_df["is_infomative"] == True
+        valid_patch_indices = [i for i, is_valid in enumerate(idx) if is_valid]
+        
+        if not valid_patch_indices:
+            logging.warning("No valid patches available for segmentation.")
+            return None
+            
+        logging.info(f"Found {len(valid_patch_indices)} valid patches out of {len(patches_metadata_df)} total patches")
+        
+    else:
+        # Traditional in-memory patches
+        logging.info(f"Number of patches: {len(patches_info)}")
+        logging.info(f"dtype of patches: {patches_info.dtype}")
+        memory_monitor.log_array_info(patches_info, "patches_ndarray")
+        
+        # Select only valid patches
+        idx = patches_metadata_df["is_infomative"] == True
+        valid_patches = patches_info[idx]
+        if valid_patches.size == 0:
+            logging.warning("No valid patches available for segmentation.")
+            return None
+        codex_patches.valid_patches = valid_patches
+        
+        memory_monitor.log_array_info(valid_patches, "valid_patches")
+    memory_monitor.log_memory_usage("Before segmentation")
 
-    seg_res_batch = segment(valid_patches, config)
+    # Get split mode to determine processing strategy
+    patching_config = config.get("patching", {})
+    split_mode = patching_config.get("split_mode", "patches")
+    
+    # Handle disk-based patches (always use sequential processing)
+    if isinstance(patches_info, dict) and patches_info.get("disk_based", False):
+        logging.info(f"Using sequential disk-based processing for split_mode='{split_mode}' to manage memory")
+        logging.info(f"Processing {len(valid_patch_indices)} large patches individually from disk...")
+        
+        seg_res_batch = []
+        for i, patch_idx in enumerate(valid_patch_indices):
+            try:
+                logging.info(f"Processing patch {i+1}/{len(valid_patch_indices)} (patch_index: {patch_idx}, split_mode: {split_mode})")
+                memory_monitor.log_memory_usage(f"Before loading patch {i+1}")
+                
+                # Load patch from disk
+                patch = codex_patches.load_patch_from_disk(patch_idx, "extracted")
+                logging.info(f"Patch {i+1} shape: {patch.shape}")
+                
+                memory_monitor.log_memory_usage(f"After loading patch {i+1}")
+                
+                # Process single patch (reshape to batch format)
+                single_patch = np.array([patch])  # Shape: (1, height, width, channels)
+                
+                # Clear original patch from memory before segmentation
+                del patch
+                import gc
+                gc.collect()
+                memory_monitor.log_memory_usage(f"After clearing loaded patch {i+1}")
+                
+                # Segment the single patch
+                single_result = segment(single_patch, config)
+                seg_res_batch.extend(single_result)
+                
+                # Clear segmentation input
+                del single_patch
+                gc.collect()
+                
+                logging.info(f"Patch {i+1}/{len(valid_patch_indices)} completed successfully")
+                memory_monitor.log_memory_usage(f"After processing patch {i+1}")
+                
+            except Exception as e:
+                error_msg = f"Failed to process patch {i+1}/{len(valid_patch_indices)} (patch_index: {patch_idx}) in split_mode '{split_mode}': {str(e)}"
+                logging.error(error_msg, exc_info=True)
+                raise RuntimeError(error_msg) from e
+                
+        logging.info(f"Sequential disk-based processing completed successfully. Processed {len(seg_res_batch)} patches total.")
+        
+    elif split_mode in ["halves", "quarters", "full_image"]:
+        # Sequential processing for memory management modes (in-memory patches)
+        logging.info(f"Using sequential processing for split_mode='{split_mode}' to manage memory")
+        logging.info(f"Processing {len(valid_patches)} large patches individually...")
+        
+        seg_res_batch = []
+        for i, patch in enumerate(valid_patches):
+            try:
+                logging.info(f"Processing patch {i+1}/{len(valid_patches)} (split_mode: {split_mode})")
+                memory_monitor.log_memory_usage(f"Before processing patch {i+1}")
+                
+                # Process single patch (reshape to batch format)
+                single_patch = np.array([patch])  # Shape: (1, height, width, channels)
+                logging.info(f"Patch {i+1} shape: {patch.shape}")
+                
+                # Segment the single patch
+                single_result = segment(single_patch, config)
+                seg_res_batch.extend(single_result)
+                
+                logging.info(f"Patch {i+1}/{len(valid_patches)} completed successfully")
+                memory_monitor.log_memory_usage(f"After processing patch {i+1}")
+                
+                # Memory cleanup between patches
+                import gc
+                gc.collect()
+                memory_monitor.log_memory_usage(f"After garbage collection for patch {i+1}")
+                
+            except Exception as e:
+                error_msg = f"Failed to process patch {i+1}/{len(valid_patches)} in split_mode '{split_mode}': {str(e)}"
+                logging.error(error_msg, exc_info=True)
+                raise RuntimeError(error_msg) from e
+                
+        logging.info(f"Sequential processing completed successfully. Processed {len(seg_res_batch)} patches total.")
+        
+    else:
+        # Batch processing for small patches (existing behavior)
+        logging.info(f"Using batch processing for split_mode='{split_mode}'")
+        seg_res_batch = segment(valid_patches, config)
+    
+    memory_monitor.log_memory_usage("After segmentation, before repair")
+    
     repaired_seg_res_batch = repair_masks_batch(seg_res_batch)
+
+    memory_monitor.log_memory_usage("After mask repair")
 
     # Add segmentation related metrics to the metadata
     matched_fraction_list = [res["matched_fraction"] for res in repaired_seg_res_batch]
-    patches_metadata_df.loc[idx, "matched_fraction"] = matched_fraction_list
+    
+    # Handle metadata update for both disk-based and in-memory patches
+    if isinstance(patches_info, dict) and patches_info.get("disk_based", False):
+        # For disk-based patches, update only the valid patch indices
+        for i, patch_idx in enumerate(valid_patch_indices):
+            patches_metadata_df.loc[patch_idx, "matched_fraction"] = matched_fraction_list[i]
+    else:
+        # For in-memory patches, use the original logic
+        patches_metadata_df.loc[idx, "matched_fraction"] = matched_fraction_list
 
     # Save everything
     codex_patches.set_seg_res(repaired_seg_res_batch, seg_res_batch)
     codex_patches.set_metadata(patches_metadata_df)
+    
+    memory_monitor.log_memory_usage("Before saving segmentation results")
+    
     codex_patches.save_seg_res()
     codex_patches.save_metadata()
+    
+    memory_monitor.log_memory_usage("End of run_cell_segmentation")
 
 
 def segment(
@@ -82,14 +209,25 @@ def segment(
             - 'nucleus_boundary': np.ndarray, the nucleus boundary mask.
     """
 
+    memory_monitor.log_memory_usage("Start of segment function")
+    memory_monitor.log_array_info(valid_patches, "valid_patches input")
+
     # Load the segmentation model
     model = _load_segmentation_model(config)
+    
+    memory_monitor.log_memory_usage("After loading segmentation model")
 
     # Perform segmentation
     image_mpp = config.get("data", {}).get("image_mpp", 0.5)
+    logging.info(f"Starting model prediction with image_mpp={image_mpp}")
+    
     segmentation_predictions = model.predict(
         valid_patches, image_mpp=image_mpp, compartment="both"
     )
+    
+    memory_monitor.log_memory_usage("After model.predict")
+    memory_monitor.log_array_info(segmentation_predictions, "segmentation_predictions")
+    
     # is there any negative values in the segmentation predictions?
     if np.any(segmentation_predictions < 0):
         logging.warning("Negative values found in segmentation predictions.")
@@ -109,17 +247,33 @@ def segment(
     logging.info(
         f"=== dtype of segmentation predictions: {segmentation_predictions.dtype}"
     )
+    
+    memory_monitor.log_memory_usage("After dtype conversion")
+    memory_monitor.log_array_info(segmentation_predictions, "segmentation_predictions after conversion")
+    
     # reorganize the segmentation predictions
     cell_masks, nuc_masks = _separate_batch(segmentation_predictions)
+    
+    memory_monitor.log_memory_usage("After separating masks")
+    
     cell_boundaries = get_boundary(cell_masks)
+    
+    memory_monitor.log_memory_usage("After cell boundary generation")
+    
     nuc_boundaries = get_boundary(nuc_masks)
+
+    memory_monitor.log_memory_usage("After nucleus boundary generation")
 
     segmentation_output = _build_segmentation_output(
         cell_masks, nuc_masks, cell_boundaries, nuc_boundaries
     )
 
+    memory_monitor.log_memory_usage("After building segmentation output")
+
     # Force garbage collection to free memory
     gc.collect()
+    
+    memory_monitor.log_memory_usage("End of segment function after gc.collect")
 
     return segmentation_output
 

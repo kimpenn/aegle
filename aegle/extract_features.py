@@ -26,6 +26,29 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
 
     logger.info("Number of labeled nuclei found: %d", len(nucleus_ids))
 
+    # Create unique channel names by adding suffixes for duplicates
+    unique_channels = []
+    channel_counts = {}
+    has_duplicates = False
+    
+    for channel in channels_to_quantify:
+        if channel in channel_counts:
+            logger.warning(f"Duplicate channel name found: {channel}")
+            channel_counts[channel] += 1
+            unique_name = f"{channel}_{channel_counts[channel]}"
+            has_duplicates = True
+        else:
+            channel_counts[channel] = 0
+            unique_name = channel
+        unique_channels.append(unique_name)
+    
+    # Log channels - show original vs unique only if duplicates exist
+    if has_duplicates:
+        logger.info("Original channels: %s", channels_to_quantify)
+        logger.info("Unique channels: %s", unique_channels)
+    else:
+        logger.info("Channels: %s", channels_to_quantify)
+
     # Filter out small objects from segmentation masks
     filterimg = np.where(
         np.isin(segmentation_masks, nucleus_ids), segmentation_masks, 0
@@ -118,21 +141,21 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
             # Optional: explicitly free some memory
             del laplacian_img
 
-    # Convert to dataframes as before
+    # Convert to dataframes using unique channel names
     markers = pd.DataFrame(
-        mean_intensities, index=nucleus_ids, columns=channels_to_quantify
+        mean_intensities, index=nucleus_ids, columns=unique_channels
     )
 
     cov_df = pd.DataFrame(
         cov_values,
         index=nucleus_ids,
-        columns=[f"{c}_cov" for c in channels_to_quantify],
+        columns=[f"{c}_cov" for c in unique_channels],
     )
 
     lap_var_df = pd.DataFrame(
         laplacian_variances,
         index=nucleus_ids,
-        columns=[f"{c}_laplacian_var" for c in channels_to_quantify],
+        columns=[f"{c}_laplacian_var" for c in unique_channels],
     )
 
     # Compute antibody entropy per cell
@@ -186,14 +209,29 @@ def extract_features_v2(image_dict, segmentation_masks, channels_to_quantify):
     nucleus_ids = nucleus_ids.astype(np.int64)
     logger.info("Number of labeled nuclei found: %d", len(nucleus_ids))
 
-    # # Count pixels for each nucleus
-    # _, counts = np.unique(segmentation_masks, return_counts=True)
-
-    # # Identify nucleus IDs above the size cutoff, excluding background (ID 0)
-    # nucleus_ids = np.where(counts > size_cutoff)[0][1:]
-    # logger.info(
-    #     "Number of nuclei above size cutoff (%d): %d", size_cutoff, len(nucleus_ids)
-    # )
+    # Create unique channel names by adding suffixes for duplicates
+    unique_channels = []
+    channel_counts = {}
+    has_duplicates = False
+    
+    for channel in channels_to_quantify:
+        if channel in channel_counts:
+            logger.warning(f"Duplicate channel name found: {channel}")
+            channel_counts[channel] += 1
+            unique_name = f"{channel}_{channel_counts[channel]}"
+            has_duplicates = True
+        else:
+            channel_counts[channel] = 0
+            unique_name = channel
+        unique_channels.append(unique_name)
+    
+    # Log channels - show original vs unique only if duplicates exist
+    if has_duplicates:
+        logger.warning("Duplicate channel names found in channels_to_quantify")
+        logger.info("Original channels: %s", channels_to_quantify)
+        logger.info("Unique channels: %s", unique_channels)
+    else:
+        logger.info("Channels: %s", channels_to_quantify)
 
     # Filter out small objects from segmentation masks
     filterimg = np.where(
@@ -256,21 +294,21 @@ def extract_features_v2(image_dict, segmentation_masks, channels_to_quantify):
         )[nucleus_ids]
         laplacian_variances[:, idx] = laplacian_sum_per_label / count_per_label
 
-    # Convert mean intensities into the expression matrix (markers)
+    # Convert mean intensities into the expression matrix (markers) using unique channel names
     markers = pd.DataFrame(
-        mean_intensities, index=nucleus_ids, columns=channels_to_quantify
+        mean_intensities, index=nucleus_ids, columns=unique_channels
     )
 
-    # Convert computed spatial features into metadata
+    # Convert computed spatial features into metadata using unique channel names
     cov_df = pd.DataFrame(
         cov_values,
         index=nucleus_ids,
-        columns=[f"{c}_cov" for c in channels_to_quantify],
+        columns=[f"{c}_cov" for c in unique_channels],
     )
     lap_var_df = pd.DataFrame(
         laplacian_variances,
         index=nucleus_ids,
-        columns=[f"{c}_laplacian_var" for c in channels_to_quantify],
+        columns=[f"{c}_laplacian_var" for c in unique_channels],
     )
 
     # pixel_entropy_df = compute_pixel_entropy_vectorized(

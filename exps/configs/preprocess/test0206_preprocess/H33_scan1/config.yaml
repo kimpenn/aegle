@@ -1,14 +1,11 @@
 exp_id: H33_scan1
 data:
   file_name: Bone_Marrow/normal/H33/H33_Scan1.qptiff
-  # antibodies_file: 'FallopianTube/D18/Scan1/extra/antibody.tsv'
 
 bftools:
   showinf_path: /workspaces/codex-analysis/bftools/showinf
 tissue_extraction:
-  n_tissue: true
+  n_tissue: 1
   downscale_factor: 64
   min_area: 500
   visualize: true
-evaluation:
-  compute_metrics: null

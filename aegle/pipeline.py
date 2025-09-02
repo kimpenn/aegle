@@ -170,15 +170,25 @@ def run_pipeline(config, args):
     logging.info("Running cell profiling.")
     run_cell_profiling(codex_patches, config, args)
     logging.info("Cell profiling completed.")
+    
+    # Clean up intermediate patch files if using disk-based patches
+    # This is done after cell profiling since profiling needs access to the "all" channel patches
+    if codex_patches.is_using_disk_based_patches():
+        try:
+            codex_patches.cleanup_intermediate_patches()
+            logging.info("Intermediate patch files cleaned up successfully")
+        except Exception as e:
+            logging.warning(f"Failed to clean up intermediate patch files: {e}")
 
     # ---------------------------------
     # (E) Segmentation Analysis
     # ---------------------------------
-    logging.info("Running segmentation analysis...")
-    run_segmentation_analysis(codex_patches, config, args)
-    logging.info("Segmentation analysis completed.")
+    if config["segmentation"]["segmentation_analysis"]:      
+        logging.info("Running segmentation analysis...")
+        run_segmentation_analysis(codex_patches, config, args)
+        logging.info("Segmentation analysis completed.")
 
-    logging.info("Pipeline run completed.")
+        logging.info("Pipeline run completed.")
 
 
 # def run_segmentation_analysis(codex_patches: CodexPatches, config: dict, args=None) -> None:

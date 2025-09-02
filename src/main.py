@@ -5,6 +5,8 @@ import yaml  # For reading YAML configuration files
 import logging
 import os
 import time
+import traceback
+import sys
 
 src_path = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline"
 # Add the source directory to the Python path
@@ -17,6 +19,33 @@ from aegle.pipeline import run_pipeline
 
 # from aegle.logging_config import setup_logging
 
+
+class StackTraceHandler(logging.Handler):
+    """Custom handler that prints stack trace when target message is logged."""
+    
+    def __init__(self, target_message="Converting image dtype to float"):
+        super().__init__()
+        self.target_message = target_message
+        self.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+
+    def emit(self, record):
+        try:
+            message = record.getMessage()
+            if self.target_message.lower() in message.lower():
+                formatted = self.format(record)
+                print("\n" + "="*80)
+                print(f"FOUND TARGET MESSAGE: {formatted}")
+                print(f"Logger: {record.name}")
+                print(f"File: {record.pathname}:{record.lineno}")
+                print(f"Function: {record.funcName}")
+                print("\nFull Stack Trace:")
+                traceback.print_stack()
+                print("="*80 + "\n")
+        except Exception as e:
+            print(f"[StackTraceHandler] emit failed: {e}", file=sys.stderr)
 
 def setup_logging():
     """
@@ -34,12 +63,16 @@ def setup_logging():
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     
+    # Create the custom stack trace handler
+    trace_handler = StackTraceHandler()
+    
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     # Clear existing handlers to avoid duplicate logs
     root_logger.handlers = []
     root_logger.addHandler(console_handler)
+    root_logger.addHandler(trace_handler)
     
     # Set specific log levels for different modules
     # Main pipeline components use INFO level
@@ -55,6 +88,24 @@ def setup_logging():
     # Configure matplotlib and other third-party libs to reduce noise
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
+    
+    # Add trace handler to specific loggers that might be involved
+    loggers_to_trace = [
+        'deepcell',
+        'deepcell_toolbox', 
+        'tensorflow',
+        'Mesmer',
+        'aegle'
+    ]
+    
+    for logger_name in loggers_to_trace:
+        logger = logging.getLogger(logger_name)
+        logger.addHandler(trace_handler)
+        # Ensure we catch all messages for tracing
+        if logger.level > logging.DEBUG:
+            logger.setLevel(logging.DEBUG)
+    
+    print("Stack trace logging enabled for 'Converting image dtype to float'")
 
 
 def parse_args():

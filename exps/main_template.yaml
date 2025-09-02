@@ -26,13 +26,17 @@ channels:
   # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
   wholecell_channel: 
   - Pan-Cytokeratin
-  - Collagen IV
-  - FUT4
 
 # -----------------------------------------------------------------------------
 # (C) Patch Extraction Parameters
 # -----------------------------------------------------------------------------
 patching:
+  # Split mode can be "full_image", "halves", "quarters", or "patches"
+  split_mode: full_image
+  
+  # Split direction can be "vertical" or "horizontal"
+  split_direction: vertical
+
   # Size (height, width) of each patch (in pixels)
   patch_height: -1
   patch_width: -1
@@ -88,6 +92,9 @@ segmentation:
   
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
   save_segmentation_pickle: True
+  
+  # If True, run segmentation analysis
+  segmentation_analysis: False
 
 # -----------------------------------------------------------------------------
 # (G) Testing Data Disruption (Optional) 
