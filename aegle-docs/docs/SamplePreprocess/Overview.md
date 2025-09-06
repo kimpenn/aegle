@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Sample Preprocessing Overview
 
-*Last updated: September 2024*
+*Last updated: September 2024 - Deployment test successful*
 
 This module handles the essential preprocessing steps for multiplex imaging data (PhenoCycler/CODEX) before downstream analysis. It can be executed by modifying and running the main shell script:
 
