@@ -1,0 +1,35 @@
+name: Deploy Docusaurus with Built-in Command
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'aegle-docs/**'
+
+jobs:
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: aegle-docs/package-lock.json
+
+      - name: Install dependencies
+        working-directory: aegle-docs
+        run: npm ci
+
+      - name: Deploy to GitHub Pages
+        working-directory: aegle-docs
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          npm run deploy
+        env:
+          GIT_USER: ${{ github.actor }}
+          GIT_PASS: ${{ secrets.GITHUB_TOKEN }}
