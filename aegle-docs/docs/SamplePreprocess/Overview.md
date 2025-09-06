@@ -12,6 +12,8 @@ This module handles the essential preprocessing steps for multiplex imaging data
 
 ## Processing Pipeline Architecture
 
+![Aegle Preprocessing Pipeline](../../static/img/aegle-preprocess.drawio.png)
+
 The preprocessing pipeline consists of two sequential steps:
 
 ### 1. Tissue Region Extraction
