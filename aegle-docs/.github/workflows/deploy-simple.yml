@@ -5,7 +5,10 @@ on:
     branches:
       - main
     paths:
-      - 'aegle-docs/**'
+      - 'docs/**'      # Trigger when docs folder changes
+      - 'static/**'    # Trigger when static assets change
+      - 'src/**'       # Trigger when source files change
+      - 'docusaurus.config.js'  # Trigger when config changes
 
 jobs:
   deploy:
@@ -18,14 +21,12 @@ jobs:
         with:
           node-version: 18
           cache: npm
-          cache-dependency-path: aegle-docs/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: aegle-docs
         run: npm ci
 
       - name: Deploy to GitHub Pages
-        working-directory: aegle-docs
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"

@@ -5,7 +5,10 @@ on:
     branches:
       - main  # Trigger when pushing to main branch
     paths:
-      - 'aegle-docs/**'  # Only trigger when documentation folder changes
+      - 'docs/**'      # Trigger when docs folder changes
+      - 'static/**'    # Trigger when static assets change
+      - 'src/**'       # Trigger when source files change
+      - 'docusaurus.config.js'  # Trigger when config changes
   pull_request:
     branches:
       - main
@@ -23,20 +26,18 @@ jobs:
         with:
           node-version: 18
           cache: npm
-          cache-dependency-path: aegle-docs/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: aegle-docs
         run: npm ci
 
       - name: Build website
-        working-directory: aegle-docs
         run: npm run build
 
       - name: Upload Build Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: aegle-docs/build
+          path: build
 
   deploy:
     name: Deploy to GitHub Pages
