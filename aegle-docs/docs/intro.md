@@ -4,33 +4,51 @@ sidebar_position: 1
 
 # Overview
 
+Aegle is a comprehensive pipeline for analyzing multiplex imaging data from PhenoCycler/CODEX platforms, providing end-to-end processing from raw images to single-cell insights.
+
+## Pipeline Architecture
+
 ![Aegle Main Pipeline](../static/img/aegle-overview.drawio.png)
 
-## Data Preprocess
-This module handles the essential preprocessing steps for multiplex imaging data (PhenoCycler/CODEX) before downstream analysis.
-
-![Aegle Preprocessing Pipeline](../static/img/aegle-preprocess.drawio.png)
-
-## Main
-
-### Preprocess
-
-### Segmentation
-
-### Cell Profiling
-
-## Analysis
+For detailed documentation, see the specific sections in the sidebar.
 
 ## Experiment Configuration
 
-The Aegle pipeline includes a comprehensive experiment configuration system that enables researchers to efficiently manage multiple experiments through automated configuration generation. This system uses CSV-based design tables and YAML templates to generate consistent, reproducible experiment configurations across the entire pipeline.
+![Aegle Experiment Configuration Pipeline](../static/img/aegle-exp_config.drawio.png)
 
-Key features include:
-- Batch configuration generation from design tables
-- Automatic parameter type conversion and validation
-- Support for nested configuration structures
-- Integration with all pipeline components (preprocessing, main analysis, and downstream analysis)
+The configuration system automates experiment setup through:
+- **CSV Design Tables**: Define experiments in Google Sheets and export to CSV
+- **YAML Templates**: Standardized parameter templates for reproducibility
+- **Batch Generation**: Generate configurations for multiple experiments simultaneously
+- **Validation**: Automatic type conversion and parameter validation
+
+**Quick Start:**
+```bash
+cd exps/
+python config_generator.py
+```
+
+## Data Preprocessing
+
+![Aegle Preprocessing Pipeline](../static/img/aegle-preprocess.drawio.png)
+
+Preprocessing transforms raw QPTIFF files into analysis-ready data:
+
+**1. Tissue Extraction**
+- Manual annotation (recommended): Interactive napari-based tool
+- Automatic detection: Computer vision-based tissue identification
+
+**2. Antibody Metadata**
+- Extracts channel-to-antibody mappings from QPTIFF metadata
+- Generates standardized TSV files for downstream analysis
+
+**Execution:**
+```bash
+./run_preprocess_ft.sh
+```
+
+## Main Processing
+
+## Single-cell Analysis
 
 ## Post-Analysis Visualization
-
-Launch napari to interactively check mask the segmentation channels.
