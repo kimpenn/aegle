@@ -1,6 +1,6 @@
 {
     "label": "Experiment Configuration",
-    "position": 2,
+    "position": 3,
     "link": {
         "type": "generated-index",
         "description": "Learn how to configure and manage experiments for the Aegle pipeline using the configuration generation system."
