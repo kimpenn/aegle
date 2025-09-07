@@ -74,3 +74,21 @@ src/                 # React components and pages
 docusaurus.config.js # Docusaurus configuration
 sidebars.js         # Sidebar configuration
 ```
+## 🔍 Difference Between `npm start` and `npm run serve`
+
+It is important to distinguish between these two commands, as they are used in different stages of development and deployment:
+
+- **`npm start`**  
+  - Launches a **development server**.  
+  - Supports **hot reloading**: changes to documentation or source files are reflected immediately in the browser.  
+  - Best used while authoring or editing documentation.  
+
+- **`npm run serve`**  
+  - Serves the **already built static site** from the `build/` directory.  
+  - Does **not** watch for file changes or apply hot reloading.  
+  - Best used to preview how the site will look in **production** after running `npm run build`.  
+
+👉 In short:  
+- Use `npm start` during **development**.  
+- Use `npm run build && npm run serve` to test the **final production build** locally before deployment.
+- When you make changes to file names, you need to run `npm run build` to update the site.

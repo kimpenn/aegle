@@ -6,7 +6,7 @@ bftools:
   showinf_path: "/workspaces/codex-analysis/bftools/showinf"
   
 tissue_extraction:
-  n_tissue: 4
-  downscale_factor: 64
-  min_area: 500
+  n_tissue: -1
+  downscale_factor: -1
+  min_area: -1
   visualize: True
