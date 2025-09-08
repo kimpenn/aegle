@@ -111,6 +111,9 @@ testing:
     # Whether to save the disrupted patches to disk (for debugging/testing)
     save_disrupted_patches: True  
 
+    # Whether to visualize the disrupted patches
+    visualize_disrupted: False
+
 # -----------------------------------------------------------------------------
 # (H) Evaluation Metrics
 # -----------------------------------------------------------------------------

@@ -197,7 +197,7 @@ def segment(
     Segment cells and nuclei in the input image patches.
 
     Args:
-        patches_ndarray (np.ndarray): Image patches to segment.
+        valid_patches (np.ndarray): Image patches to segment.
         config (dict): Configuration parameters.
         args: Command-line arguments.
 

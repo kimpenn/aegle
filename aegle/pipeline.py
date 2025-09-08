@@ -33,7 +33,7 @@ def run_pipeline(config, args):
     shutil.copy(args.config_file, copied_config_path)
 
     # ---------------------------------
-    # (A) Full Image Preprocessing
+    # (A) Load Image and Antibodies Data
     # ---------------------------------
     # Step 1: Initialize CodexImage object
     # - Read and Codex image as well the dataframe about antibodies
@@ -102,6 +102,7 @@ def run_pipeline(config, args):
     # Extract distruption type and level from config
     disruption_config = config.get("testing", {}).get("data_disruption", {})
     logging.info(f"Disruption config: {disruption_config}")
+    has_disruptions = False
     if disruption_config and disruption_config.get("type", None) is not None:
         disruption_type = disruption_config.get("type", None)
         disruption_level = disruption_config.get("level", 1)
@@ -110,12 +111,18 @@ def run_pipeline(config, args):
         )
         codex_patches.add_disruptions(disruption_type, disruption_level)
         logging.info("Disruptions added to patches.")
+        has_disruptions = True
         if disruption_config.get("save_disrupted_patches", False):
             logging.info("Saving disrupted patches.")
             codex_patches.save_disrupted_patches()
             logging.info("Disrupted patches saved.")
-        if config.get("visualization", {}).get("visualize_patches", False):
-            # This will overwrite the visualizations of the original patches with the disrupted patches
+
+    # Optional: Visualize patches
+    # Priority: if disruptions exist and visualize_patches is True, visualize disrupted patches
+    # Otherwise, visualize original patches
+    if config.get("visualization", {}).get("visualize_patches", False):
+        if has_disruptions and disruption_config.get("visualize_disrupted", True):
+            logging.info("Visualizing disrupted patches.")
             save_patches_rgb(
                 codex_patches.disrupted_extracted_channel_patches,
                 codex_patches.patches_metadata,
@@ -123,18 +130,17 @@ def run_pipeline(config, args):
                 args,
                 max_workers=config.get("visualization", {}).get("workers", None),
             )
-
-    # Optional: Visualize patches
-    if config.get("visualization", {}).get("visualize_patches", False):
-        logging.info("Visualizing patches.")
-        save_patches_rgb(
-            codex_patches.extracted_channel_patches,
-            codex_patches.patches_metadata,
-            config,
-            args,
-            max_workers=config.get("visualization", {}).get("workers", None),
-        )
-        logging.info("Patch visualization completed.")
+            logging.info("Disrupted patch visualization completed.")
+        else:
+            logging.info("Visualizing original patches.")
+            save_patches_rgb(
+                codex_patches.extracted_channel_patches,
+                codex_patches.patches_metadata,
+                config,
+                args,
+                max_workers=config.get("visualization", {}).get("workers", None),
+            )
+            logging.info("Original patch visualization completed.")
 
     # ---------------------------------
     # (C) Cell Segmentation and auto evaluation
@@ -145,6 +151,9 @@ def run_pipeline(config, args):
     if config["evaluation"]["compute_metrics"]:
         # TODO: if the number of cells are too large we should skip the evaluation
         run_seg_evaluation(codex_patches, config, args)
+        # save the seg_evaluation_metrics to a pickle file
+        with open(os.path.join(args.out_dir, "seg_evaluation_metrics.pkl"), "wb") as f:
+            pickle.dump(codex_patches.seg_evaluation_metrics, f)
 
     # if config.get("visualization", {}).get("visualize_segmentation", False):
     # TODO: Fix this visualization function
@@ -171,14 +180,14 @@ def run_pipeline(config, args):
     run_cell_profiling(codex_patches, config, args)
     logging.info("Cell profiling completed.")
     
-    # Clean up intermediate patch files if using disk-based patches
-    # This is done after cell profiling since profiling needs access to the "all" channel patches
-    if codex_patches.is_using_disk_based_patches():
-        try:
-            codex_patches.cleanup_intermediate_patches()
-            logging.info("Intermediate patch files cleaned up successfully")
-        except Exception as e:
-            logging.warning(f"Failed to clean up intermediate patch files: {e}")
+    # # Clean up intermediate patch files if using disk-based patches
+    # # This is done after cell profiling since profiling needs access to the "all" channel patches
+    # if codex_patches.is_using_disk_based_patches():
+    #     try:
+    #         codex_patches.cleanup_intermediate_patches()
+    #         logging.info("Intermediate patch files cleaned up successfully")
+    #     except Exception as e:
+    #         logging.warning(f"Failed to clean up intermediate patch files: {e}")
 
     # ---------------------------------
     # (E) Segmentation Analysis

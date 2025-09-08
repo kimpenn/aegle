@@ -2,7 +2,7 @@
 sidebar_position: 2
 ---
 
-# Execution Guide
+# Usage Guide
 
 This guide provides comprehensive instructions for running the Main pipeline, from single experiment execution to large-scale batch processing.
 
@@ -11,7 +11,7 @@ This guide provides comprehensive instructions for running the Main pipeline, fr
 Before running the Main pipeline, ensure:
 
 1. **Data Preprocessing Complete**: All input data has been processed through the [Data Preprocessing](../DataPreprocess/Overview.md) pipeline
-2. **Configuration Files Ready**: Experiment configurations generated using the [Experiment Configuration](../ExperimentConfiguration/intro.md) system
+2. **Configuration Files Ready**: Experiment configurations generated using the [Experiment Configuration](../ExperimentConfiguration/Intro.md) system
 3. **Environment Setup**: Required dependencies installed and environment activated
 4. **Directory Structure**: Proper directory structure established
 
@@ -353,12 +353,3 @@ docker run -v /data:/data -v /output:/output \
   --config_file /config.yaml \
   --out_dir /output
 ```
-
-## Next Steps
-
-After successful execution:
-
-1. **Review Results**: Check the [Outputs documentation](Outputs.md)
-2. **Run Analysis**: Proceed to downstream analysis
-3. **Troubleshoot Issues**: Consult [Troubleshooting guide](Troubleshooting.md)
-4. **Optimize Performance**: Adjust configurations based on results

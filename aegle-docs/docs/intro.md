@@ -49,6 +49,8 @@ Preprocessing transforms raw QPTIFF files into analysis-ready data:
 
 ## Main Processing
 
+![Aegle Main Pipeline](../static/img/agle-main.drawio.png)
+
 ## Single-cell Analysis
 
 ## Post-Analysis Visualization

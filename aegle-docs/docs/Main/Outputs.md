@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 3
 ---
 
 # Outputs
@@ -28,6 +28,7 @@ experiment_output_directory/
 ├── patches_metadata.csv              # Patch-level metadata and QC
 ├── copied_config.yaml                # Configuration record
 └── processing_log.txt                # Execution log and timing
+└── seg_evaluation_metrics.pkl        # Segmentation evaluation results
 ```
 
 ## Core Output Files

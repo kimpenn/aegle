@@ -1,10 +1,10 @@
 ---
-sidebar_position: 3
+sidebar_position: 5
 ---
 
 # Configuration Reference
 
-This document provides a comprehensive reference for all configuration parameters used in the Main pipeline. Configuration files use YAML format and are typically generated using the [Experiment Configuration](../ExperimentConfiguration/intro.md) system.
+This document provides a comprehensive reference for all configuration parameters used in the Main pipeline. Configuration files use YAML format and are typically generated using the [Experiment Configuration](../ExperimentConfiguration/Intro.md) system.
 
 ## Configuration File Structure
 
@@ -443,4 +443,4 @@ This configuration system integrates with the automated configuration generation
 3. **Automatic Generation**: Configurations generated via `config_generator.py`
 4. **Batch Processing**: Multiple configurations created for batch experiments
 
-See [Experiment Configuration](../ExperimentConfiguration/intro.md) for details on automated configuration generation.
+See [Experiment Configuration](../ExperimentConfiguration/Intro.md) for details on automated configuration generation.
