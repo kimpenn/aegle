@@ -1,0 +1,61 @@
+flowchart TD
+    A["Start run_pipeline(config, args)"] --> B["Create Output Directory<br/>Copy Configuration File"]
+    B --> C["(A) Full Image Preprocessing"]
+    
+    %% Section A: Full Image Preprocessing
+    C --> D["Initialize CodexImage Object<br/>Load CODEX image and antibody dataframe"]
+    D --> E{Generate Channel<br/>Statistics?}
+    E -->|Yes| F["Calculate Channel Statistics<br/>codex_image.calculate_channel_statistics()"]
+    E -->|No| G["Extract Target Channels<br/>codex_image.extract_target_channels()"]
+    F --> G
+    
+    %% Section B: Patched Image Preprocessing
+    G --> H["(B) Patched Image Preprocessing"]
+    H --> I["Extend Image for Full Patch Coverage<br/>codex_image.extend_image()"]
+    I --> J{Visualize Whole<br/>Sample?}
+    J -->|Yes| K["Save Whole Sample RGB Image<br/>Auto-downsampling Support"]
+    J -->|No| L["Initialize CodexPatches Object<br/>Generate Image Patches"]
+    K --> L
+    
+    L --> M["Save Patches and Metadata<br/>codex_patches.save_patches()<br/>codex_patches.save_metadata()"]
+    M --> N{Add Testing<br/>Disruptions?}
+    N -->|Yes| O["Add Data Disruptions<br/>codex_patches.add_disruptions()"]
+    N -->|No| P{Visualize<br/>Patches?}
+    O --> O1["Save Disrupted Patch Data"]
+    O1 --> P
+    P -->|Yes| Q["Save Patch RGB Visualizations<br/>save_patches_rgb()"]
+    P -->|No| R["(C) Cell Segmentation & Evaluation"]
+    Q --> R
+    
+    %% Section C: Cell Segmentation
+    R --> S["Run Cell Segmentation<br/>run_cell_segmentation()"]
+    S --> T{Compute Evaluation<br/>Metrics?}
+    T -->|Yes| U["Run Segmentation Evaluation<br/>run_seg_evaluation()"]
+    T -->|No| V["(D) Cell Profiling"]
+    U --> V
+    
+    %% Section D: Cell Profiling
+    V --> W["Run Cell Profiling<br/>run_cell_profiling()"]
+    W --> X{Using Disk-based<br/>Patches?}
+    X -->|Yes| Y["Clean Up Intermediate Patch Files<br/>codex_patches.cleanup_intermediate_patches()"]
+    X -->|No| Z["(E) Segmentation Analysis"]
+    Y --> Z
+    
+    %% Section E: Segmentation Analysis
+    Z --> AA{Execute Segmentation<br/>Analysis?}
+    AA -->|Yes| BB["Run Segmentation Analysis<br/>run_segmentation_analysis()"]
+    AA -->|No| CC["Pipeline Execution Complete"]
+    BB --> CC
+    
+    %% Styling
+    classDef startEnd fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef sectionHeader fill:#f3e5f5,stroke:#4a148c,stroke-width:3px
+    classDef process fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef decision fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef optional fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+    
+    class A,CC startEnd
+    class C,H,R,V,Z sectionHeader
+    class B,D,G,I,L,M,S,W process
+    class E,J,N,P,T,X,AA decision
+    class F,K,O,O1,Q,U,Y,BB optional
