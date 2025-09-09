@@ -46,7 +46,7 @@ def run_cell_segmentation(
         logging.info("Using disk-based patches for segmentation")
         
         # Select only valid patch indices
-        idx = patches_metadata_df["is_infomative"] == True
+        idx = patches_metadata_df["is_informative"] == True
         valid_patch_indices = [i for i, is_valid in enumerate(idx) if is_valid]
         
         if not valid_patch_indices:
@@ -62,7 +62,7 @@ def run_cell_segmentation(
         memory_monitor.log_array_info(patches_info, "patches_ndarray")
         
         # Select only valid patches
-        idx = patches_metadata_df["is_infomative"] == True
+        idx = patches_metadata_df["is_informative"] == True
         valid_patches = patches_info[idx]
         if valid_patches.size == 0:
             logging.warning("No valid patches available for segmentation.")

@@ -59,7 +59,7 @@ def run_seg_evaluation(
     original_seg_res_batch = codex_patches.original_seg_res_batch
     repaired_seg_res_batch = codex_patches.repaired_seg_res_batch
     patches_metadata_df = codex_patches.get_patches_metadata()
-    idx = patches_metadata_df["is_infomative"] == True
+    idx = patches_metadata_df["is_informative"] == True
 
     image_ndarray = codex_patches.extracted_channel_patches[idx]
     # reshape image_ndarray from batch, w, h, c to batch, c, w, h
@@ -70,7 +70,7 @@ def run_seg_evaluation(
     logging.info(f"original_seg_res_batch: {len(original_seg_res_batch)}")
     logging.info(f"repaired_seg_res_batch: {len(repaired_seg_res_batch)}")
     logging.info(f"codex_patches.extracted_channel_patches: {codex_patches.extracted_channel_patches.shape}")
-    logging.info(f"patches_metadata_df informative: {patches_metadata_df['is_infomative'].sum()}")
+    logging.info(f"patches_metadata_df informative: {patches_metadata_df['is_informative'].sum()}")
     logging.info(f"image_ndarray: {image_ndarray.shape}")
 
     # Run evaluation in parallel with 2 workers

@@ -50,7 +50,7 @@ def run_quick_evaluation(
     antibody_list = antibody_df["antibody_name"].to_list()
 
     # Filter for informative patches
-    informative_idx = patches_metadata_df["is_infomative"] == True
+    informative_idx = patches_metadata_df["is_informative"] == True
     logging.info(f"Number of informative patches: {informative_idx.sum()}")
     image_ndarray = codex_patches.all_channel_patches[informative_idx]
     logging.info(f"image_ndarray.shape: {image_ndarray.shape}")

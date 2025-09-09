@@ -10,7 +10,7 @@ from skimage.measure import regionprops
 # Configure module-level logger
 logger = logging.getLogger(__name__)
 
-def calculate_count_density_metrics(
+def calculate_density_concordance_metrics(
     cell_mask: np.ndarray,
     nucleus_mask: np.ndarray,
     cell_matched_mask: np.ndarray,

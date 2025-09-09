@@ -511,7 +511,7 @@ class CodexPatches:
         self.patches_metadata["is_bad_patch"] = (
             self.patches_metadata["is_empty"] | self.patches_metadata["is_noisy"]
         )
-        self.patches_metadata["is_infomative"] = ~self.patches_metadata["is_bad_patch"]
+        self.patches_metadata["is_informative"] = ~self.patches_metadata["is_bad_patch"]
         num_bad_patches = self.patches_metadata["is_bad_patch"].sum()
         total_patches = len(self.patches_metadata)
 
@@ -560,7 +560,7 @@ class CodexPatches:
 
         for i, patch in enumerate(self.extracted_channel_patches):
             if disruption_type == "gaussian":
-                if self.patches_metadata.loc[i, "is_infomative"]:
+                if self.patches_metadata.loc[i, "is_informative"]:
                     sigma_dict = {
                         8: {1: 1.94, 2: 3.88, 3: 5.82},
                         16: {1: 500, 2: 1000, 3: 1500},

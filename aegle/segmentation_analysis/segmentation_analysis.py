@@ -1,3 +1,5 @@
+DEFAULT_NUM_WORKERS = 4
+DEFAULT_CHANNELS_PER_FIGURE = 10
 import os
 import logging
 import pickle
@@ -77,7 +79,7 @@ def process_single_patch(
     
     # (1) Compute count density metrics if enabled
     if calculate_global_density or calculate_local_density:
-        count_density_results = density_metrics.calculate_count_density_metrics(
+        count_density_results = density_metrics.calculate_density_concordance_metrics(
             cell_mask,
             nucleus_mask,
             cell_matched_mask,
@@ -113,7 +115,7 @@ def process_single_patch(
     bias_visualize.visualize_channel_intensity_bias(
         intensity_data,
         output_dir=os.path.join(patch_output_dir, "channel_intensity_repair_bias"),
-        channels_per_figure=config.get("channels_per_figure", 10),
+        channels_per_figure=config.get("channels_per_figure", DEFAULT_CHANNELS_PER_FIGURE),
         channel_names=antibody_list,
     )
 
@@ -145,6 +147,14 @@ def run_segmentation_analysis(codex_patches: CodexPatches, config: dict, args=No
         config: Configuration Dictionary for evaluation options
         args: Optional additional arguments
     """
+
+    # Parameter validation
+    if not hasattr(codex_patches, 'original_seg_res_batch'):
+        raise ValueError("CodexPatches must have original_seg_res_batch attribute")
+    
+    if args is None or not hasattr(args, 'out_dir'):
+        raise ValueError("args must have out_dir attribute")
+        
     start_time = time.time()
     output_dir = os.path.join(args.out_dir, "segmentation_analysis")
     os.makedirs(output_dir, exist_ok=True)
@@ -157,7 +167,7 @@ def run_segmentation_analysis(codex_patches: CodexPatches, config: dict, args=No
     antibody_list = antibody_df["antibody_name"].to_list()
 
     # Filter for informative patches
-    informative_idx = patches_metadata_df["is_infomative"] == True
+    informative_idx = patches_metadata_df["is_informative"]
     logger.info(f"Number of informative patches: {informative_idx.sum()}")
     image_ndarray = codex_patches.all_channel_patches[informative_idx]
     logger.info(f"image_ndarray.shape: {image_ndarray.shape}")
@@ -168,10 +178,12 @@ def run_segmentation_analysis(codex_patches: CodexPatches, config: dict, args=No
     patches_metadata_df.loc[informative_idx, "matched_fraction"] = matched_fraction_list
 
     # Get microns per pixel from config
-    image_mpp = config.get("data", {}).get("image_mpp", 0.5)
+    image_mpp = config.get("data", {}).get("image_mpp")
+    if image_mpp is None:
+        raise ValueError("image_mpp is not set in the config")
     
     # Get number of parallel workers from config, default to 4
-    num_workers = config.get("parallel_processing", {}).get("workers", 4)
+    num_workers = config.get("parallel_processing", {}).get("workers", DEFAULT_NUM_WORKERS)
     logger.info(f"Using {num_workers} workers for parallel processing")
 
     # Get density calculation settings from config

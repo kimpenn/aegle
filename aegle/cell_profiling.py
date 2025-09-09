@@ -41,7 +41,7 @@ def run_cell_profiling(codex_patches, config, args):
     logger.info(f"Patches metadata: {patches_metadata_df}")
     # save patches metadata to csv
     patches_metadata_df.to_csv(os.path.join(profiling_out_dir, "patches_metadata.csv"), index=False)
-    informative_idx = patches_metadata_df["is_infomative"] == True
+    informative_idx = patches_metadata_df["is_informative"] == True
     
     # Get indices of informative patches
     informative_patches = [i for i, is_informative in enumerate(informative_idx) if is_informative]

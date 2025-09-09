@@ -151,9 +151,47 @@ evaluation:
 The evaluation results are stored in `codex_patches.seg_evaluation_metrics` as a list of dictionaries, where each dictionary contains and saved in the `seg_evaluation_metrics.pkl` file.
 
 ## Post-Segmentation Analysis
+There are three modules to perform post-segmentation analysis: cell profiling, QC metrics, and visualizations.
 
 ### Cell Profiling
+This module performs cell-level profiling on each patch, generating a cell-by-marker matrix and a cell metadata table. For split modes 'full_image', 'halves', or 'quarters', results are merged into single files. For 'patches' mode, separate files per patch are saved.
 
-### QC Metrics
+> Note: Currently, the `nucleus_matched_mask` is as the cell identification mask. We should extend this step to generate cell profiling based on matched cell mask and also the unmatched cell mask (the direct output from the segmentation model).
+
+More details see [Cell Profiling Details](CellProfilingDetails.md).
+
+This module has no configuration parameters in the config file yet.
+
+**Outputs**
+If `patching::split_mode` is `full_image`, `halves`, or `quarters`, the outputs are merged into single files.
+- `cell_profiling/cell_by_marker.csv`: Cell-by-marker matrix
+- `cell_profiling/cell_metadata.csv`: Cell metadata table
+
+If `patching::split_mode` is `patches`, the outputs are saved in the `cell_profiling/` directory.
+- `cell_profiling/patch-{i}-cell_by_marker.csv`: Cell-by-marker matrix
+- `cell_profiling/patch-{i}-cell_metadata.csv`: Cell metadata table
+
+### Mask Analysis for Sample Quality Assessment
+This module performs analysis on segmentation results. We are exploring to use the statistics from segmentation results to describe the data quality. The metrics are including:
+- **Matched fraction**: Percentage of nuclei successfully paired with cells
+- **Cell density metrics**: Global and local density measurements
+- **Intensity analysis**: Channel-wise intensity bias and distribution visualization
+
+For detailed metrics description, see [Mask Analysis Details](SegmentationAnalysis.md).
+
+**Configuration**:
+```yaml
+segmentation:
+  segmentation_analysis: True
+  density_analysis:
+    calculate_global_density: True
+    calculate_local_density: True
+```
+
+**Outputs**:
+- `segmentation_analysis/`: Directory containing all analysis results
+  - `codex_patches_segmentation_analysis.pickle`: Complete analysis data
+  - `patch_*/`: Individual patch analysis visualizations
+- `patches_metadata.csv`: Updated with calculated QC metrics
 
 ### Visualizations

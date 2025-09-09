@@ -94,7 +94,12 @@ segmentation:
   save_segmentation_pickle: True
   
   # If True, run segmentation analysis
+  # Calculate metrics based on the segmentation results to describe the data quality
   segmentation_analysis: False
+  density_analysis:
+    calculate_global_density: False
+    calculate_local_density: False
+  
 
 # -----------------------------------------------------------------------------
 # (G) Testing Data Disruption (Optional) 
