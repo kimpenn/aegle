@@ -4,6 +4,7 @@ import logging
 import pickle
 import shutil
 import time
+import matplotlib.pyplot as plt
 
 from aegle.codex_image import CodexImage
 from aegle.codex_patches import CodexPatches
@@ -14,6 +15,15 @@ from aegle.segment import run_cell_segmentation, visualize_cell_segmentation
 from aegle.evaluation import run_seg_evaluation
 from aegle.cell_profiling import run_cell_profiling
 from aegle.segmentation_analysis.segmentation_analysis import run_segmentation_analysis
+from aegle.visualization_segmentation import (
+    create_segmentation_overlay,
+    create_quality_heatmaps,
+    plot_cell_morphology_stats,
+    visualize_segmentation_errors,
+    create_nucleus_mask_visualization,
+    create_wholecell_mask_visualization
+)
+from aegle.report_generator import generate_pipeline_report
 # from aegle.segmentation_analysis.intensity_analysis import bias_analysis, distribution_analysis
 # from aegle.segmentation_analysis.spatial_analysis import density_metrics
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"
@@ -155,23 +165,109 @@ def run_pipeline(config, args):
         with open(os.path.join(args.out_dir, "seg_evaluation_metrics.pkl"), "wb") as f:
             pickle.dump(codex_patches.seg_evaluation_metrics, f)
 
-    # if config.get("visualization", {}).get("visualize_segmentation", False):
-    # TODO: Fix this visualization function
-    #     visualize_cell_segmentation(
-    #         codex_patches.valid_patches,
-    #         codex_patches.repaired_seg_res_batch,
-    #         config,
-    #         args,
-    #     )
-    #     logging.info("Segmentation visualization completed.")
-
-    #     visualize_cell_segmentation(
-    #         codex_patches.valid_patches,
-    #         codex_patches.original_seg_res_batch,
-    #         config,
-    #         args,
-    #     )
-    #     logging.info("Segmentation visualization completed.")
+    # Segmentation Visualization
+    if config.get("visualization", {}).get("visualize_segmentation", False):
+        logging.info("Starting segmentation visualization...")
+        
+        # Create visualization directory
+        viz_dir = os.path.join(args.out_dir, "visualization", "segmentation")
+        os.makedirs(viz_dir, exist_ok=True)
+        
+        # Get patches metadata
+        patches_metadata_df = codex_patches.get_patches_metadata()
+        
+        # Visualize each patch
+        for idx, seg_result in enumerate(codex_patches.repaired_seg_res_batch):
+            if seg_result is None:
+                continue
+                
+            # Get the corresponding image patch
+            if codex_patches.is_using_disk_based_patches():
+                # For disk-based patches, load the patch
+                patch_idx = patches_metadata_df[patches_metadata_df["is_informative"] == True].index[idx]
+                image_patch = codex_patches.load_patch_from_disk(patch_idx, "extracted")
+            else:
+                # For memory-based patches
+                image_patch = codex_patches.valid_patches[idx]
+            
+            # 1. Create segmentation overlay
+            try:
+                fig = create_segmentation_overlay(
+                    image_patch[:, :, 0],  # Use nuclear channel
+                    seg_result.get("nucleus_matched_mask", seg_result.get("nucleus")),
+                    seg_result.get("cell_matched_mask", seg_result.get("cell")),
+                    show_ids=False  # Too many cells make IDs cluttered
+                )
+                fig.savefig(os.path.join(viz_dir, f"segmentation_overlay_patch_{idx}.png"), 
+                           dpi=150, bbox_inches='tight')
+                plt.close(fig)
+            except Exception as e:
+                logging.warning(f"Failed to create segmentation overlay for patch {idx}: {e}")
+            
+            # 2. Visualize potential errors
+            if config.get("visualization", {}).get("show_segmentation_errors", True):
+                try:
+                    fig = visualize_segmentation_errors(
+                        image_patch[:, :, 0],
+                        seg_result,
+                        error_types=['oversized', 'undersized', 'unmatched']
+                    )
+                    fig.savefig(os.path.join(viz_dir, f"segmentation_errors_patch_{idx}.png"),
+                               dpi=150, bbox_inches='tight')
+                    plt.close(fig)
+                except Exception as e:
+                    logging.warning(f"Failed to visualize errors for patch {idx}: {e}")
+            
+            # 3. Create nucleus mask visualization
+            try:
+                fig = create_nucleus_mask_visualization(
+                    image_patch[:, :, 0],  # Use nuclear channel
+                    seg_result.get("nucleus_matched_mask", seg_result.get("nucleus")),
+                    show_ids=False  # Too many nuclei make IDs cluttered
+                )
+                fig.savefig(os.path.join(viz_dir, f"nucleus_mask_patch_{idx}.png"), 
+                           dpi=150, bbox_inches='tight')
+                plt.close(fig)
+            except Exception as e:
+                logging.warning(f"Failed to create nucleus mask visualization for patch {idx}: {e}")
+            
+            # 4. Create whole cell mask visualization
+            try:
+                fig = create_wholecell_mask_visualization(
+                    image_patch[:, :, 0],  # Use nuclear channel as background
+                    seg_result.get("cell_matched_mask", seg_result.get("cell")),
+                    show_ids=False  # Too many cells make IDs cluttered
+                )
+                fig.savefig(os.path.join(viz_dir, f"wholecell_mask_patch_{idx}.png"), 
+                           dpi=150, bbox_inches='tight')
+                plt.close(fig)
+            except Exception as e:
+                logging.warning(f"Failed to create whole cell mask visualization for patch {idx}: {e}")
+        
+        # 5. Create quality heatmaps across all patches
+        if len(codex_patches.repaired_seg_res_batch) > 1:
+            try:
+                quality_figs = create_quality_heatmaps(
+                    codex_patches.repaired_seg_res_batch,
+                    patches_metadata_df[patches_metadata_df["is_informative"] == True],
+                    viz_dir
+                )
+                for fig in quality_figs.values():
+                    plt.close(fig)
+            except Exception as e:
+                logging.warning(f"Failed to create quality heatmaps: {e}")
+        
+        # 6. Plot morphology statistics
+        try:
+            fig = plot_cell_morphology_stats(
+                codex_patches.repaired_seg_res_batch,
+                viz_dir
+            )
+            plt.close(fig)
+        except Exception as e:
+            logging.warning(f"Failed to plot morphology statistics: {e}")
+        
+        logging.info("Segmentation visualization completed.")
 
     # ---------------------------------
     # (D) Cell Profiling
@@ -196,8 +292,20 @@ def run_pipeline(config, args):
         logging.info("Running segmentation analysis...")
         run_segmentation_analysis(codex_patches, config, args)
         logging.info("Segmentation analysis completed.")
-
-        logging.info("Pipeline run completed.")
+    
+    # ---------------------------------
+    # (F) Generate Analysis Report
+    # ---------------------------------
+    if config.get("report", {}).get("generate_report", True):
+        logging.info("Generating analysis report...")
+        try:
+            report_path = generate_pipeline_report(args.out_dir, config, codex_patches)
+            logging.info(f"Analysis report saved to: {report_path}")
+        except Exception as e:
+            logging.warning(f"Failed to generate report: {e}")
+            # Don't fail the pipeline if report generation fails
+    
+    logging.info("Pipeline run completed.")
 
 
 # def run_segmentation_analysis(codex_patches: CodexPatches, config: dict, args=None) -> None:

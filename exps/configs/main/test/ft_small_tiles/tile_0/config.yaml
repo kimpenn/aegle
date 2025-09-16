@@ -1,0 +1,136 @@
+# Top-level configuration for CODEX pipeline test
+exp_id: test_tile_0
+# -----------------------------------------------------------------------------
+# (A) Data Source and Basic Image Settings
+# -----------------------------------------------------------------------------
+data:
+  # Path to the main .qptiff or .tiff file for the CODEX image
+  file_name: 
+    /workspaces/codex-analysis/data/test/ft_small_tiles/tile_000.ome.tiff
+
+  # Path to the TSV file containing antibody definitions (one row per channel)
+  antibodies_file: 
+    /workspaces/codex-analysis/data/test/ft_small_tiles/extras/antibodies.tsv
+
+  # Microns per pixel for this image; used in downstream calculations (e.g., segmentation scaling)
+  image_mpp: 0.5
+
+  # Whether to compute and save channel-level statistics (min, max, 95th percentile, etc.)
+  generate_channel_stats: true
+
+# -----------------------------------------------------------------------------
+# (B) Channel Configuration
+# -----------------------------------------------------------------------------
+channels:
+  # Name of the nuclear marker channel (must match an entry in the antibodies file)
+  nuclear_channel: DAPI
+
+  # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
+  wholecell_channel:
+    - Pan-Cytokeratin
+    - E-cadherin
+    - Beta-actin
+    - FUT4
+    
+# -----------------------------------------------------------------------------
+# (C) Patch Extraction Parameters
+# -----------------------------------------------------------------------------
+patching:
+  # Split mode can be "full_image", "halves", "quarters", or "patches"
+  split_mode: full_image
+
+  # Split direction can be "vertical" or "horizontal"
+  split_direction: NULL
+
+  # Size (height, width) of each patch (in pixels)
+  patch_height: -1
+  patch_width: -1
+
+  # Overlap fraction between adjacent patches (0.1 means 10% overlap)
+  overlap: 0.1
+
+# -----------------------------------------------------------------------------
+# (D) Visualization Settings
+# -----------------------------------------------------------------------------
+visualization:
+  # Whether to save an RGB visualization of the entire sample (e.g., nuclear vs. whole-cell)
+  visualize_whole_sample: true
+
+  # How to downsample the visualization image (null = no downsampling, -1 = auto-downsampling, 
+  # or positive integer for specific downsample factor)
+  downsample_factor: NULL
+
+  # Whether to apply contrast enhancement to the visualization (slower but better quality)
+  enhance_contrast: true
+
+  # Whether to save RGB visualizations of all patches
+  visualize_patches: true
+
+  # Whether to save the raw multi-channel patches to disk
+  save_all_channel_patches: false
+
+  # Whether to visualize and save the segmentation mask overlay (after segmentation)
+  visualize_segmentation: true
+  
+  # Whether to show potential segmentation errors
+  show_segmentation_errors: true
+
+# -----------------------------------------------------------------------------
+# (E) QC (Patch-Level Quality Control)
+# -----------------------------------------------------------------------------
+patch_qc:
+  # Minimum fraction of non-zero pixels required for a patch to be considered valid
+  non_zero_perc_threshold: 0.05
+
+  # Minimum mean intensity for the patch to be considered informative
+  mean_intensity_threshold: 1.0
+
+  # Minimum standard deviation required to avoid marking patches as too "flat"
+  std_intensity_threshold: 1.0
+
+# -----------------------------------------------------------------------------
+# (F) Segmentation Parameters and Output Options
+# -----------------------------------------------------------------------------
+segmentation:
+  # Path to the segmentation model directory (e.g., for DeepCell or another tool)
+  model_path: /workspaces/codex-analysis/data/deepcell/v7/MultiplexSegmentation
+
+  # If True, save segmentation masks as images
+  save_segmentation_images: true
+
+  # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
+  save_segmentation_pickle: true
+
+  # If True, run segmentation analysis
+  segmentation_analysis: false
+  density_analysis:
+    calculate_global_density: false
+    calculate_local_density: false
+
+# -----------------------------------------------------------------------------
+# (G) Testing Data Disruption (Optional) 
+#     If you do not want to disrupt your data, set "type" to null or remove this block.
+# -----------------------------------------------------------------------------
+testing:
+  data_disruption:
+    # Disruption type can be "downsampling" or "gaussian"
+    type: NULL
+
+    # Intensity level of disruption (1-5, for instance)
+    level: -1.0
+
+    # Whether to save the disrupted patches to disk (for debugging/testing)
+    save_disrupted_patches: false
+
+# -----------------------------------------------------------------------------
+# (H) Evaluation Metrics
+# -----------------------------------------------------------------------------
+evaluation:
+  compute_metrics: true
+
+# -----------------------------------------------------------------------------
+# (I) Report Generation
+# -----------------------------------------------------------------------------
+report:
+  generate_report: true
+  report_format: html  # Options: html, pdf (future)

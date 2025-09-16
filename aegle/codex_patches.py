@@ -208,6 +208,7 @@ class CodexPatches:
         h, w, c = extracted_img.shape
         self.patches_metadata = [
             {
+                "patch_id": 0,  # Add patch_id for consistency
                 "patch_index": 0,
                 "x_start": 0,
                 "y_start": 0,
@@ -340,6 +341,7 @@ class CodexPatches:
             
             # Create metadata
             metadata.append({
+                "patch_id": i,  # Add patch_id for consistency
                 "patch_index": i,
                 "x_start": x_start,
                 "y_start": y_start,
