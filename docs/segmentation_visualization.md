@@ -20,13 +20,14 @@ Creates an overlay of cell and nucleus boundaries on the original image.
 **Function**: `create_segmentation_overlay()`
 
 **Features**:
-- Red boundaries for nuclei
-- Green boundaries for cells
-- Yellow highlighting for unmatched nuclei
-- Cyan highlighting for unmatched cells
-- Optional cell ID labels
+- Nuclei rendered with a magma colormap (area-scaled fill + white contour)
+- Cells rendered with a viridis colormap (area-scaled fill + white contour)
+- Optional annotations for cell / nucleus IDs
+- Yellow overlay for nuclei that were removed during repair (requires reference mask)
+- Cyan overlay for cells that were removed during repair
+- Dual colorbars reporting nucleus and cell areas
 
-**Output**: `segmentation_overlay_patch_*.png`
+**Outputs**: `segmentation_overlay_patch_*.png`, `segmentation_overlay_pre_repair_patch_*.png`, `segmentation_overlay_unmatched_nucleus_patch_*.png`, `segmentation_overlay_unmatched_cell_patch_*.png`
 
 ### 2. Error Detection Visualization
 
@@ -99,7 +100,14 @@ When enabled, visualization outputs are saved to:
 └── visualization/
     └── segmentation/
         ├── segmentation_overlay_patch_0.png
+        ├── segmentation_overlay_pre_repair_patch_0.png
+        ├── segmentation_overlay_unmatched_nucleus_patch_0.png
+        ├── segmentation_overlay_unmatched_cell_patch_0.png
         ├── segmentation_errors_patch_0.png
+        ├── nucleus_mask_patch_0.png
+        ├── nucleus_mask_pre_repair_patch_0.png
+        ├── wholecell_mask_patch_0.png
+        ├── wholecell_mask_pre_repair_patch_0.png
         ├── quality_heatmap_cell_density.png
         ├── quality_heatmap_mean_cell_area.png
         ├── quality_heatmap_matched_fraction.png

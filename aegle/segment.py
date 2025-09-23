@@ -182,8 +182,12 @@ def run_cell_segmentation(
     codex_patches.set_metadata(patches_metadata_df)
     
     memory_monitor.log_memory_usage("Before saving segmentation results")
-    
-    codex_patches.save_seg_res()
+
+    save_segmentation_pickle = config.get("segmentation", {}).get("save_segmentation_pickle", True)
+    if save_segmentation_pickle:
+        codex_patches.save_seg_res()
+    else:
+        logging.info("Skipping segmentation pickle export (save_segmentation_pickle set to False)")
     codex_patches.save_metadata()
     
     memory_monitor.log_memory_usage("End of run_cell_segmentation")

@@ -14,87 +14,238 @@ import pandas as pd
 from typing import Dict, List, Tuple, Optional
 import logging
 import os
+from matplotlib.patches import Patch
 
 logger = logging.getLogger(__name__)
 
 
+def _normalize_image_for_display(image: np.ndarray) -> np.ndarray:
+    """Convert image to float RGB and normalize to [0, 1] for visualization."""
+    if image.ndim == 2:
+        display_img = np.stack([image] * 3, axis=-1)
+    else:
+        display_img = image.copy()
+
+    display_img = display_img.astype(np.float32)
+    img_min = display_img.min()
+    img_max = display_img.max()
+    if img_max > img_min:
+        display_img = (display_img - img_min) / (img_max - img_min)
+    else:
+        display_img = np.zeros_like(display_img)
+    return display_img
+
+
+def _build_mask_overlays(
+    mask: Optional[np.ndarray],
+    cmap_name: str,
+    alpha: float,
+    boundary_color: Tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[colors.Colormap], Optional[colors.Normalize], List]:
+    if mask is None:
+        return None, None, None, None, []
+
+    props = measure.regionprops(mask)
+    if not props:
+        empty_overlay = np.zeros((*mask.shape, 4), dtype=np.float32)
+        return empty_overlay, empty_overlay.copy(), plt.cm.get_cmap(cmap_name), None, []
+
+    areas = np.array([prop.area for prop in props], dtype=np.float32)
+    vmin = float(areas.min())
+    vmax = float(areas.max())
+    if vmin == vmax:
+        vmin = max(vmin - 0.5, 0.0)
+        vmax = vmax + 0.5
+
+    cmap = plt.cm.get_cmap(cmap_name)
+    norm = colors.Normalize(vmin=vmin, vmax=vmax)
+
+    colored_mask = np.zeros((*mask.shape, 4), dtype=np.float32)
+    for prop in props:
+        mask_region = mask == prop.label
+        rgba = cmap(norm(prop.area))
+        colored_mask[mask_region] = [rgba[0], rgba[1], rgba[2], alpha]
+
+    boundaries = find_boundaries(mask, mode="outer")
+    boundary_overlay = np.zeros((*mask.shape, 4), dtype=np.float32)
+    boundary_overlay[boundaries] = boundary_color
+
+    return colored_mask, boundary_overlay, cmap, norm, props
+
+
 def create_segmentation_overlay(
     image: np.ndarray,
-    nucleus_mask: np.ndarray,
-    cell_mask: np.ndarray,
+    nucleus_mask: Optional[np.ndarray],
+    cell_mask: Optional[np.ndarray],
     matched_pairs: Optional[Dict[int, int]] = None,
     alpha: float = 0.5,
     show_ids: bool = False,
-    figsize: Tuple[int, int] = (12, 12)
+    figsize: Tuple[int, int] = (12, 12),
+    reference_nucleus_mask: Optional[np.ndarray] = None,
+    reference_cell_mask: Optional[np.ndarray] = None,
+    show_cell_overlay: bool = True,
+    show_nucleus_overlay: bool = True,
+    custom_title: Optional[str] = None,
+    show_reference_highlights: bool = True,
+    fill_cell_mask: bool = True,
+    fill_nucleus_mask: bool = True,
 ) -> plt.Figure:
-    """
-    Create an overlay visualization of segmentation masks on the original image.
-    
-    Args:
-        image: Original image (can be single channel or RGB)
-        nucleus_mask: Nucleus segmentation mask
-        cell_mask: Cell segmentation mask
-        matched_pairs: Dict mapping nucleus IDs to cell IDs
-        alpha: Transparency of overlay
-        show_ids: Whether to show cell IDs
-        figsize: Figure size
-        
-    Returns:
-        matplotlib figure
-    """
+    """Create a styled overlay showing cell and nucleus masks on the original image."""
+
     fig, ax = plt.subplots(figsize=figsize)
-    
-    # Prepare image for display
-    if len(image.shape) == 2:
-        # Single channel - convert to RGB
-        display_img = np.stack([image] * 3, axis=-1)
-    else:
-        display_img = image
-        
-    # Normalize for display
-    display_img = (display_img - display_img.min()) / (display_img.max() - display_img.min())
-    
-    # Show base image
-    ax.imshow(display_img, cmap='gray' if len(image.shape) == 2 else None)
-    
-    # Create boundaries
-    nucleus_boundaries = find_boundaries(nucleus_mask, mode='outer')
-    cell_boundaries = find_boundaries(cell_mask, mode='outer')
-    
-    # Create colored overlay
-    overlay = np.zeros((*image.shape[:2], 3))
-    overlay[nucleus_boundaries] = [1, 0, 0]  # Red for nuclei
-    overlay[cell_boundaries] = [0, 1, 0]     # Green for cells
-    
-    # Show overlay
-    ax.imshow(overlay, alpha=alpha)
-    
-    # Add cell IDs if requested
+
+    display_img = _normalize_image_for_display(image)
+    ax.imshow(display_img, cmap='gray' if image.ndim == 2 else None)
+
+    mask_alpha = max(min(alpha, 0.85), 0.2)
+    cell_overlay = cell_boundary = cell_cmap = cell_norm = None
+    nucleus_overlay = nucleus_boundary = nucleus_cmap = nucleus_norm = None
+    cell_props: List = []
+    nucleus_props: List = []
+
+    if cell_mask is not None:
+        (
+            cell_overlay,
+            cell_boundary,
+            cell_cmap,
+            cell_norm,
+            cell_props,
+        ) = _build_mask_overlays(
+            cell_mask,
+            'viridis',
+            max(mask_alpha * 0.9, 0.25),
+            boundary_color=(0.0, 0.75, 0.3, 1.0),
+        )
+    if nucleus_mask is not None:
+        (
+            nucleus_overlay,
+            nucleus_boundary,
+            nucleus_cmap,
+            nucleus_norm,
+            nucleus_props,
+        ) = _build_mask_overlays(
+            nucleus_mask,
+            'magma',
+            max(mask_alpha, 0.3),
+            boundary_color=(1.0, 0.35, 0.35, 1.0),
+        )
+
+    if not show_cell_overlay:
+        cell_overlay = None
+        cell_boundary = None
+        cell_cmap = None
+        cell_norm = None
+    elif not fill_cell_mask:
+        cell_overlay = None
+        cell_cmap = None
+        cell_norm = None
+    if not show_nucleus_overlay:
+        nucleus_overlay = None
+        nucleus_boundary = None
+        nucleus_cmap = None
+        nucleus_norm = None
+    elif not fill_nucleus_mask:
+        nucleus_overlay = None
+        nucleus_cmap = None
+        nucleus_norm = None
+
+    if cell_overlay is not None:
+        ax.imshow(cell_overlay)
+    if nucleus_overlay is not None:
+        ax.imshow(nucleus_overlay)
+
+    if cell_boundary is not None:
+        ax.imshow(cell_boundary)
+    if nucleus_boundary is not None:
+        ax.imshow(nucleus_boundary)
+
     if show_ids:
-        for region in measure.regionprops(cell_mask):
-            y, x = region.centroid
-            cell_id = region.label
-            ax.text(x, y, str(cell_id), color='white', fontsize=8,
-                   ha='center', va='center',
-                   bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.5))
-    
-    # Highlight unmatched cells if pairs provided
-    if matched_pairs is not None:
-        unmatched_nuclei = set(np.unique(nucleus_mask)) - {0} - set(matched_pairs.keys())
-        unmatched_cells = set(np.unique(cell_mask)) - {0} - set(matched_pairs.values())
-        
-        # Create unmatched overlay
-        unmatched_overlay = np.zeros((*image.shape[:2], 3))
-        for nuc_id in unmatched_nuclei:
-            unmatched_overlay[nucleus_mask == nuc_id] = [1, 1, 0]  # Yellow
-        for cell_id in unmatched_cells:
-            unmatched_overlay[cell_mask == cell_id] = [0, 1, 1]    # Cyan
-            
-        ax.imshow(unmatched_overlay, alpha=alpha * 0.5)
-    
-    ax.set_title('Segmentation Overlay\n(Red: Nuclei, Green: Cells, Yellow: Unmatched)')
+        for prop in cell_props:
+            y, x = prop.centroid
+            ax.text(
+                x,
+                y,
+                str(prop.label),
+                color='white',
+                fontsize=7,
+                ha='center',
+                va='center',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='black', alpha=0.6),
+            )
+        for prop in nucleus_props:
+            y, x = prop.centroid
+            ax.text(
+                x,
+                y,
+                str(prop.label),
+                color='yellow',
+                fontsize=7,
+                ha='center',
+                va='center',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='black', alpha=0.6),
+            )
+
+    unmatched_handles: List[Patch] = []
+
+    if show_reference_highlights and reference_nucleus_mask is not None:
+        ref_mask = reference_nucleus_mask
+        unmatched_pixels = ref_mask > 0
+        if nucleus_mask is not None:
+            unmatched_pixels &= nucleus_mask == 0
+        highlight = np.zeros((*ref_mask.shape, 4), dtype=np.float32)
+        highlight[unmatched_pixels] = [1.0, 1.0, 0.0, 0.45]
+        if np.any(highlight[..., 3] > 0):
+            ax.imshow(highlight)
+            unmatched_labels = np.unique(ref_mask[unmatched_pixels])
+            unmatched_count = len(unmatched_labels[unmatched_labels > 0])
+            if unmatched_count:
+                unmatched_handles.append(
+                    Patch(facecolor=(1.0, 1.0, 0.0, 0.45), edgecolor='white', label=f'Unmatched nuclei: {unmatched_count}')
+                )
+
+    if show_reference_highlights and reference_cell_mask is not None:
+        ref_mask = reference_cell_mask
+        unmatched_pixels = ref_mask > 0
+        if cell_mask is not None:
+            unmatched_pixels &= cell_mask == 0
+        highlight = np.zeros((*ref_mask.shape, 4), dtype=np.float32)
+        highlight[unmatched_pixels] = [0.0, 0.8, 1.0, 0.45]
+        if np.any(highlight[..., 3] > 0):
+            ax.imshow(highlight)
+            unmatched_labels = np.unique(ref_mask[unmatched_pixels])
+            unmatched_count = len(unmatched_labels[unmatched_labels > 0])
+            if unmatched_count:
+                unmatched_handles.append(
+                    Patch(facecolor=(0.0, 0.8, 1.0, 0.45), edgecolor='white', label=f'Unmatched cells: {unmatched_count}')
+                )
+
+    if matched_pairs:
+        logger.debug('matched_pairs argument is deprecated; provide reference masks for highlighting.')
+
+    colorbar_pad = 0.04
+    if show_cell_overlay and cell_norm is not None and cell_cmap is not None:
+        sm_cell = plt.cm.ScalarMappable(cmap=cell_cmap, norm=cell_norm)
+        sm_cell.set_array([])
+        cbar_cell = fig.colorbar(sm_cell, ax=ax, fraction=0.04, pad=colorbar_pad)
+        cbar_cell.set_label('Cell area (pixels)', rotation=270, labelpad=15)
+        colorbar_pad += 0.08
+    if show_nucleus_overlay and nucleus_norm is not None and nucleus_cmap is not None:
+        sm_nuc = plt.cm.ScalarMappable(cmap=nucleus_cmap, norm=nucleus_norm)
+        sm_nuc.set_array([])
+        cbar_nuc = fig.colorbar(sm_nuc, ax=ax, fraction=0.04, pad=colorbar_pad)
+        cbar_nuc.set_label('Nucleus area (pixels)', rotation=270, labelpad=15)
+
+    if unmatched_handles:
+        ax.legend(handles=unmatched_handles, loc='upper right', fontsize=8, frameon=False)
+
+    title_lines = [custom_title or 'Segmentation Overlay']
+    if show_cell_overlay and cell_props:
+        title_lines.append(f'Cells detected (Green): {len(cell_props)}')
+    if show_nucleus_overlay and nucleus_props:
+        title_lines.append(f'Nuclei detected (Red): {len(nucleus_props)}')
+    ax.set_title('\n'.join(title_lines))
     ax.axis('off')
-    
+
     return fig
 
 
@@ -462,55 +613,41 @@ def create_nucleus_mask_visualization(
     """
     fig, ax = plt.subplots(figsize=figsize)
 
-    if len(image.shape) == 2:
-        display_img = np.stack([image] * 3, axis=-1)
-    else:
-        display_img = image
+    display_img = _normalize_image_for_display(image)
+    ax.imshow(display_img, cmap='gray' if image.ndim == 2 else None, alpha=0.5)
 
-    if display_img.max() > display_img.min():
-        display_img = (display_img - display_img.min()) / (display_img.max() - display_img.min())
+    colored_mask, boundary_overlay, cmap, norm, props = _build_mask_overlays(
+        nucleus_mask, 'magma', 0.65
+    )
 
-    ax.imshow(display_img, cmap='gray' if len(image.shape) == 2 else None, alpha=0.5)
-
-    props = measure.regionprops(nucleus_mask)
-    nucleus_ids = [prop.label for prop in props]
-
-    if nucleus_ids:
-        areas = [prop.area for prop in props]
-        vmin = min(areas)
-        vmax = max(areas)
-        if vmin == vmax:
-            vmin = max(vmin - 0.5, 0)
-            vmax = vmax + 0.5
-        cmap = plt.cm.get_cmap('magma')
-        norm = colors.Normalize(vmin=vmin, vmax=vmax)
-        colored_mask = np.zeros((*image.shape[:2], 4))
-
-        for prop in props:
-            mask_region = nucleus_mask == prop.label
-            rgba = cmap(norm(prop.area))
-            colored_mask[mask_region] = [rgba[0], rgba[1], rgba[2], 0.65]
-
-            if show_ids:
-                y, x = prop.centroid
-                ax.text(x, y, str(prop.label), color='white', fontsize=8,
-                        ha='center', va='center', weight='bold',
-                        bbox=dict(boxstyle='round,pad=0.2', facecolor='black', alpha=0.6))
-
+    if colored_mask is not None:
         ax.imshow(colored_mask)
-
-        boundaries = find_boundaries(nucleus_mask, mode='outer')
-        boundary_overlay = np.zeros((*nucleus_mask.shape, 4))
-        boundary_overlay[boundaries] = [1.0, 1.0, 1.0, 1.0]
+    if boundary_overlay is not None:
         ax.imshow(boundary_overlay)
 
+    if show_ids:
+        for prop in props:
+            y, x = prop.centroid
+            ax.text(
+                x,
+                y,
+                str(prop.label),
+                color='white',
+                fontsize=8,
+                ha='center',
+                va='center',
+                weight='bold',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='black', alpha=0.6),
+            )
+
+    if cmap is not None and norm is not None and props:
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
         cbar.set_label('Nucleus area (pixels)', rotation=270, labelpad=15)
 
     ax.set_title(
-        f'Nucleus Mask Visualization\n({len(nucleus_ids)} nuclei detected, color = area)'
+        f'Nucleus Mask Visualization\n({len(props)} nuclei detected, color = area)'
     )
     ax.axis('off')
 
@@ -536,55 +673,41 @@ def create_wholecell_mask_visualization(
     """
     fig, ax = plt.subplots(figsize=figsize)
 
-    if len(image.shape) == 2:
-        display_img = np.stack([image] * 3, axis=-1)
-    else:
-        display_img = image
+    display_img = _normalize_image_for_display(image)
+    ax.imshow(display_img, cmap='gray' if image.ndim == 2 else None, alpha=0.5)
 
-    if display_img.max() > display_img.min():
-        display_img = (display_img - display_img.min()) / (display_img.max() - display_img.min())
+    colored_mask, boundary_overlay, cmap, norm, props = _build_mask_overlays(
+        cell_mask, 'viridis', 0.6
+    )
 
-    ax.imshow(display_img, cmap='gray' if len(image.shape) == 2 else None, alpha=0.5)
-
-    props = measure.regionprops(cell_mask)
-    cell_ids = [prop.label for prop in props]
-
-    if cell_ids:
-        areas = [prop.area for prop in props]
-        vmin = min(areas)
-        vmax = max(areas)
-        if vmin == vmax:
-            vmin = max(vmin - 0.5, 0)
-            vmax = vmax + 0.5
-        cmap = plt.cm.get_cmap('viridis')
-        norm = colors.Normalize(vmin=vmin, vmax=vmax)
-        colored_mask = np.zeros((*image.shape[:2], 4))
-
-        for prop in props:
-            mask_region = cell_mask == prop.label
-            rgba = cmap(norm(prop.area))
-            colored_mask[mask_region] = [rgba[0], rgba[1], rgba[2], 0.6]
-
-            if show_ids:
-                y, x = prop.centroid
-                ax.text(x, y, str(prop.label), color='white', fontsize=8,
-                        ha='center', va='center', weight='bold',
-                        bbox=dict(boxstyle='round,pad=0.2', facecolor='black', alpha=0.6))
-
+    if colored_mask is not None:
         ax.imshow(colored_mask)
-
-        boundaries = find_boundaries(cell_mask, mode='outer')
-        boundary_overlay = np.zeros((*cell_mask.shape, 4))
-        boundary_overlay[boundaries] = [1.0, 1.0, 1.0, 1.0]
+    if boundary_overlay is not None:
         ax.imshow(boundary_overlay)
 
+    if show_ids:
+        for prop in props:
+            y, x = prop.centroid
+            ax.text(
+                x,
+                y,
+                str(prop.label),
+                color='white',
+                fontsize=8,
+                ha='center',
+                va='center',
+                weight='bold',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='black', alpha=0.6),
+            )
+
+    if cmap is not None and norm is not None and props:
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
         cbar.set_label('Cell area (pixels)', rotation=270, labelpad=15)
 
     ax.set_title(
-        f'Whole Cell Mask Visualization\n({len(cell_ids)} cells detected, color = area)'
+        f'Whole Cell Mask Visualization\n({len(props)} cells detected, color = area)'
     )
     ax.axis('off')
 

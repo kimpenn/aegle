@@ -48,6 +48,9 @@ def test_visualization_on_existing_results(output_dir):
     print("\n1. Testing segmentation overlay...")
     if hasattr(codex_patches, 'repaired_seg_res_batch') and len(codex_patches.repaired_seg_res_batch) > 0:
         seg_result = codex_patches.repaired_seg_res_batch[0]
+        orig_seg_result = None
+        if hasattr(codex_patches, 'original_seg_res_batch') and len(codex_patches.original_seg_res_batch) > 0:
+            orig_seg_result = codex_patches.original_seg_res_batch[0]
         
         # Get image patch
         if hasattr(codex_patches, 'valid_patches') and len(codex_patches.valid_patches) > 0:
@@ -59,7 +62,9 @@ def test_visualization_on_existing_results(output_dir):
                 seg_result.get("nucleus_matched_mask", seg_result.get("nucleus")),
                 seg_result.get("cell_matched_mask", seg_result.get("cell")),
                 show_ids=True,
-                alpha=0.3
+                alpha=0.6,
+                reference_nucleus_mask=orig_seg_result.get("nucleus") if orig_seg_result else None,
+                reference_cell_mask=orig_seg_result.get("cell") if orig_seg_result else None,
             )
             fig.savefig(os.path.join(test_viz_dir, "test_overlay_with_ids.png"), dpi=150)
             plt.close(fig)

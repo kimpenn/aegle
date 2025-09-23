@@ -177,7 +177,12 @@ def run_pipeline(config, args):
         patches_metadata_df = codex_patches.get_patches_metadata()
         
         # Visualize each patch
+        original_seg_results = getattr(codex_patches, "original_seg_res_batch", None)
+
         for idx, seg_result in enumerate(codex_patches.repaired_seg_res_batch):
+            orig_seg_result = None
+            if original_seg_results and idx < len(original_seg_results):
+                orig_seg_result = original_seg_results[idx]
             if seg_result is None:
                 continue
                 
@@ -189,21 +194,56 @@ def run_pipeline(config, args):
             else:
                 # For memory-based patches
                 image_patch = codex_patches.valid_patches[idx]
-            
+
+            matched_nucleus_mask = seg_result.get("nucleus_matched_mask", seg_result.get("nucleus"))
+            matched_cell_mask = seg_result.get("cell_matched_mask", seg_result.get("cell"))
+            original_nucleus_mask = orig_seg_result.get("nucleus") if orig_seg_result else None
+            original_cell_mask = orig_seg_result.get("cell") if orig_seg_result else None
+
             # 1. Create segmentation overlay
             try:
                 fig = create_segmentation_overlay(
                     image_patch[:, :, 0],  # Use nuclear channel
-                    seg_result.get("nucleus_matched_mask", seg_result.get("nucleus")),
-                    seg_result.get("cell_matched_mask", seg_result.get("cell")),
-                    show_ids=False  # Too many cells make IDs cluttered
+                    matched_nucleus_mask,
+                    matched_cell_mask,
+                    show_ids=False,  # Too many cells make IDs cluttered
+                    alpha=0.6,
+                    reference_nucleus_mask=original_nucleus_mask,
+                    reference_cell_mask=original_cell_mask,
+                    show_reference_highlights=False,
+                    fill_cell_mask=False,
+                    fill_nucleus_mask=False,
                 )
                 fig.savefig(os.path.join(viz_dir, f"segmentation_overlay_patch_{idx}.png"), 
                            dpi=150, bbox_inches='tight')
                 plt.close(fig)
             except Exception as e:
                 logging.warning(f"Failed to create segmentation overlay for patch {idx}: {e}")
-            
+
+            if orig_seg_result is not None:
+                try:
+                    fig = create_segmentation_overlay(
+                        image_patch[:, :, 0],
+                        original_nucleus_mask,
+                        original_cell_mask,
+                        show_ids=False,
+                        alpha=0.6,
+                        fill_cell_mask=False,
+                        fill_nucleus_mask=False,
+                    )
+                    fig.savefig(
+                        os.path.join(viz_dir, f"segmentation_overlay_pre_repair_patch_{idx}.png"),
+                        dpi=150,
+                        bbox_inches='tight',
+                    )
+                    plt.close(fig)
+                except Exception as e:
+                    logging.warning(
+                        "Failed to create pre-repair segmentation overlay for patch %d: %s",
+                        idx,
+                        e,
+                    )
+
             # 2. Visualize potential errors
             if config.get("visualization", {}).get("show_segmentation_errors", True):
                 try:
@@ -222,7 +262,7 @@ def run_pipeline(config, args):
             try:
                 fig = create_nucleus_mask_visualization(
                     image_patch[:, :, 0],  # Use nuclear channel
-                    seg_result.get("nucleus_matched_mask", seg_result.get("nucleus")),
+                    matched_nucleus_mask,
                     show_ids=False  # Too many nuclei make IDs cluttered
                 )
                 fig.savefig(os.path.join(viz_dir, f"nucleus_mask_patch_{idx}.png"), 
@@ -235,7 +275,7 @@ def run_pipeline(config, args):
             try:
                 fig = create_wholecell_mask_visualization(
                     image_patch[:, :, 0],  # Use nuclear channel as background
-                    seg_result.get("cell_matched_mask", seg_result.get("cell")),
+                    matched_cell_mask,
                     show_ids=False  # Too many cells make IDs cluttered
                 )
                 fig.savefig(os.path.join(viz_dir, f"wholecell_mask_patch_{idx}.png"), 
@@ -243,6 +283,101 @@ def run_pipeline(config, args):
                 plt.close(fig)
             except Exception as e:
                 logging.warning(f"Failed to create whole cell mask visualization for patch {idx}: {e}")
+
+            if orig_seg_result is not None:
+                # 4b. Create pre-repair nucleus mask visualization
+                try:
+                    fig = create_nucleus_mask_visualization(
+                        image_patch[:, :, 0],
+                        original_nucleus_mask,
+                        show_ids=False
+                    )
+                    fig.savefig(
+                        os.path.join(viz_dir, f"nucleus_mask_pre_repair_patch_{idx}.png"),
+                        dpi=150,
+                        bbox_inches="tight",
+                    )
+                    plt.close(fig)
+                except Exception as e:
+                    logging.warning(
+                        "Failed to create pre-repair nucleus mask visualization for patch %d: %s",
+                        idx,
+                        e,
+                    )
+
+                # 4c. Create pre-repair whole cell mask visualization
+                try:
+                    fig = create_wholecell_mask_visualization(
+                        image_patch[:, :, 0],
+                        original_cell_mask,
+                        show_ids=False,
+                    )
+                    fig.savefig(
+                        os.path.join(viz_dir, f"wholecell_mask_pre_repair_patch_{idx}.png"),
+                        dpi=150,
+                        bbox_inches="tight",
+                    )
+                    plt.close(fig)
+                except Exception as e:
+                    logging.warning(
+                        "Failed to create pre-repair whole cell mask visualization for patch %d: %s",
+                        idx,
+                        e,
+                    )
+
+                # 4d. Highlight unmatched nuclei removed during repair
+                try:
+                    fig = create_segmentation_overlay(
+                        image_patch[:, :, 0],
+                        matched_nucleus_mask,
+                        None,
+                        show_ids=False,
+                        alpha=0.6,
+                        reference_nucleus_mask=original_nucleus_mask,
+                        reference_cell_mask=None,
+                        show_cell_overlay=False,
+                        show_nucleus_overlay=False,
+                        custom_title='Unmatched Nuclei (removed during repair)\n\n',
+                    )
+                    fig.savefig(
+                        os.path.join(viz_dir, f"segmentation_overlay_unmatched_nucleus_patch_{idx}.png"),
+                        dpi=150,
+                        bbox_inches='tight',
+                    )
+                    plt.close(fig)
+                except Exception as e:
+                    logging.warning(
+                        "Failed to create unmatched nucleus overlay for patch %d: %s",
+                        idx,
+                        e,
+                    )
+
+                # 4e. Highlight unmatched whole cells removed during repair
+                try:
+                    fig = create_segmentation_overlay(
+                        image_patch[:, :, 0],
+                        None,
+                        matched_cell_mask,
+                        show_ids=False,
+                        alpha=0.6,
+                        reference_nucleus_mask=None,
+                        reference_cell_mask=original_cell_mask,
+                        show_cell_overlay=False,
+                        show_nucleus_overlay=False,
+                        custom_title='Unmatched Cells (removed during repair)\n\n',
+                    )
+                    fig.savefig(
+                        os.path.join(viz_dir, f"segmentation_overlay_unmatched_cell_patch_{idx}.png"),
+                        dpi=150,
+                        bbox_inches='tight',
+                    )
+                    plt.close(fig)
+                except Exception as e:
+                    logging.warning(
+                        "Failed to create unmatched cell overlay for patch %d: %s",
+                        idx,
+                        e,
+                    )
         
         # 5. Create quality heatmaps across all patches
         if len(codex_patches.repaired_seg_res_batch) > 1:

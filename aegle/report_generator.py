@@ -16,6 +16,7 @@ import logging
 from jinja2 import Template
 import base64
 from io import BytesIO
+from collections import OrderedDict
 try:
     from PIL import Image
     PIL_AVAILABLE = True
@@ -300,34 +301,105 @@ class PipelineReportGenerator:
     def _collect_segmentation_visualization(self):
         """Collect segmentation visualization images."""
         visualization_dir = self.output_dir / "visualization" / "segmentation"
-        
+
         segmentation_images = []
-        
+
+        categories = OrderedDict([
+            ('overview', {'title': 'Segmentation Overview', 'layout': 'wide'}),
+            ('quality', {'title': 'Quality Diagnostics', 'layout': 'single'}),
+            ('nucleus', {'title': 'Nucleus Mask Details', 'layout': 'paired'}),
+            ('wholecell', {'title': 'Whole Cell Mask Details', 'layout': 'paired'}),
+            ('statistics', {'title': 'Morphology Statistics', 'layout': 'single'}),
+            ('other', {'title': 'Additional Visualizations', 'layout': 'paired'}),
+        ])
+
         if visualization_dir.exists():
             # Define expected visualization files with descriptions
             expected_files = {
                 'segmentation_overlay_patch_0.png': {
                     'title': 'Segmentation Overlay',
-                    'description': 'Overlay of segmentation masks on original image'
+                    'description': 'Overlay of cell and nucleus masks (viridis/magma, area-scaled)',
+                    'category': 'overview',
+                    'tab_group': 'overlay_patch_0',
+                    'tab_title': 'Repaired',
+                    'card_title': 'Segmentation Overlay',
+                    'tab_order': 0
+                },
+                'segmentation_overlay_pre_repair_patch_0.png': {
+                    'title': 'Pre-Repair Segmentation Overlay',
+                    'description': 'Original segmentation before mask repair (viridis/magma)',
+                    'category': 'overview',
+                    'tab_group': 'overlay_patch_0',
+                    'tab_title': 'Pre-Repair',
+                    'card_title': 'Segmentation Overlay',
+                    'tab_order': 1
+                },
+                'segmentation_overlay_unmatched_nucleus_patch_0.png': {
+                    'title': 'Unmatched Nuclei Overlay',
+                    'description': 'Highlights nuclei removed during repair (yellow overlay)',
+                    'category': 'overview',
+                    'tab_group': 'overlay_patch_0',
+                    'tab_title': 'Unmatched Nuclei',
+                    'card_title': 'Segmentation Overlay',
+                    'tab_order': 2
+                },
+                'segmentation_overlay_unmatched_cell_patch_0.png': {
+                    'title': 'Unmatched Cell Overlay',
+                    'description': 'Highlights cells removed during repair (cyan overlay)',
+                    'category': 'overview',
+                    'tab_group': 'overlay_patch_0',
+                    'tab_title': 'Unmatched Cells',
+                    'card_title': 'Segmentation Overlay',
+                    'tab_order': 3
                 },
                 'segmentation_errors_patch_0.png': {
                     'title': 'Segmentation Errors',
-                    'description': 'Visualization of segmentation quality and potential errors'
+                    'description': 'Visualization of segmentation quality and potential errors',
+                    'category': 'quality'
                 },
                 'nucleus_mask_patch_0.png': {
                     'title': 'Nucleus Mask Visualization',
-                    'description': 'Nucleus mask boundaries with color mapped to nucleus area'
+                    'description': 'Nucleus mask boundaries with color mapped to nucleus area',
+                    'category': 'nucleus',
+                    'tab_group': 'nucleus_patch_0',
+                    'tab_title': 'Repaired',
+                    'card_title': 'Nucleus Mask Visualization',
+                    'tab_order': 0
+                },
+                'nucleus_mask_pre_repair_patch_0.png': {
+                    'title': 'Pre-Repair Nucleus Mask',
+                    'description': 'Original nucleus segmentation before mask repair',
+                    'category': 'nucleus',
+                    'tab_group': 'nucleus_patch_0',
+                    'tab_title': 'Pre-Repair',
+                    'card_title': 'Nucleus Mask Visualization',
+                    'tab_order': 1
                 },
                 'wholecell_mask_patch_0.png': {
                     'title': 'Whole Cell Mask Visualization',
-                    'description': 'Whole-cell mask boundaries with color mapped to cell area'
+                    'description': 'Whole-cell mask boundaries with color mapped to cell area',
+                    'category': 'wholecell',
+                    'tab_group': 'wholecell_patch_0',
+                    'tab_title': 'Repaired',
+                    'card_title': 'Whole Cell Mask Visualization',
+                    'tab_order': 0
+                },
+                'wholecell_mask_pre_repair_patch_0.png': {
+                    'title': 'Pre-Repair Whole Cell Mask',
+                    'description': 'Original whole-cell segmentation before mask repair',
+                    'category': 'wholecell',
+                    'tab_group': 'wholecell_patch_0',
+                    'tab_title': 'Pre-Repair',
+                    'card_title': 'Whole Cell Mask Visualization',
+                    'tab_order': 1
                 },
                 'cell_morphology_stats.png': {
                     'title': 'Cell Morphology Statistics',
-                    'description': 'Distribution of cell morphology metrics'
+                    'description': 'Distribution of cell morphology metrics',
+                    'category': 'statistics'
                 }
             }
-            
+
             for filename, info in expected_files.items():
                 file_path = visualization_dir / filename
                 if file_path.exists():
@@ -339,7 +411,12 @@ class PipelineReportGenerator:
                                 'filename': filename,
                                 'title': info['title'],
                                 'description': info['description'],
-                                'data': f"data:image/png;base64,{img_data}"
+                                'data': f"data:image/png;base64,{img_data}",
+                                'category': info.get('category', 'other'),
+                                'tab_group': info.get('tab_group'),
+                                'tab_title': info.get('tab_title'),
+                                'card_title': info.get('card_title', info['title']),
+                                'tab_order': info.get('tab_order', 0)
                             })
                             logger.info(f"Found segmentation visualization: {filename}")
                     except Exception as e:
@@ -348,13 +425,111 @@ class PipelineReportGenerator:
                     logger.debug(f"Visualization file not found: {filename}")
         else:
             logger.info(f"Segmentation visualization directory not found: {visualization_dir}")
-        
+
+        grouped_images = []
+        for key, meta in categories.items():
+            group_items = [img for img in segmentation_images if img.get('category', 'other') == key]
+
+            tab_groups = OrderedDict()
+            regular_images = []
+
+            for img in group_items:
+                tab_group = img.get('tab_group')
+                if tab_group:
+                    tab_entry = tab_groups.setdefault(
+                        tab_group,
+                        {
+                            'card_title': img.get('card_title', img['title']),
+                            'tabs': []
+                        }
+                    )
+                    tab_entry['tabs'].append(
+                        {
+                            'title': img.get('tab_title', img['title']),
+                            'image': img,
+                            'order': img.get('tab_order', 0)
+                        }
+                    )
+                else:
+                    regular_images.append(img)
+
+            tab_cards = []
+            for tab_id, tab_info in tab_groups.items():
+                sorted_tabs = sorted(tab_info['tabs'], key=lambda t: t['order'])
+                card_title = tab_info.get('card_title') or sorted_tabs[0]['image'].get('title')
+                tab_cards.append(
+                    {
+                        'card_id': tab_id,
+                        'card_title': card_title,
+                        'tabs': [
+                            {
+                                'title': tab['title'],
+                                'image': tab['image']
+                            }
+                            for tab in sorted_tabs
+                        ]
+                    }
+                )
+
+            if regular_images or tab_cards:
+                grouped_images.append({
+                    'key': key,
+                    'title': meta['title'],
+                    'layout': meta['layout'],
+                    'images': regular_images,
+                    'tab_cards': tab_cards
+                })
+
+        global_tab_groups = OrderedDict()
+        global_regular_images = []
+
+        for img in segmentation_images:
+            tab_group = img.get('tab_group')
+            if tab_group:
+                tab_entry = global_tab_groups.setdefault(
+                    tab_group,
+                    {
+                        'card_title': img.get('card_title', img['title']),
+                        'tabs': []
+                    }
+                )
+                tab_entry['tabs'].append(
+                    {
+                        'title': img.get('tab_title', img['title']),
+                        'image': img,
+                        'order': img.get('tab_order', 0)
+                    }
+                )
+            else:
+                global_regular_images.append(img)
+
+        global_tab_cards = []
+        for tab_id, tab_info in global_tab_groups.items():
+            sorted_tabs = sorted(tab_info['tabs'], key=lambda t: t['order'])
+            card_title = tab_info.get('card_title') or sorted_tabs[0]['image'].get('title')
+            global_tab_cards.append(
+                {
+                    'card_id': tab_id,
+                    'card_title': card_title,
+                    'tabs': [
+                        {
+                            'title': tab['title'],
+                            'image': tab['image']
+                        }
+                        for tab in sorted_tabs
+                    ]
+                }
+            )
+
         self.report_data['segmentation_visualization'] = {
             'images': segmentation_images,
+            'groups': grouped_images,
             'total_images': len(segmentation_images),
-            'visualization_dir': str(visualization_dir)
+            'visualization_dir': str(visualization_dir),
+            'tab_cards': global_tab_cards,
+            'regular_images': global_regular_images
         }
-        
+
         if segmentation_images:
             logger.info(f"Collected {len(segmentation_images)} segmentation visualization images")
         else:
@@ -819,7 +994,17 @@ class PipelineReportGenerator:
 <html>
 <head>
     <title>PhenoCycler Pipeline Report - {{ metadata.experiment_id }}</title>
+    
     <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        .summary-box { display: flow-root; }
+        .segmentation-gallery { align-items: start; }
+        .segmentation-card { height: auto; }     /* 覆盖原来的 height:100% */
+        .segmentation-card img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        }    
         body {
             font-family: Arial, sans-serif;
             margin: 20px;
@@ -915,6 +1100,118 @@ class PipelineReportGenerator:
             padding: 10px;
             border-radius: 5px;
             margin: 10px 0;
+        }
+        .segmentation-section {
+            margin-bottom: 30px;
+        }
+        .segmentation-section + .segmentation-section {
+            border-top: 1px solid #e0e0e0;
+            padding-top: 20px;
+        }
+        .segmentation-section h3 {
+            margin: 0 0 12px;
+            color: #2c3e50;
+        }
+        .segmentation-gallery {
+            display: grid;
+            gap: 24px;
+        }
+        .segmentation-gallery--single {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        .segmentation-gallery--paired {
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        }
+        .segmentation-gallery--wide {
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+        }
+        .segmentation-card {
+            background-color: #fafafa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .segmentation-card__title {
+            font-weight: 600;
+            font-size: 15px;
+            color: #333;
+            margin-bottom: 12px;
+            text-align: left;
+        }
+        .segmentation-card img {
+            width: 100%;
+            height: auto;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            margin-bottom: 12px;
+        }
+        .segmentation-card figcaption {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+            margin-top: auto;
+        }
+        .segmentation-card .segmentation-filename {
+            display: block;
+            font-weight: 600;
+            color: #444;
+            margin: 0 0 2px;
+        }
+        .segmentation-card__title + img {
+            margin-bottom: 8px;
+        }
+        .segmentation-card figcaption {
+            margin-top: 6px;
+        }
+        .segmentation-card--tabbed {
+            position: relative;
+        }
+        .segmentation-tab-bar {
+            display: inline-flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .segmentation-tab {
+            border: 1px solid #b3b3b3;
+            background: #f3f3f3;
+            border-radius: 4px;
+            padding: 4px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+        }
+        .segmentation-tab:hover {
+            background: #e4e4e4;
+        }
+        .segmentation-tab.is-active {
+            background: #1b73d1;
+            color: #ffffff;
+            border-color: #1b73d1;
+        }
+        .segmentation-tab-panel {
+            display: none;
+        }
+        .segmentation-tab-panel.is-active {
+            display: block;
+        }
+        .segmentation-card--tabbed img {
+            margin-bottom: 10px;
+        }
+        .segmentation-caption {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+        }
+        .segmentation-caption .segmentation-filename {
+            display: block;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 2px;
         }
     </style>
 </head>
@@ -1040,18 +1337,88 @@ class PipelineReportGenerator:
             Channel configuration could not be retrieved from the pipeline data.
         </div>
         {% endif %}        
-        {% if segmentation_visualization.images %}
+        {% if segmentation_visualization.groups %}
         <h2>Segmentation Visualization</h2>
         <div class="summary-box">
             <p>Found {{ segmentation_visualization.total_images }} segmentation visualization image(s) from pipeline analysis.</p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px; margin: 20px 0;">
-                {% for image in segmentation_visualization.images %}
-                <div style="text-align: center; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background-color: #fafafa;">
-                    <h4 style="margin-bottom: 10px; color: #333;">{{ image.title }}</h4>
-                    <img src="{{ image.data }}" alt="{{ image.filename }}" style="max-width: 100%; height: auto; border: 2px solid #ccc; border-radius: 5px; margin-bottom: 10px;">
-                    <p style="font-size: 13px; color: #555; margin: 5px 0;"><strong>{{ image.filename }}</strong></p>
-                    <p style="font-size: 12px; color: #777; margin: 0; line-height: 1.4;">{{ image.description }}</p>
+            {% for group in segmentation_visualization.groups %}
+            <div class="segmentation-section">
+                <h3>{{ group.title }}</h3>
+                <div class="segmentation-gallery segmentation-gallery--{{ group.layout }}">
+                    {% if group.tab_cards %}
+                    {% for card in group.tab_cards %}
+                    <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
+                        <div class="segmentation-card__title">{{ card.card_title }}</div>
+                        <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
+                            {% for tab in card.tabs %}
+                            <button type="button" class="segmentation-tab{% if loop.first %} is-active{% endif %}" role="tab" data-target="{{ card.card_id }}-{{ loop.index0 }}">
+                                {{ tab.title }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                        {% for tab in card.tabs %}
+                        <div class="segmentation-tab-panel{% if loop.first %} is-active{% endif %}" id="{{ card.card_id }}-{{ loop.index0 }}" role="tabpanel">
+                            <img src="{{ tab.image.data }}" alt="{{ tab.image.filename }}">
+                            <div class="segmentation-caption">
+                                <span class="segmentation-filename">{{ tab.image.filename }}</span>
+                                {{ tab.image.description }}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                    {% for image in group.images %}
+                    <figure class="segmentation-card">
+                        <div class="segmentation-card__title">{{ image.title }}</div>
+                        <img src="{{ image.data }}" alt="{{ image.filename }}">
+                        <figcaption>
+                            <span class="segmentation-filename">{{ image.filename }}</span>
+                            {{ image.description }}
+                        </figcaption>
+                    </figure>
+                    {% endfor %}
                 </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% elif segmentation_visualization.images %}
+        <h2>Segmentation Visualization</h2>
+        <div class="summary-box">
+            <p>Found {{ segmentation_visualization.total_images }} segmentation visualization image(s) from pipeline analysis.</p>
+            <div class="segmentation-gallery segmentation-gallery--paired">
+                {% if segmentation_visualization.tab_cards %}
+                {% for card in segmentation_visualization.tab_cards %}
+                <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
+                    <div class="segmentation-card__title">{{ card.card_title }}</div>
+                    <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
+                        {% for tab in card.tabs %}
+                        <button type="button" class="segmentation-tab{% if loop.first %} is-active{% endif %}" role="tab" data-target="{{ card.card_id }}-{{ loop.index0 }}">
+                            {{ tab.title }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    {% for tab in card.tabs %}
+                    <div class="segmentation-tab-panel{% if loop.first %} is-active{% endif %}" id="{{ card.card_id }}-{{ loop.index0 }}" role="tabpanel">
+                        <img src="{{ tab.image.data }}" alt="{{ tab.image.filename }}">
+                        <div class="segmentation-caption">
+                            <span class="segmentation-filename">{{ tab.image.filename }}</span>
+                            {{ tab.image.description }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% for image in segmentation_visualization.regular_images %}
+                <figure class="segmentation-card">
+                    <div class="segmentation-card__title">{{ image.title }}</div>
+                    <img src="{{ image.data }}" alt="{{ image.filename }}">
+                    <figcaption>
+                        <span class="segmentation-filename">{{ image.filename }}</span>
+                        {{ image.description }}
+                    </figcaption>
+                </figure>
                 {% endfor %}
             </div>
         </div>
@@ -1183,6 +1550,34 @@ class PipelineReportGenerator:
             <strong>Report generation completed successfully!</strong>
         </div>
     </div>
+    <script>
+document.addEventListener('DOMContentLoaded', function () {
+    var tabbedCards = document.querySelectorAll('.segmentation-card--tabbed');
+    tabbedCards.forEach(function (card) {
+        var tabs = card.querySelectorAll('.segmentation-tab');
+        var panels = card.querySelectorAll('.segmentation-tab-panel');
+        tabs.forEach(function (tab, tabIndex) {
+            var targetId = tab.getAttribute('data-target');
+            tab.setAttribute('aria-selected', tabIndex === 0 ? 'true' : 'false');
+            tab.addEventListener('click', function () {
+                tabs.forEach(function (t) {
+                    t.classList.remove('is-active');
+                    t.setAttribute('aria-selected', 'false');
+                });
+                panels.forEach(function (panel) {
+                    panel.classList.remove('is-active');
+                });
+                tab.classList.add('is-active');
+                tab.setAttribute('aria-selected', 'true');
+                var targetPanel = card.querySelector('#' + targetId);
+                if (targetPanel) {
+                    targetPanel.classList.add('is-active');
+                }
+            });
+        });
+    });
+});
+</script>
 </body>
 </html>
         '''

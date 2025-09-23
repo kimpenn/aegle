@@ -630,74 +630,104 @@ class CodexPatches:
         self.logger.info(f"Saved codex_patches metadata to {file_name}")
     
     def save_seg_res(self):
-        def inspect_and_save(data, file_name):
-            """Inspect the type, shape, and sample content of the data before saving."""
-            if data is not None:
-                self.logger.info(f"Saving {file_name}...")
+        compression_cfg = self.config.get("segmentation", {})
+        compression = str(
+            compression_cfg.get("segmentation_pickle_compression", "none")
+        ).lower()
+        compression_level = compression_cfg.get(
+            "segmentation_pickle_compression_level", None
+        )
 
-                # Type and basic info
-                self.logger.info(f"Type: {type(data)}")
-                if hasattr(data, "shape"):
-                    self.logger.info(f"Shape: {data.shape}")
-                elif isinstance(data, list):
-                    self.logger.info(f"Length: {len(data)}")
-
-                # Check the first element's type and shape (if applicable)
-                if isinstance(data, (list, tuple)) and len(data) > 0:
-                    first_elem = data[0]
-                    self.logger.info(f"First element type: {type(first_elem)}")
-                    if hasattr(first_elem, "shape"):
-                        self.logger.info(f"First element shape: {first_elem.shape}")
-
-                # Sample content (Avoid printing too much data)
-                sample_content = (
-                    data[:5]
-                    if isinstance(data, (list, np.ndarray))
-                    else str(data)[:500]
+        if isinstance(compression_level, str):
+            try:
+                compression_level = int(compression_level)
+            except ValueError:
+                self.logger.warning(
+                    "Invalid segmentation_pickle_compression_level '%s'; ignoring",
+                    compression_level,
                 )
-                self.logger.debug(f"Sample content: {sample_content}")
+                compression_level = None
 
-                file_name = os.path.join(self.args.out_dir, file_name)
-                self.logger.info(f"Saving to {file_name}...")
-                # Save with Pickle (Protocol 4 for large files)
-                with open(file_name, "wb") as f:
-                    pickle.dump(data, f, protocol=4)
+        def inspect_and_save(data, base_file_name):
+            """Inspect the type, shape, and sample content of the data before saving."""
+            if data is None:
+                return
 
-                self.logger.info(f"Saved {file_name}")
+            compression_label = "none"
+            self.logger.info(f"Saving {base_file_name}...")
+
+            # Type and basic info
+            self.logger.info(f"Type: {type(data)}")
+            if hasattr(data, "shape"):
+                self.logger.info(f"Shape: {data.shape}")
+            elif isinstance(data, list):
+                self.logger.info(f"Length: {len(data)}")
+
+            # Check the first element's type and shape (if applicable)
+            if isinstance(data, (list, tuple)) and len(data) > 0:
+                first_elem = data[0]
+                self.logger.info(f"First element type: {type(first_elem)}")
+                if hasattr(first_elem, "shape"):
+                    self.logger.info(f"First element shape: {first_elem.shape}")
+
+            # Sample content (Avoid printing too much data)
+            sample_content = (
+                data[:5] if isinstance(data, (list, np.ndarray)) else str(data)[:500]
+            )
+            self.logger.debug(f"Sample content: {sample_content}")
+
+            file_path = os.path.join(self.args.out_dir, base_file_name)
+            opener = open
+            opener_kwargs = {}
+            suffix = ""
+
+            if compression in {"gzip", "gz"}:
+                import gzip
+
+                suffix = ".gz"
+                opener = gzip.open
+                compression_label = "gzip"
+                if compression_level is not None:
+                    opener_kwargs["compresslevel"] = compression_level
+            elif compression in {"bz2", "bzip2"}:
+                import bz2
+
+                suffix = ".bz2"
+                opener = bz2.open
+                compression_label = "bz2"
+                if compression_level is not None:
+                    opener_kwargs["compresslevel"] = compression_level
+            elif compression in {"lzma", "xz"}:
+                import lzma
+
+                suffix = ".xz"
+                opener = lzma.open
+                compression_label = "lzma"
+                if compression_level is not None:
+                    opener_kwargs["preset"] = compression_level
+            elif compression not in {"none", "", None}:
+                self.logger.warning(
+                    "Unsupported segmentation_pickle_compression '%s'; defaulting to no compression",
+                    compression,
+                )
+                compression = "none"
+                compression_label = "none"
+
+            target_path = file_path + suffix
+            self.logger.info(f"Saving to {target_path}...")
+
+            with opener(target_path, "wb", **opener_kwargs) as f:
+                pickle.dump(data, f, protocol=4)
+
+            if suffix:
+                self.logger.info(
+                    "Saved %s using %s compression", target_path, compression_label
+                )
+            else:
+                self.logger.info(f"Saved {target_path}")
 
         # Inspect and save `repaired_seg_res_batch`
         inspect_and_save(self.repaired_seg_res_batch, "matched_seg_res_batch.pickle")
 
         # Inspect and save `original_seg_res_batch`
         inspect_and_save(self.original_seg_res_batch, "original_seg_res_batch.pickle")
-
-    # def save_seg_res(self):
-    #     if self.repaired_seg_res_batch is not None:
-    #         # seg_res_file_name = os.path.join(
-    #         #     self.args.out_dir, "matched_seg_res_batch.npy"
-    #         # )
-    #         # np.save(seg_res_file_name, self.repaired_seg_res_batch)
-    #         # np.save(seg_res_file_name, self.repaired_seg_res_batch, allow_pickle=True)
-    #         # seg_res_file_name = os.path.join(
-    #         #     self.args.out_dir, "matched_seg_res_batch.npz"
-    #         # )
-    #         # np.savez_compressed(seg_res_file_name, self.repaired_seg_res_batch)
-    #         seg_res_file_name = "matched_seg_res_batch.pickle"
-    #         with open(seg_res_file_name, 'wb') as f:
-    #             pickle.dump(self.repaired_seg_res_batch, f, protocol=4)
-
-    #         self.logger.info(f"Saved matched_seg_res_batch to {seg_res_file_name}")
-
-    #     if self.original_seg_res_batch is not None:
-    #         # seg_res_file_name = os.path.join(
-    #         #     self.args.out_dir, "original_seg_res_batch.npy"
-    #         # )
-    #         # np.save(seg_res_file_name, self.original_seg_res_batch, allow_pickle=True)
-    #         # seg_res_file_name = os.path.join(
-    #         #     self.args.out_dir, "original_seg_res_batch.npz"
-    #         # )
-    #         # np.savez_compressed(seg_res_file_name, self.original_seg_res_batch)
-    #         seg_res_file_name = "original_seg_res_batch.pickle"
-    #         with open(seg_res_file_name, 'wb') as f:
-    #             pickle.dump(self.repaired_seg_res_batch, f, protocol=4)
-    #         self.logger.info(f"Saved original_seg_res_batch to {seg_res_file_name}")
