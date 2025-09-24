@@ -1,0 +1,15 @@
+exp_id: test_manual_geojson_split
+data:
+  file_name: 
+    /workspaces/codex-analysis/data/test/preprocess/manual_tissues/img0003.qptiff
+
+bftools:
+  showinf_path: /workspaces/codex-analysis/bftools/showinf
+tissue_extraction:
+  visualize: true
+  output_dir: /workspaces/codex-analysis/data/test/preprocess/manual_tissues/processed_hubmap
+  downscale_factor: 64  # low-res preview stride; must be >=1 to avoid zarr slicing error
+  n_tissue: 0
+  min_area: 0
+  manual_mask_json: 
+    /workspaces/codex-analysis/data/test/preprocess/manual_tissues/processed_hubmap/hubmap_annotations

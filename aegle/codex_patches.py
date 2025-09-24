@@ -9,6 +9,7 @@ import cv2
 from skimage.io import imsave
 from aegle.codex_image import CodexImage
 import pickle
+import tifffile
 
 
 def save_large_array(array, file_path):
@@ -653,6 +654,7 @@ class CodexPatches:
             if data is None:
                 return
 
+            compression_mode = compression
             compression_label = "none"
             self.logger.info(f"Saving {base_file_name}...")
 
@@ -681,7 +683,7 @@ class CodexPatches:
             opener_kwargs = {}
             suffix = ""
 
-            if compression in {"gzip", "gz"}:
+            if compression_mode in {"gzip", "gz"}:
                 import gzip
 
                 suffix = ".gz"
@@ -689,7 +691,7 @@ class CodexPatches:
                 compression_label = "gzip"
                 if compression_level is not None:
                     opener_kwargs["compresslevel"] = compression_level
-            elif compression in {"bz2", "bzip2"}:
+            elif compression_mode in {"bz2", "bzip2"}:
                 import bz2
 
                 suffix = ".bz2"
@@ -697,7 +699,7 @@ class CodexPatches:
                 compression_label = "bz2"
                 if compression_level is not None:
                     opener_kwargs["compresslevel"] = compression_level
-            elif compression in {"lzma", "xz"}:
+            elif compression_mode in {"lzma", "xz"}:
                 import lzma
 
                 suffix = ".xz"
@@ -705,12 +707,12 @@ class CodexPatches:
                 compression_label = "lzma"
                 if compression_level is not None:
                     opener_kwargs["preset"] = compression_level
-            elif compression not in {"none", "", None}:
+            elif compression_mode not in {"none", "", None}:
                 self.logger.warning(
                     "Unsupported segmentation_pickle_compression '%s'; defaulting to no compression",
-                    compression,
+                    compression_mode,
                 )
-                compression = "none"
+                compression_mode = "none"
                 compression_label = "none"
 
             target_path = file_path + suffix
@@ -731,3 +733,204 @@ class CodexPatches:
 
         # Inspect and save `original_seg_res_batch`
         inspect_and_save(self.original_seg_res_batch, "original_seg_res_batch.pickle")
+
+    def export_segmentation_masks(self, config, args):
+        if self.repaired_seg_res_batch is None:
+            self.logger.warning("No repaired segmentation results to export")
+            return
+
+        metadata_df = self.get_patches_metadata()
+        if metadata_df is None or metadata_df.empty:
+            self.logger.warning("No patch metadata available for segmentation export")
+            return
+
+        exp_id = config.get("exp_id") or config.get("name", "experiment")
+        output_dir = os.path.join(args.out_dir, "segmentations")
+        os.makedirs(output_dir, exist_ok=True)
+        base_name = exp_id if exp_id else "segmentation"
+
+        channel_order = [
+            ("cell", "cell"),
+            ("nucleus", "nucleus"),
+            ("cell_boundary", "cell_boundary"),
+            ("nucleus_boundary", "nucleus_boundary"),
+        ]
+        matched_channel_order = [
+            ("cell_matched_mask", "cell_matched_mask"),
+            ("nucleus_matched_mask", "nucleus_matched_mask"),
+            ("cell_outside_nucleus_mask", "cell_outside_nucleus_mask"),
+            ("cell_matched_boundary", "cell_matched_boundary"),
+            ("nucleus_matched_boundary", "nucleus_matched_boundary"),
+        ]
+
+        image_shape = self.codex_image.extended_extracted_channel_image.shape[:2]
+        original_results = self.original_seg_res_batch or []
+        repaired_results = self.repaired_seg_res_batch or []
+
+        informative_mask = metadata_df["is_informative"] == True
+        informative_indices = metadata_df[informative_mask].index.tolist()
+
+        if len(repaired_results) != len(informative_indices):
+            self.logger.warning(
+                "Mismatch between repaired results (%d) and informative patches (%d)",
+                len(repaired_results),
+                len(informative_indices),
+            )
+
+        aggregated_masks = {}
+
+        for channel_key, result_key in channel_order:
+            aggregated_masks[channel_key] = self._merge_segmentation_masks(
+                metadata_df,
+                informative_indices,
+                original_results,
+                result_key,
+                image_shape,
+            )
+
+        for channel_key, result_key in matched_channel_order:
+            aggregated_masks[channel_key] = self._merge_segmentation_masks(
+                metadata_df,
+                informative_indices,
+                repaired_results,
+                result_key,
+                image_shape,
+            )
+
+        exported = False
+        image_mpp = config.get("data", {}).get("image_mpp")
+
+        for name in [
+            "cell",
+            "nucleus",
+            "cell_boundary",
+            "nucleus_boundary",
+            "cell_matched_mask",
+            "nucleus_matched_mask",
+            "cell_outside_nucleus_mask",
+        ]:
+            mask = aggregated_masks.get(name)
+            if mask is None:
+                continue
+
+            mask = mask.astype(np.uint32, copy=False)
+            stack = mask[None, ...]
+            pyramid = self._build_pyramid(stack)
+
+            metadata = {
+                "axes": "CYX",
+                "channel_names": [name],
+            }
+            if image_mpp:
+                metadata["PhysicalSizeX"] = float(image_mpp)
+                metadata["PhysicalSizeY"] = float(image_mpp)
+
+            mask_path = os.path.join(
+                output_dir, f"{base_name}.{name}.segmentations.ome.tiff"
+            )
+
+            with tifffile.TiffWriter(mask_path, bigtiff=True) as tif:
+                tif.write(
+                    pyramid[0],
+                    subifds=len(pyramid) - 1,
+                    dtype=np.uint32,
+                    compression="zlib",
+                    photometric="minisblack",
+                    metadata=metadata,
+                )
+                for level in pyramid[1:]:
+                    tif.write(
+                        level,
+                        subfiletype=1,
+                        dtype=np.uint32,
+                        compression="zlib",
+                        photometric="minisblack",
+                    )
+
+            exported = True
+            self.logger.info("Exported %s segmentation mask to %s", name, mask_path)
+
+        if not exported:
+            self.logger.warning("No segmentation masks aggregated for export")
+
+    def _merge_segmentation_masks(
+        self,
+        metadata_df,
+        informative_indices,
+        seg_results,
+        result_key,
+        image_shape,
+    ):
+        if not seg_results or result_key is None:
+            return None
+
+        aggregated = np.zeros(image_shape, dtype=np.uint32)
+        current_label = 1
+
+        for idx_pos, patch_idx in enumerate(informative_indices):
+            if idx_pos >= len(seg_results):
+                break
+            seg_result = seg_results[idx_pos]
+            if seg_result is None:
+                continue
+            mask = seg_result.get(result_key)
+            if mask is None:
+                continue
+
+            mask = np.asarray(mask, dtype=np.uint32)
+            if mask.size == 0:
+                continue
+
+            if "y_start" in metadata_df.columns:
+                y_val = metadata_df.loc[patch_idx, "y_start"]
+                y_start = int(round(y_val)) if not pd.isna(y_val) else 0
+            else:
+                y_start = 0
+            if "x_start" in metadata_df.columns:
+                x_val = metadata_df.loc[patch_idx, "x_start"]
+                x_start = int(round(x_val)) if not pd.isna(x_val) else 0
+            else:
+                x_start = 0
+
+            h, w = mask.shape
+            y_end = min(y_start + h, image_shape[0])
+            x_end = min(x_start + w, image_shape[1])
+            if y_end <= y_start or x_end <= x_start:
+                continue
+
+            target_slice = aggregated[y_start:y_end, x_start:x_end]
+            patch_slice = mask[: y_end - y_start, : x_end - x_start]
+
+            nonzero = patch_slice > 0
+            if not np.any(nonzero):
+                continue
+
+            max_label = int(patch_slice.max())
+            if max_label <= 0:
+                continue
+
+            reassigned = np.zeros_like(patch_slice, dtype=np.uint32)
+            reassigned[nonzero] = patch_slice[nonzero] + current_label - 1
+
+            overwrite_mask = nonzero & (target_slice == 0)
+            target_slice[overwrite_mask] = reassigned[overwrite_mask]
+
+            aggregated[y_start:y_end, x_start:x_end] = target_slice
+            current_label += max_label
+
+        return aggregated
+
+    @staticmethod
+    def _build_pyramid(base_level, min_size=256):
+        pyramid = [base_level]
+        current = base_level
+        while (
+            current.shape[-2] >= 2 * min_size
+            and current.shape[-1] >= 2 * min_size
+        ):
+            down = current[:, ::2, ::2]
+            if down.shape[-2] < min_size or down.shape[-1] < min_size:
+                break
+            pyramid.append(down)
+            current = down
+        return pyramid

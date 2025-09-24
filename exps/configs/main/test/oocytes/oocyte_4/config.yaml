@@ -1,16 +1,16 @@
 # Top-level configuration for CODEX pipeline test
-exp_id: test_tiles
+exp_id: test_oocyte_4
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
   file_name: 
-    /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/test_data/small_tiles/tile_000.ome.tiff
+    /workspaces/codex-analysis/data/Ovary/D11_13_Scan1/D11_13_Scan1.er_manual_4.ome.tiff
 
   # Path to the TSV file containing antibody definitions (one row per channel)
   antibodies_file: 
-    /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/test_data/small_tiles/antibodies.tsv
+    /workspaces/codex-analysis/data/test/main/oocytes/extras/antibodies.tsv
 
   # Microns per pixel for this image; used in downstream calculations (e.g., segmentation scaling)
   image_mpp: 0.5
@@ -27,10 +27,11 @@ channels:
 
   # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
   wholecell_channel:
-    - Pan-Cytokeratin
     - E-cadherin
-    - Beta-actin
-    - FUT4
+    - Collagen IV
+    - CD34
+    - SMA
+    - Caveolin
     
 # -----------------------------------------------------------------------------
 # (C) Patch Extraction Parameters
@@ -71,6 +72,9 @@ visualization:
 
   # Whether to visualize and save the segmentation mask overlay (after segmentation)
   visualize_segmentation: true
+  
+  # Whether to show potential segmentation errors
+  show_segmentation_errors: true
 
 # -----------------------------------------------------------------------------
 # (E) QC (Patch-Level Quality Control)
@@ -97,12 +101,13 @@ segmentation:
 
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
   save_segmentation_pickle: true
-
+  segmentation_pickle_compression: gzip      # options: none|gzip|bz2|lzma
+  segmentation_pickle_compression_level: 5   # optional, honours backend limits
   # If True, run segmentation analysis
-  segmentation_analysis: true
+  segmentation_analysis: false
   density_analysis:
-    calculate_global_density: true
-    calculate_local_density: true
+    calculate_global_density: false
+    calculate_local_density: false
 
 # -----------------------------------------------------------------------------
 # (G) Testing Data Disruption (Optional) 
@@ -124,3 +129,10 @@ testing:
 # -----------------------------------------------------------------------------
 evaluation:
   compute_metrics: true
+
+# -----------------------------------------------------------------------------
+# (I) Report Generation
+# -----------------------------------------------------------------------------
+report:
+  generate_report: true
+  report_format: html  # Options: html, pdf (future)

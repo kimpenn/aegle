@@ -183,12 +183,19 @@ def run_cell_segmentation(
     
     memory_monitor.log_memory_usage("Before saving segmentation results")
 
-    save_segmentation_pickle = config.get("segmentation", {}).get("save_segmentation_pickle", True)
+    segmentation_cfg = config.get("segmentation", {})
+    save_segmentation_pickle = segmentation_cfg.get("save_segmentation_pickle", True)
     if save_segmentation_pickle:
         codex_patches.save_seg_res()
     else:
         logging.info("Skipping segmentation pickle export (save_segmentation_pickle set to False)")
     codex_patches.save_metadata()
+
+    if segmentation_cfg.get("save_segmentation_images", True):
+        try:
+            codex_patches.export_segmentation_masks(config, args)
+        except Exception:
+            logging.exception("Failed to export segmentation masks to OME-TIFF")
     
     memory_monitor.log_memory_usage("End of run_cell_segmentation")
 

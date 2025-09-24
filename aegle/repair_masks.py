@@ -14,6 +14,17 @@ from aegle.visualization import make_outline_overlay
 import logging
 
 
+def _compute_labeled_boundary(mask: np.ndarray) -> np.ndarray:
+    """Return a boundary mask where pixels retain their original labels."""
+    mask = np.asarray(mask)
+    if not np.issubdtype(mask.dtype, np.integer):
+        mask = mask.astype(np.uint32, copy=False)
+    boundary_bool = find_boundaries(mask, mode="inner")
+    boundary_mask = np.zeros_like(mask, dtype=np.uint32)
+    boundary_mask[boundary_bool] = mask[boundary_bool]
+    return boundary_mask
+
+
 def repair_masks_batch(seg_res_batch):
     res_list = []
     for idx, seg_res in enumerate(seg_res_batch):
@@ -65,6 +76,8 @@ def repair_masks_single(cell_mask, nucleus_mask):
         "cell_matched_mask": cell_matched_mask.astype(np.uint32),
         "nucleus_matched_mask": nucleus_matched_mask.astype(np.uint32),
         "cell_outside_nucleus_mask": cell_outside_nucleus_mask.astype(np.uint32),
+        "cell_matched_boundary": _compute_labeled_boundary(cell_matched_mask),
+        "nucleus_matched_boundary": _compute_labeled_boundary(nucleus_matched_mask),
         "matched_fraction": matched_fraction,
         "matching_stats": matching_stats,
     }
@@ -147,7 +160,10 @@ def get_matched_masks(cell_mask, nucleus_mask):
                             nucleus_coords[j - 1],
                             mismatch_repair=1,
                         )
-                        if type(whole_cell) != bool:
+                        # This part was type(whole_cell) != bool
+                        # Ref: https://github.com/murphygroup/CellSegmentationEvaluator/blob/6def33dd172ad9074bd856399535a5deea3e3fd6/full_pipeline/pipeline/segmentation/get_cellular_compartments.py#L176
+                        # We changed it to arrary size to make sure whole_cell and nucleus are alwasy arrays
+                        if whole_cell.size > 0 and nucleus.size > 0:
                             if mismatch_fraction < best_mismatch_fraction:
                                 best_mismatch_fraction = mismatch_fraction
                                 whole_cell_best = whole_cell
@@ -214,23 +230,54 @@ def get_indices_sparse(data):
     return [np.unravel_index(row.data, data.shape) for row in M]
 
 
-def get_matched_cells(cell_arr, cell_membrane_arr, nuclear_arr, mismatch_repair):
-    a = set((tuple(i) for i in cell_arr))
-    b = set((tuple(i) for i in cell_membrane_arr))
-    c = set((tuple(i) for i in nuclear_arr))
-    d = a - b
-    mismatch_pixel_num = len(list(c - d))
-    mismatch_fraction = len(list(c - d)) / len(list(c))
+def get_matched_cells(cell_arr, cell_membrane_arr, nuclear_arr, mismatch_repair) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
+    """Match a single cell mask with a candidate nucleus mask.
+
+    The inputs are coordinate arrays (z, y, x) belonging to an individual cell,
+    its membrane, and a nucleus candidate. We first measure how much of the
+    nucleus sits inside the cell interior (cell minus membrane). Then we decide
+    whether the nucleus should be kept, possibly trimming it when
+    ``mismatch_repair`` is enabled.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, float]:
+            - full cell coordinates (possibly unchanged from the input)
+            - repaired nucleus coordinates (may be empty if rejected)
+            - mismatch_fraction measuring nucleus pixels outside the cell interior
+    """
+
+    cell_set = set(map(tuple, cell_arr))
+    membrane_set = set(map(tuple, cell_membrane_arr))
+    nucleus_set = set(map(tuple, nuclear_arr))
+
+    if not nucleus_set:
+        # No nucleus pixels exist; treat as a complete mismatch.
+        return np.array([]), np.array([]), 1.0
+
+    cell_interior = cell_set - membrane_set
+    unmatched_pixels = nucleus_set - cell_interior
+    mismatch_fraction = len(unmatched_pixels) / len(nucleus_set)
+
     if not mismatch_repair:
-        if mismatch_pixel_num == 0:
-            return np.array(list(a)), np.array(list(c)), 0
-        else:
-            return np.array([]), np.array([]), 0
-    else:
-        if mismatch_pixel_num < len(c):
-            return np.array(list(a)), np.array(list(d & c)), mismatch_fraction
-        else:
-            return np.array([]), np.array([]), 0
+        # Without repair we only accept perfect overlap.
+        if mismatch_fraction == 0:
+            return np.array(list(cell_set)), np.array(list(nucleus_set)), 0.0
+        return np.array([]), np.array([]), mismatch_fraction
+
+    if mismatch_fraction >= 1.0 or not cell_interior:
+        # Completely disjoint or cell has no interior -> reject.
+        return np.array([]), np.array([]), 1.0
+
+    matched_nucleus = nucleus_set & cell_interior
+    if not matched_nucleus:
+        # Safety guard: partial overlap should have produced interior pixels.
+        return np.array([]), np.array([]), 1.0
+
+    return (
+        np.array(list(cell_set)),
+        np.array(list(matched_nucleus)),
+        mismatch_fraction,
+    )
 
 
 def calculate_matching_statistics(

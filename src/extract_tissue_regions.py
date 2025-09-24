@@ -12,6 +12,7 @@ import argparse
 import logging
 import yaml
 import json
+from pathlib import Path
 from typing import List, Tuple, Optional
 
 import numpy as np
@@ -261,18 +262,37 @@ def visualize_polygon_overlay(
     preview: np.ndarray,
     polygons: List[np.ndarray],
     out_path: str,
-    down_factor_preview: int,
+    full_res_shape: Tuple[int, int],
+    labels: Optional[List[str]] = None,
 ):
-    """Save overlay PNG; preview already downsampled."""
+    """Save overlay PNG with polygons scaled to match preview sampling."""
     from matplotlib.patches import Polygon as PatchPolygon
 
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.imshow(preview, cmap="gray")
-    for poly in polygons:
+    preview_h, preview_w = preview.shape[:2]
+    full_h, full_w = full_res_shape
+    scale_y = preview_h / full_h
+    scale_x = preview_w / full_w
+
+    for idx, poly in enumerate(polygons):
         xy_scaled = np.stack(
-            [poly[:, 1] / down_factor_preview, poly[:, 0] / down_factor_preview], axis=1
+            [poly[:, 1] * scale_x, poly[:, 0] * scale_y],
+            axis=1,
         )
         ax.add_patch(PatchPolygon(xy_scaled, edgecolor="red", fill=False, lw=1.5))
+        if labels and idx < len(labels):
+            centroid = xy_scaled.mean(axis=0)
+            ax.text(
+                centroid[0],
+                centroid[1],
+                labels[idx],
+                color="yellow",
+                fontsize=8,
+                ha="center",
+                va="center",
+                bbox=dict(facecolor="black", alpha=0.4, pad=1.0, edgecolor="none"),
+            )
     ax.set_axis_off()
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -285,6 +305,30 @@ def visualize_polygon_overlay(
 ###############################################################################
 
 
+def resolve_polygon_label(index: int, props: Optional[dict]) -> str:
+    props = props or {}
+    label_val = props.get('idx')
+    if label_val is None:
+        label_val = props.get('name')
+    if label_val is None and isinstance(props.get('classification'), dict):
+        label_val = props['classification'].get('name')
+    if label_val is None:
+        label_val = index
+
+    if isinstance(label_val, float):
+        label_str = str(int(label_val)) if float(label_val).is_integer() else str(label_val)
+    elif isinstance(label_val, (int, np.integer)):
+        label_str = str(int(label_val))
+    else:
+        label_str = str(label_val).strip()
+
+    if not label_str:
+        label_str = str(index)
+
+    safe_label = ''.join(c if (c.isalnum() or c in ('-', '_')) else '_' for c in label_str)
+    return safe_label or str(index)
+
+
 def stream_crops_by_polygon(
     tiff_path: str,
     polygons: List[np.ndarray],
@@ -292,6 +336,8 @@ def stream_crops_by_polygon(
     base_name: str,
     dtype: np.dtype,
     channels_keep: Optional[List[int]] = None,
+    polygon_props: Optional[List[dict]] = None,
+    labels: Optional[List[str]] = None,
 ):
     """Iterate polygons → read, mask, write; memory peaks < single ROI size."""
     os.makedirs(out_dir, exist_ok=True)
@@ -302,16 +348,68 @@ def stream_crops_by_polygon(
     print(f"🔄 [Progress] Starting to process {total_polygons} polygons for {base_name}")
 
     for i, poly in enumerate(polygons):
-        print(f"📐 [Progress] Processing polygon {i+1}/{total_polygons} ({poly.shape[0]} vertices)")
+        props = (
+            polygon_props[i]
+            if polygon_props is not None and i < len(polygon_props)
+            else {}
+        )
+
+        if labels and i < len(labels) and labels[i]:
+            safe_label = labels[i]
+        else:
+            safe_label = resolve_polygon_label(i, props)
+
+        print(
+            f"📐 [Progress] Processing polygon {i+1}/{total_polygons} "
+            f"(label={safe_label}, {poly.shape[0]} vertices)"
+        )
         
         # full-size mask shape = (H,W) but we only need bbox
         print(f"   └─ Creating polygon mask...")
-        mask_full = polygon2mask((H, W), poly)
+
+        min_row, max_row = np.min(poly[:, 0]), np.max(poly[:, 0])
+        min_col, max_col = np.min(poly[:, 1]), np.max(poly[:, 1])
+
+        if max_row < 0 or max_col < 0 or min_row >= H or min_col >= W:
+            msg = (
+                f"Polygon label={safe_label} lies completely outside the image bounds;"
+                " skipping"
+            )
+            logging.warning(f"[Skip] {msg}")
+            print(f"⚠ {msg}")
+            continue
+
+        poly_clipped = poly.copy()
+        poly_clipped[:, 0] = np.clip(poly_clipped[:, 0], 0, H - 1)
+        poly_clipped[:, 1] = np.clip(poly_clipped[:, 1], 0, W - 1)
+
+        mask_full = polygon2mask((H, W), poly_clipped)
+
+        if not mask_full.any():
+            msg = (
+                f"Polygon label={safe_label} produced an empty mask after clipping;"
+                " skipping"
+            )
+            logging.warning(f"[Skip] {msg}")
+            print(f"⚠ {msg}")
+            continue
 
         region = regionprops(label(mask_full.astype(np.uint8)))[0]
         minr, minc, maxr, maxc = region.bbox
+        height = maxr - minr
+        width = maxc - minc
+
+        if height <= 0 or width <= 0:
+            msg = (
+                f"Polygon label={safe_label} collapsed to zero-sized bbox after clipping;"
+                " skipping"
+            )
+            logging.warning(f"[Skip] {msg}")
+            print(f"⚠ {msg}")
+            continue
+
         bbox = (minr, maxr, minc, maxc)
-        crop_size = (maxr-minr, maxc-minc)
+        crop_size = (height, width)
         print(f"   └─ Bounding box: ({minr},{minc}) to ({maxr},{maxc}), size: {crop_size}")
 
         print(f"   └─ Reading crop from TIFF...")
@@ -319,9 +417,18 @@ def stream_crops_by_polygon(
 
         print(f"   └─ Applying polygon mask...")
         mask_crop = mask_full[minr:maxr, minc:maxc]
+        mask_pixels = int(mask_crop.sum())
+        if mask_pixels < 10:
+            msg = (
+                f"Polygon label={safe_label} has only {mask_pixels} pixels inside the image;"
+                " skipping"
+            )
+            logging.warning(f"[Skip] {msg}")
+            print(f"⚠ {msg}")
+            continue
         crop[~mask_crop, :] = 0  # broadcast to all channels
 
-        out_path = os.path.join(out_dir, f"{base_name}_manual_{i}.ome.tiff")
+        out_path = os.path.join(out_dir, f"{base_name}_manual_{safe_label}.ome.tiff")
         print(f"   └─ Writing to file: {os.path.basename(out_path)}")
         tiff.imwrite(
             out_path,
@@ -332,7 +439,7 @@ def stream_crops_by_polygon(
             bigtiff=True,
         )
         logging.info(
-            f"[Write] Saved #{i}  crop  shape={crop.shape}  --> {out_path}"
+            f"[Write] Saved polygon label={safe_label}  shape={crop.shape}  --> {out_path}"
         )
         print(f"✅ [Progress] Completed polygon {i+1}/{total_polygons}")
 
@@ -446,25 +553,109 @@ def stream_crops_by_bbox(
 ###############################################################################
 
 
-def parse_napari_json_annotations(json_path: str) -> List[np.ndarray]:
+def parse_napari_json_annotations(json_path: str) -> Tuple[List[np.ndarray], List[dict]]:
     """
-    Parse napari JSON annotation file and return list of polygon coordinates.
-    
-    Parameters
-    ----------
-    json_path : str
-        Path to the napari JSON annotation file
-        
-    Returns
-    -------
-    polygons : List[np.ndarray]
-        List of polygon coordinate arrays, each shaped (N, 2) for N points
+    Parse napari-style JSON/GeoJSON annotation and return polygons plus metadata.
+
+    Returns a tuple where the first entry is a list of (N,2) coordinate arrays and
+    the second entry parallels the polygon list with the raw property dictionaries
+    (useful for preserving identifiers such as `properties.idx`).
     """
     with open(json_path, 'r') as f:
         data = json.load(f)
-    
-    polygons = []
-    
+
+    polygons: List[np.ndarray] = []
+    properties: List[dict] = []
+
+    def _finalize(entries: List[dict]) -> Tuple[List[np.ndarray], List[dict]]:
+        if not entries:
+            return [], []
+
+        sort_keys: List[float] = []
+        sortable = True
+        for entry in entries:
+            props = entry.get('properties', {}) or {}
+            idx_val = props.get('idx')
+            try:
+                sort_keys.append(float(idx_val))
+            except (TypeError, ValueError):
+                sortable = False
+                break
+
+        if sortable and len(sort_keys) == len(entries):
+            entries = [entry for _, entry in sorted(zip(sort_keys, entries), key=lambda pair: pair[0])]
+
+        polys = [entry['coords'] for entry in entries]
+        props = [entry.get('properties', {}) or {} for entry in entries]
+        return polys, props
+
+    # Special handling for GeoJSON exports (e.g., napari geojson or QGIS)
+    if (
+        isinstance(data, dict)
+        and data.get('type') == 'FeatureCollection'
+        and isinstance(data.get('features'), list)
+    ):
+        entries: List[dict] = []
+        for feature in data['features']:
+            if not isinstance(feature, dict):
+                logging.warning(f"Skipping non-dict feature entry: {feature}")
+                continue
+
+            geometry = feature.get('geometry', {})
+            if not isinstance(geometry, dict):
+                logging.warning(f"Skipping feature without geometry dict: {feature}")
+                continue
+
+            geom_type = geometry.get('type')
+            coords_data = geometry.get('coordinates', [])
+
+            rings = []
+            if geom_type == 'Polygon':
+                if not coords_data:
+                    logging.warning(f"Polygon feature missing coordinates: {feature}")
+                    continue
+                # First ring is exterior; ignore holes for binary mask
+                rings = [coords_data[0]]
+            elif geom_type == 'MultiPolygon':
+                for polygon_coords in coords_data or []:
+                    if polygon_coords:
+                        rings.append(polygon_coords[0])
+                if not rings:
+                    logging.warning(f"MultiPolygon feature missing exterior rings: {feature}")
+                    continue
+            else:
+                logging.warning(
+                    f"Unsupported geometry type '{geom_type}' in feature: {feature}"
+                )
+                continue
+
+            for ring in rings:
+                coords = np.asarray(ring, dtype=float)
+                coords = np.atleast_2d(coords)
+                if coords.shape[1] < 2:
+                    logging.warning(
+                        f"Invalid GeoJSON ring shape: {coords.shape}, skipping"
+                    )
+                    continue
+                coords = coords[:, :2]
+                # GeoJSON stores coordinates as (x, y) i.e. (col, row); convert to (row, col)
+                coords = coords[:, [1, 0]]
+                if len(coords) < 3:
+                    logging.warning(
+                        f"GeoJSON polygon with {len(coords)} points skipped (need >= 3)"
+                    )
+                    continue
+                entries.append(
+                    {
+                        'coords': coords,
+                        'properties': feature.get('properties', {}) or {},
+                    }
+                )
+
+        polygons, properties = _finalize(entries)
+        logging.info(f"Parsed {len(polygons)} polygons from {json_path}")
+        return polygons, properties
+
     # Handle different possible JSON structures from napari
     if isinstance(data, list):
         # Case 1: Direct list of shapes
@@ -480,8 +671,11 @@ def parse_napari_json_annotations(json_path: str) -> List[np.ndarray]:
             shapes_data = list(data.values())
     else:
         raise ValueError(f"Unsupported JSON structure in {json_path}")
-    
+
+    entries: List[dict] = []
     for shape in shapes_data:
+        props = shape.get('properties', {}) if isinstance(shape, dict) else {}
+
         if isinstance(shape, dict):
             # Extract coordinates from shape dictionary
             if 'data' in shape:
@@ -504,7 +698,7 @@ def parse_napari_json_annotations(json_path: str) -> List[np.ndarray]:
         else:
             logging.warning(f"Unsupported shape format: {type(shape)}")
             continue
-        
+
         # Ensure coordinates are 2D (N, 2)
         coords = np.atleast_2d(coords)
         if coords.shape[1] != 2:
@@ -513,14 +707,51 @@ def parse_napari_json_annotations(json_path: str) -> List[np.ndarray]:
             else:
                 logging.warning(f"Invalid coordinate shape: {coords.shape}, skipping")
                 continue
-        
+
         if len(coords) >= 3:  # Valid polygon needs at least 3 points
-            polygons.append(coords)
+            entries.append({'coords': coords, 'properties': props})
         else:
             logging.warning(f"Polygon with {len(coords)} points skipped (need >= 3)")
-    
+
+    polygons, properties = _finalize(entries)
     logging.info(f"Parsed {len(polygons)} polygons from {json_path}")
-    return polygons
+    return polygons, properties
+
+
+
+def load_manual_annotations_from_directory(dir_path: Path) -> Tuple[List[np.ndarray], List[dict]]:
+    """Aggregate polygons from all JSON/GeoJSON files inside a directory."""
+    candidate_files = [
+        p for p in sorted(dir_path.iterdir())
+        if p.is_file() and p.suffix.lower() in {'.json', '.geojson'}
+    ]
+    if not candidate_files:
+        raise FileNotFoundError(f"No annotation files found in directory: {dir_path}")
+
+    all_polygons: List[np.ndarray] = []
+    all_props: List[dict] = []
+
+    for file_path in candidate_files:
+        polygons, props = parse_napari_json_annotations(str(file_path))
+        if not polygons:
+            logging.warning(f"No polygons parsed from annotation file: {file_path}")
+            continue
+
+        base_label = file_path.name.split('.')[0]
+        for idx, poly in enumerate(polygons):
+            label = base_label if len(polygons) == 1 else f"{base_label}_{idx + 1}"
+            prop = {}
+            if props and idx < len(props) and isinstance(props[idx], dict):
+                prop = dict(props[idx])
+            prop['name'] = label
+            prop.setdefault('source_file', str(file_path))
+            all_polygons.append(poly)
+            all_props.append(prop)
+
+    if not all_polygons:
+        raise ValueError(f"No valid polygons were parsed from directory: {dir_path}")
+
+    return all_polygons, all_props
 
 
 def run_extraction(cfg: dict, args: argparse.Namespace):
@@ -539,43 +770,82 @@ def run_extraction(cfg: dict, args: argparse.Namespace):
     n_tissue = tissue_cfg.get("n_tissue", 4)
     min_area = tissue_cfg.get("min_area", 500)
     visualize = tissue_cfg.get("visualize", True)
+    output_dir_cfg = tissue_cfg.get("output_dir")
+    if output_dir_cfg is None:
+        raise ValueError("'tissue_extraction.output_dir' must be set when manual annotations are provided")
+    output_dir_base = Path(output_dir_cfg) if output_dir_cfg else Path(args.out_dir)
 
     base_name = os.path.splitext(os.path.basename(img_rel))[0]  # e.g. D16_Scan1
 
     # -------------------------------------------------------------------------
     # CASE 1: manual polygons (CSV or JSON format)
     # -------------------------------------------------------------------------
-    polygons = None
+    polygons: List[np.ndarray] = []
+    polygon_props: List[dict] = []
     annotation_file = None
     
     # Priority: JSON > CSV (if both exist)
-    if manual_json and os.path.exists(manual_json):
-        logging.info(f"Using manual polygons from JSON: {manual_json}")
-        annotation_file = manual_json
-        polygons = parse_napari_json_annotations(manual_json)
+    if manual_json:
+        manual_path = Path(manual_json)
+        if manual_path.is_dir():
+            logging.info(f"Using manual polygons from directory: {manual_path}")
+            annotation_file = str(manual_path)
+            polygons, polygon_props = load_manual_annotations_from_directory(manual_path)
+        elif manual_path.is_file():
+            logging.info(f"Using manual polygons from JSON: {manual_path}")
+            annotation_file = str(manual_path)
+            polygons, polygon_props = parse_napari_json_annotations(str(manual_path))
+        else:
+            logging.warning(f"Manual annotation reference not found: {manual_path}")
     elif manual_csv and os.path.exists(manual_csv):
         logging.info(f"Using manual polygons from CSV: {manual_csv}")
         annotation_file = manual_csv
         df = pd.read_csv(manual_csv)
-        polygons = [
-            g[["axis-0", "axis-1"]].to_numpy(dtype=float)
-            for _, g in df.groupby("index")
-            if len(g) >= 3
-        ]
-    
+        polygons = []
+        polygon_props = []
+        for idx_value, group in df.groupby("index", sort=True):
+            coords = group[["axis-0", "axis-1"]].to_numpy(dtype=float)
+            if len(coords) < 3:
+                logging.warning(
+                    f"Polygon with {len(coords)} points skipped for index {idx_value}"
+                )
+                continue
+            polygons.append(coords)
+            polygon_props.append({"idx": idx_value})
+
     if polygons:
         logging.info(f"Loaded {len(polygons)} manual polygons from {annotation_file}")
-        
+
+        if output_dir_cfg is None:
+            raise ValueError("'tissue_extraction.output_dir' must be set when manual annotations are provided")
+        output_dir_path = output_dir_base
+        output_dir_path.mkdir(parents=True, exist_ok=True)
+
+        labels = [
+            resolve_polygon_label(
+                idx,
+                polygon_props[idx] if polygon_props is not None and idx < len(polygon_props) else None,
+            )
+            for idx in range(len(polygons))
+        ]
+
         # preview overlay (low-res)
         if visualize:
             zarr_img = open_as_zarr(tiff_path)
             preview = read_lowres_preview(zarr_img, down_factor=down_factor)
-            vis_path = os.path.join(args.out_dir, "manual_polygon_overlay.png")
-            visualize_polygon_overlay(preview, polygons, vis_path, down_factor)
+            vis_path = output_dir_path / "manual_polygon_overlay.png"
+            visualize_polygon_overlay(preview, polygons, str(vis_path), (H, W), labels=labels)
             zarr_img.store.close()
 
         stream_crops_by_polygon(
-            tiff_path, polygons, args.out_dir, base_name, dtype, channels_keep=None
+            tiff_path,
+            polygons,
+            str(output_dir_path),
+            base_name,
+            dtype,
+            channels_keep=None,
+            polygon_props=polygon_props,
+            labels=labels,
         )
         return
 
@@ -584,17 +854,18 @@ def run_extraction(cfg: dict, args: argparse.Namespace):
     # -------------------------------------------------------------------------
     logging.info("Running automatic ROI detection")
     zarr_img = open_as_zarr(tiff_path)
+    output_dir_base.mkdir(parents=True, exist_ok=True)
     rois = automatic_rois_from_preview(
         zarr_img,
         down_factor=down_factor,
         n_tissue=n_tissue,
         min_area=min_area,
-        outdir_vis=args.out_dir if visualize else "",
+        outdir_vis=str(output_dir_base) if visualize else "",
     )
     zarr_img.store.close()
 
     stream_crops_by_bbox(
-        tiff_path, rois, args.out_dir, base_name, dtype, channels_keep=None
+        tiff_path, rois, str(output_dir_base), base_name, dtype, channels_keep=None
     )
 
 

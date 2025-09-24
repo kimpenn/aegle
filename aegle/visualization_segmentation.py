@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import cv2
-from skimage import measure, morphology
+from skimage import morphology
 from skimage.segmentation import find_boundaries
 import seaborn as sns
 import pandas as pd
@@ -15,6 +15,7 @@ from typing import Dict, List, Tuple, Optional
 import logging
 import os
 from matplotlib.patches import Patch
+
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +42,29 @@ def _build_mask_overlays(
     cmap_name: str,
     alpha: float,
     boundary_color: Tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
+    boundary_mask: Optional[np.ndarray] = None,
+    require_centroids: bool = False,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[colors.Colormap], Optional[colors.Normalize], List]:
     if mask is None:
         return None, None, None, None, []
 
-    props = measure.regionprops(mask)
-    if not props:
+    if mask.size == 0:
         empty_overlay = np.zeros((*mask.shape, 4), dtype=np.float32)
         return empty_overlay, empty_overlay.copy(), plt.cm.get_cmap(cmap_name), None, []
 
-    areas = np.array([prop.area for prop in props], dtype=np.float32)
+    flat_mask = mask.ravel()
+    counts = np.bincount(flat_mask)
+    if counts.shape[0] <= 1:
+        empty_overlay = np.zeros((*mask.shape, 4), dtype=np.float32)
+        return empty_overlay, empty_overlay.copy(), plt.cm.get_cmap(cmap_name), None, []
+
+    labels = np.nonzero(counts)[0]
+    labels = labels[labels > 0]
+    if labels.size == 0:
+        empty_overlay = np.zeros((*mask.shape, 4), dtype=np.float32)
+        return empty_overlay, empty_overlay.copy(), plt.cm.get_cmap(cmap_name), None, []
+
+    areas = counts[labels].astype(np.float32)
     vmin = float(areas.min())
     vmax = float(areas.max())
     if vmin == vmax:
@@ -60,15 +74,22 @@ def _build_mask_overlays(
     cmap = plt.cm.get_cmap(cmap_name)
     norm = colors.Normalize(vmin=vmin, vmax=vmax)
 
-    colored_mask = np.zeros((*mask.shape, 4), dtype=np.float32)
-    for prop in props:
-        mask_region = mask == prop.label
-        rgba = cmap(norm(prop.area))
-        colored_mask[mask_region] = [rgba[0], rgba[1], rgba[2], alpha]
+    color_lut = np.zeros((counts.shape[0], 4), dtype=np.float32)
+    mapped_rgba = cmap(norm(areas))
+    color_lut[labels, :3] = mapped_rgba[:, :3]
+    color_lut[labels, 3] = alpha
+    colored_mask = color_lut[flat_mask].reshape((*mask.shape, 4))
 
-    boundaries = find_boundaries(mask, mode="outer")
+    if boundary_mask is None:
+        boundary_mask = find_boundaries(mask, mode="outer")
     boundary_overlay = np.zeros((*mask.shape, 4), dtype=np.float32)
-    boundary_overlay[boundaries] = boundary_color
+    boundary_overlay[boundary_mask > 0] = boundary_color
+
+    props: List = []
+    if require_centroids:
+        from skimage import measure
+
+        props = measure.regionprops(mask)
 
     return colored_mask, boundary_overlay, cmap, norm, props
 
@@ -89,6 +110,8 @@ def create_segmentation_overlay(
     show_reference_highlights: bool = True,
     fill_cell_mask: bool = True,
     fill_nucleus_mask: bool = True,
+    cell_boundary_mask: Optional[np.ndarray] = None,
+    nucleus_boundary_mask: Optional[np.ndarray] = None,
 ) -> plt.Figure:
     """Create a styled overlay showing cell and nucleus masks on the original image."""
 
@@ -115,6 +138,8 @@ def create_segmentation_overlay(
             'viridis',
             max(mask_alpha * 0.9, 0.25),
             boundary_color=(0.0, 0.75, 0.3, 1.0),
+            boundary_mask=cell_boundary_mask,
+            require_centroids=show_ids,
         )
     if nucleus_mask is not None:
         (
@@ -128,6 +153,8 @@ def create_segmentation_overlay(
             'magma',
             max(mask_alpha, 0.3),
             boundary_color=(1.0, 0.35, 0.35, 1.0),
+            boundary_mask=nucleus_boundary_mask,
+            require_centroids=show_ids,
         )
 
     if not show_cell_overlay:

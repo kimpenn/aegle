@@ -5,6 +5,7 @@ import pickle
 import shutil
 import time
 import matplotlib.pyplot as plt
+from skimage.segmentation import find_boundaries
 
 from aegle.codex_image import CodexImage
 from aegle.codex_patches import CodexPatches
@@ -179,6 +180,17 @@ def run_pipeline(config, args):
         # Visualize each patch
         original_seg_results = getattr(codex_patches, "original_seg_res_batch", None)
 
+        timing_totals = {
+            "load_patch": 0.0,
+            "overlay_repaired": 0.0,
+            "overlay_pre_repair": 0.0,
+            "segmentation_errors": 0.0,
+            "nucleus_mask": 0.0,
+            "cell_mask": 0.0,
+            "highlight_unmatched_nucleus": 0.0,
+            "highlight_unmatched_cell": 0.0,
+        }
+
         for idx, seg_result in enumerate(codex_patches.repaired_seg_res_batch):
             orig_seg_result = None
             if original_seg_results and idx < len(original_seg_results):
@@ -187,6 +199,7 @@ def run_pipeline(config, args):
                 continue
                 
             # Get the corresponding image patch
+            load_start = time.perf_counter()
             if codex_patches.is_using_disk_based_patches():
                 # For disk-based patches, load the patch
                 patch_idx = patches_metadata_df[patches_metadata_df["is_informative"] == True].index[idx]
@@ -194,14 +207,39 @@ def run_pipeline(config, args):
             else:
                 # For memory-based patches
                 image_patch = codex_patches.valid_patches[idx]
+            timing_totals["load_patch"] += time.perf_counter() - load_start
 
             matched_nucleus_mask = seg_result.get("nucleus_matched_mask", seg_result.get("nucleus"))
             matched_cell_mask = seg_result.get("cell_matched_mask", seg_result.get("cell"))
+            matched_cell_boundary = _get_or_compute_labeled_boundary(
+                seg_result,
+                "cell_matched_mask",
+                "cell_matched_boundary",
+            )
+            matched_nucleus_boundary = _get_or_compute_labeled_boundary(
+                seg_result,
+                "nucleus_matched_mask",
+                "nucleus_matched_boundary",
+            )
             original_nucleus_mask = orig_seg_result.get("nucleus") if orig_seg_result else None
             original_cell_mask = orig_seg_result.get("cell") if orig_seg_result else None
+            original_cell_boundary = None
+            original_nucleus_boundary = None
+            if orig_seg_result is not None:
+                original_cell_boundary = _get_or_compute_labeled_boundary(
+                    orig_seg_result,
+                    "cell",
+                    "cell_boundary",
+                )
+                original_nucleus_boundary = _get_or_compute_labeled_boundary(
+                    orig_seg_result,
+                    "nucleus",
+                    "nucleus_boundary",
+                )
 
             # 1. Create segmentation overlay
             try:
+                t0 = time.perf_counter()
                 fig = create_segmentation_overlay(
                     image_patch[:, :, 0],  # Use nuclear channel
                     matched_nucleus_mask,
@@ -213,15 +251,19 @@ def run_pipeline(config, args):
                     show_reference_highlights=False,
                     fill_cell_mask=False,
                     fill_nucleus_mask=False,
+                    cell_boundary_mask=matched_cell_boundary,
+                    nucleus_boundary_mask=matched_nucleus_boundary,
                 )
                 fig.savefig(os.path.join(viz_dir, f"segmentation_overlay_patch_{idx}.png"), 
                            dpi=150, bbox_inches='tight')
                 plt.close(fig)
+                timing_totals["overlay_repaired"] += time.perf_counter() - t0
             except Exception as e:
                 logging.warning(f"Failed to create segmentation overlay for patch {idx}: {e}")
 
             if orig_seg_result is not None:
                 try:
+                    t0 = time.perf_counter()
                     fig = create_segmentation_overlay(
                         image_patch[:, :, 0],
                         original_nucleus_mask,
@@ -230,6 +272,8 @@ def run_pipeline(config, args):
                         alpha=0.6,
                         fill_cell_mask=False,
                         fill_nucleus_mask=False,
+                        cell_boundary_mask=original_cell_boundary,
+                        nucleus_boundary_mask=original_nucleus_boundary,
                     )
                     fig.savefig(
                         os.path.join(viz_dir, f"segmentation_overlay_pre_repair_patch_{idx}.png"),
@@ -237,6 +281,7 @@ def run_pipeline(config, args):
                         bbox_inches='tight',
                     )
                     plt.close(fig)
+                    timing_totals["overlay_pre_repair"] += time.perf_counter() - t0
                 except Exception as e:
                     logging.warning(
                         "Failed to create pre-repair segmentation overlay for patch %d: %s",
@@ -247,6 +292,7 @@ def run_pipeline(config, args):
             # 2. Visualize potential errors
             if config.get("visualization", {}).get("show_segmentation_errors", True):
                 try:
+                    t0 = time.perf_counter()
                     fig = visualize_segmentation_errors(
                         image_patch[:, :, 0],
                         seg_result,
@@ -255,11 +301,13 @@ def run_pipeline(config, args):
                     fig.savefig(os.path.join(viz_dir, f"segmentation_errors_patch_{idx}.png"),
                                dpi=150, bbox_inches='tight')
                     plt.close(fig)
+                    timing_totals["segmentation_errors"] += time.perf_counter() - t0
                 except Exception as e:
                     logging.warning(f"Failed to visualize errors for patch {idx}: {e}")
             
             # 3. Create nucleus mask visualization
             try:
+                t0 = time.perf_counter()
                 fig = create_nucleus_mask_visualization(
                     image_patch[:, :, 0],  # Use nuclear channel
                     matched_nucleus_mask,
@@ -268,11 +316,13 @@ def run_pipeline(config, args):
                 fig.savefig(os.path.join(viz_dir, f"nucleus_mask_patch_{idx}.png"), 
                            dpi=150, bbox_inches='tight')
                 plt.close(fig)
+                timing_totals["nucleus_mask"] += time.perf_counter() - t0
             except Exception as e:
                 logging.warning(f"Failed to create nucleus mask visualization for patch {idx}: {e}")
             
             # 4. Create whole cell mask visualization
             try:
+                t0 = time.perf_counter()
                 fig = create_wholecell_mask_visualization(
                     image_patch[:, :, 0],  # Use nuclear channel as background
                     matched_cell_mask,
@@ -281,6 +331,7 @@ def run_pipeline(config, args):
                 fig.savefig(os.path.join(viz_dir, f"wholecell_mask_patch_{idx}.png"), 
                            dpi=150, bbox_inches='tight')
                 plt.close(fig)
+                timing_totals["cell_mask"] += time.perf_counter() - t0
             except Exception as e:
                 logging.warning(f"Failed to create whole cell mask visualization for patch {idx}: {e}")
 
@@ -327,6 +378,7 @@ def run_pipeline(config, args):
 
                 # 4d. Highlight unmatched nuclei removed during repair
                 try:
+                    t0 = time.perf_counter()
                     fig = create_segmentation_overlay(
                         image_patch[:, :, 0],
                         matched_nucleus_mask,
@@ -338,6 +390,9 @@ def run_pipeline(config, args):
                         show_cell_overlay=False,
                         show_nucleus_overlay=False,
                         custom_title='Unmatched Nuclei (removed during repair)\n\n',
+                        show_reference_highlights=True,
+                        cell_boundary_mask=matched_cell_boundary,
+                        nucleus_boundary_mask=matched_nucleus_boundary,
                     )
                     fig.savefig(
                         os.path.join(viz_dir, f"segmentation_overlay_unmatched_nucleus_patch_{idx}.png"),
@@ -345,6 +400,7 @@ def run_pipeline(config, args):
                         bbox_inches='tight',
                     )
                     plt.close(fig)
+                    timing_totals["highlight_unmatched_nucleus"] += time.perf_counter() - t0
                 except Exception as e:
                     logging.warning(
                         "Failed to create unmatched nucleus overlay for patch %d: %s",
@@ -354,6 +410,7 @@ def run_pipeline(config, args):
 
                 # 4e. Highlight unmatched whole cells removed during repair
                 try:
+                    t0 = time.perf_counter()
                     fig = create_segmentation_overlay(
                         image_patch[:, :, 0],
                         None,
@@ -365,6 +422,9 @@ def run_pipeline(config, args):
                         show_cell_overlay=False,
                         show_nucleus_overlay=False,
                         custom_title='Unmatched Cells (removed during repair)\n\n',
+                        show_reference_highlights=True,
+                        cell_boundary_mask=matched_cell_boundary,
+                        nucleus_boundary_mask=matched_nucleus_boundary,
                     )
                     fig.savefig(
                         os.path.join(viz_dir, f"segmentation_overlay_unmatched_cell_patch_{idx}.png"),
@@ -372,6 +432,7 @@ def run_pipeline(config, args):
                         bbox_inches='tight',
                     )
                     plt.close(fig)
+                    timing_totals["highlight_unmatched_cell"] += time.perf_counter() - t0
                 except Exception as e:
                     logging.warning(
                         "Failed to create unmatched cell overlay for patch %d: %s",
@@ -382,6 +443,7 @@ def run_pipeline(config, args):
         # 5. Create quality heatmaps across all patches
         if len(codex_patches.repaired_seg_res_batch) > 1:
             try:
+                t0 = time.perf_counter()
                 quality_figs = create_quality_heatmaps(
                     codex_patches.repaired_seg_res_batch,
                     patches_metadata_df[patches_metadata_df["is_informative"] == True],
@@ -389,19 +451,32 @@ def run_pipeline(config, args):
                 )
                 for fig in quality_figs.values():
                     plt.close(fig)
+                logging.info(
+                    "Segmentation visualization heatmaps completed in %.2f seconds",
+                    time.perf_counter() - t0,
+                )
             except Exception as e:
                 logging.warning(f"Failed to create quality heatmaps: {e}")
         
         # 6. Plot morphology statistics
         try:
+            t0 = time.perf_counter()
             fig = plot_cell_morphology_stats(
                 codex_patches.repaired_seg_res_batch,
                 viz_dir
             )
             plt.close(fig)
+            logging.info(
+                "Segmentation morphology stats plotted in %.2f seconds",
+                time.perf_counter() - t0,
+            )
         except Exception as e:
             logging.warning(f"Failed to plot morphology statistics: {e}")
         
+        logging.info(
+            "Segmentation visualization timing summary (seconds): %s",
+            {k: round(v, 2) for k, v in timing_totals.items()},
+        )
         logging.info("Segmentation visualization completed.")
 
     # ---------------------------------
@@ -554,3 +629,18 @@ def run_pipeline(config, args):
 #     )
 #     codex_patches.seg_evaluation_metrics = res_list
 #     codex_patches.set_metadata(patches_metadata_df)
+def _get_or_compute_labeled_boundary(container: dict, mask_key: str, boundary_key: str):
+    """Return a labeled boundary mask, computing and caching if needed."""
+    boundary = container.get(boundary_key)
+    if boundary is not None:
+        return boundary
+
+    mask = container.get(mask_key)
+    if mask is None:
+        return None
+
+    bool_boundary = find_boundaries(mask, mode="outer")
+    boundary = np.zeros_like(mask, dtype=np.uint32)
+    boundary[bool_boundary] = mask[bool_boundary]
+    container[boundary_key] = boundary
+    return boundary
