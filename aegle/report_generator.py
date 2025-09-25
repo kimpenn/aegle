@@ -18,7 +18,7 @@ import base64
 from io import BytesIO
 from collections import OrderedDict
 try:
-    from PIL import Image
+    from PIL import Image, ImageOps
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -177,34 +177,27 @@ class PipelineReportGenerator:
                 for i in range(10):  # Check first 10 channels
                     preview_file = preview_dir / f"{base_name}_ch{i}.jpg"
                     if preview_file.exists():
-                        # Convert to base64 for embedding in HTML
-                        try:
-                            with open(preview_file, 'rb') as f:
-                                img_data = base64.b64encode(f.read()).decode()
-                                preview_images.append({
-                                    'channel': i,
-                                    'filename': preview_file.name,
-                                    'data': f"data:image/jpeg;base64,{img_data}"
-                                })
-                                logger.info(f"Found preview image: {preview_file}")
-                        except Exception as e:
-                            logger.warning(f"Failed to load preview image {preview_file}: {e}")
+                        img_data = self._load_preview_image(preview_file)
+                        if img_data:
+                            preview_images.append({
+                                'channel': i,
+                                'filename': preview_file.name,
+                                'data': img_data,
+                            })
+                            logger.info(f"Found preview image: {preview_file}")
                 
                 # If no channel-specific images found, look for a general preview
                 if not preview_images:
                     general_preview = preview_dir / f"{base_name}_preview.jpg"
                     if general_preview.exists():
-                        try:
-                            with open(general_preview, 'rb') as f:
-                                img_data = base64.b64encode(f.read()).decode()
-                                preview_images.append({
-                                    'channel': 'general',
-                                    'filename': general_preview.name,
-                                    'data': f"data:image/jpeg;base64,{img_data}"
-                                })
-                                logger.info(f"Found general preview image: {general_preview}")
-                        except Exception as e:
-                            logger.warning(f"Failed to load preview image {general_preview}: {e}")
+                        img_data = self._load_preview_image(general_preview)
+                        if img_data:
+                            preview_images.append({
+                                'channel': 'general',
+                                'filename': general_preview.name,
+                                'data': img_data,
+                            })
+                            logger.info(f"Found general preview image: {general_preview}")
             else:
                 logger.warning(f"Image file not found: {image_file}")
         
@@ -218,6 +211,37 @@ class PipelineReportGenerator:
         else:
             logger.info("No preview images found")
             
+    def _load_preview_image(self, preview_file: Path) -> Optional[str]:
+        """Load preview image, apply contrast enhancement, return base64 data URI."""
+        try:
+            if PIL_AVAILABLE:
+                with Image.open(preview_file) as img:
+                    # Convert to RGB to ensure consistent output
+                    if img.mode not in ("RGB", "L"):
+                        img = img.convert("RGB")
+                    elif img.mode == "L":
+                        # Keep grayscale but operations expect single channel
+                        pass
+
+                    # Apply auto-contrast to expand dynamic range
+                    img = ImageOps.autocontrast(img, cutoff=1)
+
+                    # For very low dynamic range grayscale, equalize as well
+                    if img.mode == "L":
+                        img = ImageOps.equalize(img)
+
+                    buffer = BytesIO()
+                    img.convert("RGB").save(buffer, format='JPEG', quality=90)
+                    buffer.seek(0)
+                    img_data = base64.b64encode(buffer.read()).decode()
+                    return f"data:image/jpeg;base64,{img_data}"
+            # Fallback: raw bytes without enhancement
+            with open(preview_file, 'rb') as f:
+                return f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}"
+        except Exception as e:
+            logger.warning(f"Failed to process preview image {preview_file}: {e}")
+            return None
+
     def _get_image_dimensions(self, image_path: str) -> Optional[Dict[str, Any]]:
         """
         Get image dimensions directly from image file.
@@ -306,19 +330,19 @@ class PipelineReportGenerator:
 
         categories = OrderedDict([
             ('overview', {'title': 'Segmentation Overview', 'layout': 'wide'}),
-            ('quality', {'title': 'Quality Diagnostics', 'layout': 'single'}),
             ('nucleus', {'title': 'Nucleus Mask Details', 'layout': 'paired'}),
-            ('wholecell', {'title': 'Whole Cell Mask Details', 'layout': 'paired'}),
-            ('statistics', {'title': 'Morphology Statistics', 'layout': 'single'}),
+            ('wholecell', {'title': 'Whole-cell Mask Details', 'layout': 'paired'}),
             ('other', {'title': 'Additional Visualizations', 'layout': 'paired'}),
         ])
+
+        morphology_image = None
 
         if visualization_dir.exists():
             # Define expected visualization files with descriptions
             expected_files = {
                 'segmentation_overlay_patch_0.png': {
                     'title': 'Segmentation Overlay',
-                    'description': 'Overlay of cell and nucleus masks (viridis/magma, area-scaled)',
+                    'description': 'Overlay of cell and nucleus masks',
                     'category': 'overview',
                     'tab_group': 'overlay_patch_0',
                     'tab_title': 'Repaired',
@@ -327,7 +351,7 @@ class PipelineReportGenerator:
                 },
                 'segmentation_overlay_pre_repair_patch_0.png': {
                     'title': 'Pre-Repair Segmentation Overlay',
-                    'description': 'Original segmentation before mask repair (viridis/magma)',
+                    'description': 'Original segmentation before mask repair',
                     'category': 'overview',
                     'tab_group': 'overlay_patch_0',
                     'tab_title': 'Pre-Repair',
@@ -352,11 +376,6 @@ class PipelineReportGenerator:
                     'card_title': 'Segmentation Overlay',
                     'tab_order': 3
                 },
-                'segmentation_errors_patch_0.png': {
-                    'title': 'Segmentation Errors',
-                    'description': 'Visualization of segmentation quality and potential errors',
-                    'category': 'quality'
-                },
                 'nucleus_mask_patch_0.png': {
                     'title': 'Nucleus Mask Visualization',
                     'description': 'Nucleus mask boundaries with color mapped to nucleus area',
@@ -376,21 +395,21 @@ class PipelineReportGenerator:
                     'tab_order': 1
                 },
                 'wholecell_mask_patch_0.png': {
-                    'title': 'Whole Cell Mask Visualization',
-                    'description': 'Whole-cell mask boundaries with color mapped to cell area',
+                    'title': 'Whole-cell Mask Visualization',
+                        'description': 'Whole-cell mask boundaries with color mapped to cell area',
                     'category': 'wholecell',
                     'tab_group': 'wholecell_patch_0',
                     'tab_title': 'Repaired',
-                    'card_title': 'Whole Cell Mask Visualization',
+                    'card_title': 'Whole-cell Mask Visualization',
                     'tab_order': 0
                 },
                 'wholecell_mask_pre_repair_patch_0.png': {
-                    'title': 'Pre-Repair Whole Cell Mask',
+                    'title': 'Pre-Repair Whole-cell Mask',
                     'description': 'Original whole-cell segmentation before mask repair',
                     'category': 'wholecell',
                     'tab_group': 'wholecell_patch_0',
                     'tab_title': 'Pre-Repair',
-                    'card_title': 'Whole Cell Mask Visualization',
+                    'card_title': 'Whole-cell Mask Visualization',
                     'tab_order': 1
                 },
                 'cell_morphology_stats.png': {
@@ -407,17 +426,25 @@ class PipelineReportGenerator:
                         # Convert to base64 for embedding in HTML
                         with open(file_path, 'rb') as f:
                             img_data = base64.b64encode(f.read()).decode()
-                            segmentation_images.append({
-                                'filename': filename,
-                                'title': info['title'],
-                                'description': info['description'],
-                                'data': f"data:image/png;base64,{img_data}",
-                                'category': info.get('category', 'other'),
-                                'tab_group': info.get('tab_group'),
-                                'tab_title': info.get('tab_title'),
-                                'card_title': info.get('card_title', info['title']),
-                                'tab_order': info.get('tab_order', 0)
-                            })
+                            if filename == 'cell_morphology_stats.png':
+                                morphology_image = {
+                                    'filename': filename,
+                                    'title': info['title'],
+                                    'description': info['description'],
+                                    'data': f"data:image/png;base64,{img_data}"
+                                }
+                            else:
+                                segmentation_images.append({
+                                    'filename': filename,
+                                    'title': info['title'],
+                                    'description': info['description'],
+                                    'data': f"data:image/png;base64,{img_data}",
+                                    'category': info.get('category', 'other'),
+                                    'tab_group': info.get('tab_group'),
+                                    'tab_title': info.get('tab_title'),
+                                    'card_title': info.get('card_title', info['title']),
+                                    'tab_order': info.get('tab_order', 0)
+                                })
                             logger.info(f"Found segmentation visualization: {filename}")
                     except Exception as e:
                         logger.warning(f"Failed to load visualization image {file_path}: {e}")
@@ -534,6 +561,10 @@ class PipelineReportGenerator:
             logger.info(f"Collected {len(segmentation_images)} segmentation visualization images")
         else:
             logger.info("No segmentation visualization images found")
+        
+        self.report_data['segmentation_results_details'] = {
+            'morphology_image': morphology_image
+        }
             
     def _collect_segmentation_channel_info(self):
         """Collect segmentation channel usage information from CodexImage target_channels_dict."""
@@ -575,7 +606,7 @@ class PipelineReportGenerator:
                     segmentation_channel_info['channel_details']['wholecell'].append({
                         'channel_name': channel,
                         'purpose': 'Whole-cell segmentation',
-                        'description': f'Used for identifying whole cell boundaries (channel {i+1})'
+                        'description': f'Used for identifying whole-cell boundaries (channel {i+1})'
                     })
                     
                 logger.info(f"Collected segmentation channel info: nucleus={nucleus_channel}, wholecell={wholecell_channels}")
@@ -636,7 +667,7 @@ class PipelineReportGenerator:
                 segmentation_channel_info['channel_details']['wholecell'].append({
                     'channel_name': channel,
                     'purpose': 'Whole-cell segmentation',
-                    'description': f'Used for identifying whole cell boundaries (channel {i+1})'
+                    'description': f'Used for identifying whole-cell boundaries (channel {i+1})'
                 })
             
             logger.info(f"Got segmentation channels from config: nucleus={nucleus_channel}, wholecell={wholecell_channel}")
@@ -700,6 +731,7 @@ class PipelineReportGenerator:
                 stats['mean_cell_area'] = meta_df['area'].mean()
                 stats['median_cell_area'] = meta_df['area'].median()
                 stats['cell_area_std'] = meta_df['area'].std()
+                self._convert_cell_area_units(stats)
             
         # Load evaluation metrics if available
         eval_metrics_path = self.output_dir / "seg_evaluation_metrics.pkl"
@@ -747,7 +779,26 @@ class PipelineReportGenerator:
                     logger.info(f"Got cell count from CodexPatches: {total_cells}")
         
         self.report_data['segmentation_stats'] = stats
-        
+
+    def _convert_cell_area_units(self, stats: Dict[str, Any]) -> None:
+        """Augment cell area statistics with micron-squared conversions when possible."""
+        input_info = self.report_data.get('input_info', {})
+        mpp = input_info.get('microns_per_pixel')
+        try:
+            mpp = float(mpp)
+        except (TypeError, ValueError):
+            return
+
+        if mpp <= 0:
+            return
+
+        factor = mpp ** 2
+        for key in ('mean_cell_area', 'median_cell_area'):
+            if key in stats and stats[key] is not None:
+                value = stats[key]
+                if pd.notna(value):
+                    stats[f"{key}_um2"] = float(value) * factor
+
     def _collect_mask_repair_stats(self):
         """Collect mask repair statistics."""
         stats = {}
@@ -993,6 +1044,7 @@ class PipelineReportGenerator:
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>PhenoCycler Pipeline Report - {{ metadata.experiment_id }}</title>
     
     <style>
@@ -1213,6 +1265,11 @@ class PipelineReportGenerator:
             color: #444;
             margin-bottom: 2px;
         }
+        .segmentation-note {
+            font-size: 13px;
+            color: #555;
+            margin: 8px 0 16px;
+        }
     </style>
 </head>
 <body>
@@ -1336,7 +1393,109 @@ class PipelineReportGenerator:
             <strong>Segmentation channel information not available.</strong><br>
             Channel configuration could not be retrieved from the pipeline data.
         </div>
-        {% endif %}        
+        {% endif %}
+        <h2>Segmentation Overview</h2>
+        <p class="segmentation-note">
+            Metrics and figures below summarize matched/repaired cells. See <em>Mask Repair Details</em> for additional repair statistics.
+        </p>
+        <table>
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+            </tr>
+            <tr>
+                <td>Total Cells Detected</td>
+                <td>{{ segmentation_stats.total_cells|default('N/A') }}</td>
+            </tr>
+            <tr>
+                <td>Mean Cell Area</td>
+                <td>
+                    {% if segmentation_stats.mean_cell_area is defined and segmentation_stats.mean_cell_area is not none %}
+                        {{ "%.1f"|format(segmentation_stats.mean_cell_area) }} px
+                        {% if segmentation_stats.mean_cell_area_um2 is defined %}
+                            (approx. {{ "%.1f"|format(segmentation_stats.mean_cell_area_um2) }} μm²)
+                        {% endif %}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Median Cell Area</td>
+                <td>
+                    {% if segmentation_stats.median_cell_area is defined and segmentation_stats.median_cell_area is not none %}
+                        {{ "%.1f"|format(segmentation_stats.median_cell_area) }} px
+                        {% if segmentation_stats.median_cell_area_um2 is defined %}
+                            (approx. {{ "%.1f"|format(segmentation_stats.median_cell_area_um2) }} μm²)
+                        {% endif %}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Quality Score</td>
+                <td>{{ "%.3f"|format(segmentation_stats.mean_quality_score|default(0)) }}</td>
+            </tr>
+        </table>
+        {% if segmentation_results_details.morphology_image %}
+        <div class="figure">
+            <img src="{{ segmentation_results_details.morphology_image.data }}" alt="{{ segmentation_results_details.morphology_image.filename }}">
+            <p class="figure-caption">
+                <span class="segmentation-filename">{{ segmentation_results_details.morphology_image.filename }}</span>
+                {{ segmentation_results_details.morphology_image.description }}.
+                <br>Solidity = cell area divided by its convex hull area (values near 1 indicate compact shapes).
+                <br>Eccentricity ranges from 0 for circular cells to 1 for elongated, line-like cells.
+            </p>
+        </div>
+        {% endif %}
+        
+        <h2>Mask Repair Details</h2>
+        {% if mask_repair_stats %}
+        <div class="summary-box">
+            <h3>Summary Statistics</h3>
+            <div class="metrics-grid">
+                {% if mask_repair_stats.mean_matched_fraction is defined %}
+                <div class="metric">
+                    <div class="metric-value">{{ "%.1f"|format(mask_repair_stats.mean_matched_fraction * 100) }}%</div>
+                    <div class="metric-label">Nucleus-Cell Match</div>
+                </div>
+                {% endif %}
+                {% if mask_repair_stats.nucleus_total %}
+                <div class="metric">
+                    <div class="metric-value">{{ mask_repair_stats.nucleus_matched }}/{{ mask_repair_stats.nucleus_total }}</div>
+                    <div class="metric-label">Matched Nuclei</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">{{ "%.1f"|format(mask_repair_stats.nucleus_matched_pct) }}%</div>
+                    <div class="metric-label">Nucleus Match Rate</div>
+                </div>
+                {% endif %}
+                {% if mask_repair_stats.whole_cell_total %}
+                <div class="metric">
+                    <div class="metric-value">{{ mask_repair_stats.whole_cell_matched }}/{{ mask_repair_stats.whole_cell_total }}</div>
+                    <div class="metric-label">Matched Cells</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">{{ "%.1f"|format(mask_repair_stats.whole_cell_matched_pct) }}%</div>
+                    <div class="metric-label">Cell Match Rate</div>
+                </div>
+                {% endif %}
+            </div>
+            {% if mask_repair_stats.mean_matched_fraction is defined %}
+            <p style="font-size: 12px; color: #666; margin: 5px 0 0 0;">
+                Nucleus-Cell Match indicates the proportion of nuclei and whole cells that remain paired after repair.<br>
+                Formula: matched_fraction = matched_cells / (matched_cells + unmatched_cells + unmatched_nuclei), averaged across informative patches.
+            </p>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="warning">
+            <strong>No mask repair statistics available.</strong><br>
+            This may indicate that mask repair was not performed or statistics were not collected during processing.
+        </div>
+        {% endif %}
+        
         {% if segmentation_visualization.groups %}
         <h2>Segmentation Visualization</h2>
         <div class="summary-box">
@@ -1423,7 +1582,7 @@ class PipelineReportGenerator:
             </div>
         </div>
         {% endif %}
-        
+
         {% if figures.quality_dashboard %}
         <h2>Quality Metrics</h2>
         <div class="figure">
@@ -1431,104 +1590,7 @@ class PipelineReportGenerator:
         </div>
         {% endif %}
         
-        <h2>Segmentation Results</h2>
-        <table>
-            <tr>
-                <th>Metric</th>
-                <th>Value</th>
-            </tr>
-            <tr>
-                <td>Total Cells Detected</td>
-                <td>{{ segmentation_stats.total_cells|default('N/A') }}</td>
-            </tr>
-            <tr>
-                <td>Mean Cell Area</td>
-                <td>{{ "%.1f"|format(segmentation_stats.mean_cell_area|default(0)) }} pixels²</td>
-            </tr>
-            <tr>
-                <td>Median Cell Area</td>
-                <td>{{ "%.1f"|format(segmentation_stats.median_cell_area|default(0)) }} pixels²</td>
-            </tr>
-            <tr>
-                <td>Quality Score</td>
-                <td>{{ "%.3f"|format(segmentation_stats.mean_quality_score|default(0)) }}</td>
-            </tr>
-        </table>
-        
-        <h2>Mask Repair Details</h2>
-        {% if mask_repair_stats %}
-        <div class="summary-box">
-            <h3>Summary Statistics</h3>
-            <div class="metrics-grid">
-                {% if mask_repair_stats.nucleus_total %}
-                <div class="metric">
-                    <div class="metric-value">{{ mask_repair_stats.nucleus_matched }}/{{ mask_repair_stats.nucleus_total }}</div>
-                    <div class="metric-label">Matched Nuclei</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-value">{{ "%.1f"|format(mask_repair_stats.nucleus_matched_pct) }}%</div>
-                    <div class="metric-label">Nucleus Match Rate</div>
-                </div>
-                {% endif %}
-                {% if mask_repair_stats.whole_cell_total %}
-                <div class="metric">
-                    <div class="metric-value">{{ mask_repair_stats.whole_cell_matched }}/{{ mask_repair_stats.whole_cell_total }}</div>
-                    <div class="metric-label">Matched Cells</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-value">{{ "%.1f"|format(mask_repair_stats.whole_cell_matched_pct) }}%</div>
-                    <div class="metric-label">Cell Match Rate</div>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-        {% else %}
-        <div class="warning">
-            <strong>No mask repair statistics available.</strong><br>
-            This may indicate that mask repair was not performed or statistics were not collected during processing.
-        </div>
-        {% endif %}
-        
-        {% if expression_stats %}
-        <h2>Marker Expression Statistics</h2>        
-        {% if figures.expression_bars %}
-        <div class="figure">
-            <img src="{{ figures.expression_bars }}" alt="Expression Bar Charts">
-            <p style="color: #666; font-size: 12px; margin-top: 10px;">
-                Left: Mean expression levels (log-transformed) ranked from lowest to highest<br>
-                Right: Positive cell percentages ranked from lowest to highest
-            </p>
-        </div>
-        {% endif %}
-        
-        <div class="warning" style="background-color: #e8f4fd; border: 1px solid #bee5eb; color: #0c5460;">
-            <strong>Positive Cell Definition:</strong><br>
-            • <strong>Nuclear markers (DAPI, Hoechst):</strong> Cells with expression > median (most cells should be positive)<br>
-            • <strong>Other markers:</strong> Cells with expression > median + 1×standard deviation<br>
-            This approach provides more biologically meaningful thresholds than the previous mean + 2×std method.
-        </div>
-        
-        <table>
-            <tr>
-                <th>Marker</th>
-                <th>Mean</th>
-                <th>Median</th>
-                <th>Std Dev</th>
-                <th>Positive Threshold</th>
-                <th>Positive Cells (%)</th>
-            </tr>
-            {% for stat in expression_stats[:10] %}
-            <tr>
-                <td>{{ stat.marker }}</td>
-                <td>{{ "%.2f"|format(stat.mean) }}</td>
-                <td>{{ "%.2f"|format(stat.median) }}</td>
-                <td>{{ "%.2f"|format(stat.std) }}</td>
-                <td>{{ "%.2f"|format(stat.positive_threshold|default(0)) }}</td>
-                <td>{{ "%.1f"|format(stat.positive_percentage) }}%</td>
-            </tr>
-            {% endfor %}
-        </table>
-        {% endif %}
+        {# Marker Expression Statistics temporarily removed #}
         
         <h2>Pipeline Metadata</h2>
         <table>

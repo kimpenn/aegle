@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import cv2
-from skimage import morphology
+from skimage import morphology, measure
 from skimage.segmentation import find_boundaries
 import seaborn as sns
 import pandas as pd
@@ -112,6 +112,8 @@ def create_segmentation_overlay(
     fill_nucleus_mask: bool = True,
     cell_boundary_mask: Optional[np.ndarray] = None,
     nucleus_boundary_mask: Optional[np.ndarray] = None,
+    cell_count: Optional[int] = None,
+    nucleus_count: Optional[int] = None,
 ) -> plt.Figure:
     """Create a styled overlay showing cell and nucleus masks on the original image."""
 
@@ -263,13 +265,21 @@ def create_segmentation_overlay(
         cbar_nuc.set_label('Nucleus area (pixels)', rotation=270, labelpad=15)
 
     if unmatched_handles:
-        ax.legend(handles=unmatched_handles, loc='upper right', fontsize=8, frameon=False)
+        legend = ax.legend(handles=unmatched_handles, loc='upper right', fontsize=8, frameon=True)
+        legend.get_frame().set_facecolor('white')
+        legend.get_frame().set_edgecolor('#cccccc')
 
     title_lines = [custom_title or 'Segmentation Overlay']
-    if show_cell_overlay and cell_props:
-        title_lines.append(f'Cells detected (Green): {len(cell_props)}')
-    if show_nucleus_overlay and nucleus_props:
-        title_lines.append(f'Nuclei detected (Red): {len(nucleus_props)}')
+    if show_cell_overlay:
+        if cell_count is not None:
+            title_lines.append(f'Cells detected (Green): {cell_count}')
+        elif cell_props:
+            title_lines.append(f'Cells detected (Green): {len(cell_props)}')
+    if show_nucleus_overlay:
+        if nucleus_count is not None:
+            title_lines.append(f'Nuclei detected (Red): {nucleus_count}')
+        elif nucleus_props:
+            title_lines.append(f'Nuclei detected (Red): {len(nucleus_props)}')
     ax.set_title('\n'.join(title_lines))
     ax.axis('off')
 
@@ -423,7 +433,7 @@ def plot_cell_morphology_stats(
     
     # Cell area distribution
     axes[0, 0].hist(all_areas, bins=50, edgecolor='black', alpha=0.7)
-    axes[0, 0].set_xlabel('Cell Area (pixels²)')
+    axes[0, 0].set_xlabel('Cell Area (pixels)')
     axes[0, 0].set_ylabel('Count')
     axes[0, 0].set_title('Cell Area Distribution')
     axes[0, 0].axvline(np.median(all_areas), color='red', linestyle='--', 

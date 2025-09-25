@@ -5,6 +5,7 @@ import pickle
 import shutil
 import time
 import matplotlib.pyplot as plt
+from typing import Optional
 from skimage.segmentation import find_boundaries
 
 from aegle.codex_image import CodexImage
@@ -28,6 +29,14 @@ from aegle.report_generator import generate_pipeline_report
 # from aegle.segmentation_analysis.intensity_analysis import bias_analysis, distribution_analysis
 # from aegle.segmentation_analysis.spatial_analysis import density_metrics
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"
+
+
+def _count_labels(mask: Optional[np.ndarray]) -> int:
+    if mask is None:
+        return 0
+    unique_labels = np.unique(mask)
+    return int(np.sum(unique_labels > 0))
+
 
 def run_pipeline(config, args):
     """
@@ -221,6 +230,8 @@ def run_pipeline(config, args):
                 "nucleus_matched_mask",
                 "nucleus_matched_boundary",
             )
+            matched_cell_count = _count_labels(matched_cell_mask)
+            matched_nucleus_count = _count_labels(matched_nucleus_mask)
             original_nucleus_mask = orig_seg_result.get("nucleus") if orig_seg_result else None
             original_cell_mask = orig_seg_result.get("cell") if orig_seg_result else None
             original_cell_boundary = None
@@ -236,6 +247,8 @@ def run_pipeline(config, args):
                     "nucleus",
                     "nucleus_boundary",
                 )
+            original_cell_count = _count_labels(original_cell_mask)
+            original_nucleus_count = _count_labels(original_nucleus_mask)
 
             # 1. Create segmentation overlay
             try:
@@ -253,6 +266,9 @@ def run_pipeline(config, args):
                     fill_nucleus_mask=False,
                     cell_boundary_mask=matched_cell_boundary,
                     nucleus_boundary_mask=matched_nucleus_boundary,
+                    custom_title='Segmentation Overlay',
+                    cell_count=matched_cell_count,
+                    nucleus_count=matched_nucleus_count,
                 )
                 fig.savefig(os.path.join(viz_dir, f"segmentation_overlay_patch_{idx}.png"), 
                            dpi=150, bbox_inches='tight')
@@ -274,6 +290,9 @@ def run_pipeline(config, args):
                         fill_nucleus_mask=False,
                         cell_boundary_mask=original_cell_boundary,
                         nucleus_boundary_mask=original_nucleus_boundary,
+                        custom_title='Segmentation Overlay (Pre-Repair)',
+                        cell_count=original_cell_count,
+                        nucleus_count=original_nucleus_count,
                     )
                     fig.savefig(
                         os.path.join(viz_dir, f"segmentation_overlay_pre_repair_patch_{idx}.png"),
