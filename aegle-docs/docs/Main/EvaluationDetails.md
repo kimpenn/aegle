@@ -116,6 +116,6 @@ The evaluation results are stored in `codex_patches.seg_evaluation_metrics` as a
 This comprehensive evaluation system enables automated quality assessment of segmentation results, helping identify well-segmented patches and potential issues in the segmentation pipeline. Currently, we use pickle to save the evaluation results.
 
 ```python
-with open(os.path.join(args.out_dir, "seg_evaluation_metrics.pkl"), "wb") as f:
+with open(os.path.join(args.out_dir, "seg_evaluation_metrics.pkl.gz"), "wb") as f:
     pickle.dump(codex_patches.seg_evaluation_metrics, f)
 ```

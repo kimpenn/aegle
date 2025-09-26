@@ -1,16 +1,16 @@
 # Top-level configuration for CODEX pipeline test
-exp_id: test_oocyte_0
+exp_id: test_ft_full_small_tiles_tile_3
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
   file_name: 
-    /workspaces/codex-analysis/data/Ovary/D11_13_Scan1/D11_13_Scan1.er_manual_0.ome.tiff
+    /workspaces/codex-analysis/data/test/main/ft_small_tiles/tile_003.ome.tiff
 
   # Path to the TSV file containing antibody definitions (one row per channel)
   antibodies_file: 
-    /workspaces/codex-analysis/data/test/main/oocytes/extras/antibodies.tsv
+    /workspaces/codex-analysis/data/test/main/ft_small_tiles/extras/antibodies.tsv
 
   # Microns per pixel for this image; used in downstream calculations (e.g., segmentation scaling)
   image_mpp: 0.5
@@ -27,11 +27,10 @@ channels:
 
   # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
   wholecell_channel:
+    - Pan-Cytokeratin
     - E-cadherin
-    - Collagen IV
-    - CD34
-    - SMA
-    - Caveolin
+    - Beta-actin
+    - FUT4
     
 # -----------------------------------------------------------------------------
 # (C) Patch Extraction Parameters
@@ -116,10 +115,3 @@ testing:
 # -----------------------------------------------------------------------------
 evaluation:
   compute_metrics: true
-
-# -----------------------------------------------------------------------------
-# (I) Report Generation
-# -----------------------------------------------------------------------------
-report:
-  generate_report: true
-  report_format: html  # Options: html, pdf (future)

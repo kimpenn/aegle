@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 import numpy as np
 
-from aegle.extract_features import extract_features_v2, extract_features_v2_optimized
+from aegle.extract_features import extract_features_v2_optimized
 
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
@@ -68,12 +68,15 @@ def run_cell_profiling(codex_patches, config, args):
 
     # Process only informative patches
     for i, patch_idx in enumerate(informative_patches):
-        # Get segmentation mask from repaired segmentation
+        # Get segmentation masks from repaired segmentation
         seg_batch_idx = i  # Index in the repaired_seg_res_batch corresponds to position in informative patches list
         seg_result = codex_patches.repaired_seg_res_batch[seg_batch_idx]
-        
-        # TODO: consider profiling all four masks: nuc, nuc_matched, cell, cell_matched
-        segmentation_masks = seg_result["nucleus_matched_mask"]
+
+        nucleus_mask = seg_result.get("nucleus_matched_mask")
+        cell_mask = seg_result.get("cell_matched_mask")
+        if nucleus_mask is None or cell_mask is None:
+            logger.warning("Skipping patch %s due to missing matched masks", patch_idx)
+            continue
 
         # Get the full multi-channel patch from all channels (or extracted channels)
         if codex_patches.is_using_disk_based_patches():
@@ -92,7 +95,7 @@ def run_cell_profiling(codex_patches, config, args):
 
         # Extract features (exp_df: cell-by-marker, metadata_df: cell metadata)
         exp_df, metadata_df = extract_features_v2_optimized(
-            image_dict, segmentation_masks, antibodies
+            image_dict, nucleus_mask, antibodies, cell_masks=cell_mask
         )
         
         # Add patch information to track origin of cells

@@ -94,7 +94,7 @@ The following are the rules for some keys that are explicitly handled with custo
   - `hidden_dims`: evaluated with `ast.literal_eval`, e.g. `"[128, 64]"` → `[128, 64]`  
 
 - **Boolean Flags**  
-  - `generate_channel_stats`, `visualize_whole_sample`, `visualize_patches`, `save_all_channel_patches`,  
+  - `generate_channel_stats`, ~~`visualize_whole_sample`~~ (handled in preprocess overview), `visualize_patches`, `save_all_channel_patches`,  
     `visualize_segmentation`, `save_segmentation_images`, `save_segmentation_pickle`, `save_disrupted_patches`,  
     `compute_metrics`, `skip_viz`, `enhance_contrast`, `visualize`, `segmentation_analysis`  
 

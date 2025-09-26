@@ -12,19 +12,34 @@ from scipy.ndimage import labeled_comprehension
 import logging
 
 
-def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_quantify):
-    """
-    Optimized version of extract_features_v2 with significant performance improvements.
-    """
+def extract_features_v2_optimized(
+    image_dict,
+    nucleus_masks,
+    channels_to_quantify,
+    *,
+    cell_masks=None,
+):
+    """Compute marker intensities and morphology statistics for matched cells."""
     logger = logging.getLogger(__name__)
-    segmentation_masks = segmentation_masks.squeeze()
+
+    nucleus_masks = np.asarray(nucleus_masks).squeeze()
+    if cell_masks is None:
+        cell_masks = nucleus_masks
+    else:
+        cell_masks = np.asarray(cell_masks).squeeze()
 
     # Identify all nuclei (labels > 0) and exclude background (label=0)
-    nucleus_ids = np.unique(segmentation_masks)
+    nucleus_ids = np.unique(nucleus_masks)
     nucleus_ids = nucleus_ids[nucleus_ids != 0]
     nucleus_ids = nucleus_ids.astype(np.int64)
 
     logger.info("Number of labeled nuclei found: %d", len(nucleus_ids))
+
+    if len(nucleus_ids) == 0:
+        return (
+            pd.DataFrame(columns=channels_to_quantify),
+            pd.DataFrame(columns=["label"]),
+        )
 
     # Create unique channel names by adding suffixes for duplicates
     unique_channels = []
@@ -49,14 +64,13 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
     else:
         logger.info("Channels: %s", channels_to_quantify)
 
-    # Filter out small objects from segmentation masks
-    filterimg = np.where(
-        np.isin(segmentation_masks, nucleus_ids), segmentation_masks, 0
+    nucleus_filterimg = np.where(
+        np.isin(nucleus_masks, nucleus_ids), nucleus_masks, 0
     ).astype(np.int32)
 
     # Extract morphological features
     props = regionprops_table(
-        filterimg,
+        nucleus_filterimg,
         properties=(
             "centroid",
             "eccentricity",
@@ -71,21 +85,31 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
     props_df = pd.DataFrame(props)
     props_df.set_index(props_df["label"], inplace=True)
 
-    # *** KEY OPTIMIZATION 1: Pre-compute labels matrix once ***
-    logger.debug("Pre-computing labels matrix for all nuclei")
-    labels_matrix = (
-        np.isin(segmentation_masks, nucleus_ids).astype(int) * segmentation_masks
+    max_label = int(max(cell_masks.max(), nucleus_masks.max()))
+
+    nucleus_labels_matrix = (
+        np.isin(nucleus_masks, nucleus_ids).astype(int) * nucleus_masks
+    ).astype(np.int64)
+    cell_labels_matrix = (
+        np.isin(cell_masks, nucleus_ids).astype(int) * cell_masks
     ).astype(np.int64)
 
     # Pre-compute counts per label (used for all channels)
-    count_per_label = np.bincount(labels_matrix.ravel())[nucleus_ids]
+    nucleus_count_per_label = np.bincount(
+        nucleus_labels_matrix.ravel(), minlength=max_label + 1
+    )[nucleus_ids]
+    cell_count_per_label = np.bincount(
+        cell_labels_matrix.ravel(), minlength=max_label + 1
+    )[nucleus_ids]
 
     # Pre-allocate arrays for computed features
     n_nuclei = len(nucleus_ids)
     n_channels = len(channels_to_quantify)
-    mean_intensities = np.empty((n_nuclei, n_channels))
-    cov_values = np.empty_like(mean_intensities)
-    laplacian_variances = np.empty_like(mean_intensities)
+    wholecell_means = np.empty((n_nuclei, n_channels))
+    nucleus_means = np.empty_like(wholecell_means)
+    cytoplasm_means = np.full_like(wholecell_means, np.nan)
+    cov_values = np.empty_like(wholecell_means)
+    laplacian_variances = np.empty_like(wholecell_means)
 
     # *** KEY OPTIMIZATION 2: Process in smaller batches to reduce memory pressure ***
     # Determine batch size based on image dimensions - adjust as needed
@@ -104,46 +128,83 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
             batch_end,
         )
 
-        # *** OPTIMIZATION 3: Use multiprocessing for channel processing ***
-        # This could be implemented with a ProcessPoolExecutor or similar
-        # For simplicity, I'll keep the loop structure here
         for rel_idx, chan in enumerate(batch_channels):
             idx = batch_idx + rel_idx
             logger.debug("Processing channel %s (%d/%d)", chan, idx + 1, n_channels)
 
             chan_data = image_dict[chan]
 
-            # Calculate sum per label and mean intensities
-            sum_per_label = np.bincount(
-                labels_matrix.ravel(), weights=chan_data.ravel()
+            cell_sum_per_label = np.bincount(
+                cell_labels_matrix.ravel(),
+                weights=chan_data.ravel(),
+                minlength=max_label + 1,
             )[nucleus_ids]
-            mean_intensities[:, idx] = sum_per_label / count_per_label
+            wholecell_means[:, idx] = np.divide(
+                cell_sum_per_label,
+                cell_count_per_label,
+                out=np.zeros_like(cell_sum_per_label),
+                where=cell_count_per_label > 0,
+            )
+
+            nucleus_sum_per_label = np.bincount(
+                nucleus_labels_matrix.ravel(),
+                weights=chan_data.ravel(),
+                minlength=max_label + 1,
+            )[nucleus_ids]
+            nucleus_means[:, idx] = np.divide(
+                nucleus_sum_per_label,
+                nucleus_count_per_label,
+                out=np.zeros_like(nucleus_sum_per_label),
+                where=nucleus_count_per_label > 0,
+            )
+
+            cytoplasm_counts = cell_count_per_label - nucleus_count_per_label
+            valid_cytoplasm = cytoplasm_counts > 0
+            cytoplasm_sums = cell_sum_per_label - nucleus_sum_per_label
+            cytoplasm_channel_means = np.full_like(cytoplasm_sums, np.nan)
+            cytoplasm_channel_means[valid_cytoplasm] = (
+                cytoplasm_sums[valid_cytoplasm]
+                / cytoplasm_counts[valid_cytoplasm]
+            )
+            cytoplasm_means[:, idx] = cytoplasm_channel_means
 
             # Compute Coefficient of Variation (CoV)
             sum_sq_per_label = np.bincount(
-                labels_matrix.ravel(), weights=(chan_data**2).ravel()
+                cell_labels_matrix.ravel(),
+                weights=(chan_data**2).ravel(),
+                minlength=max_label + 1,
             )[nucleus_ids]
 
-            std_dev_per_label = np.sqrt(
-                sum_sq_per_label / count_per_label - (mean_intensities[:, idx] ** 2)
+            cell_mean_square = np.divide(
+                sum_sq_per_label,
+                cell_count_per_label,
+                out=np.zeros_like(sum_sq_per_label),
+                where=cell_count_per_label > 0,
             )
-            cov_values[:, idx] = std_dev_per_label / (mean_intensities[:, idx] + 1e-8)
+            std_dev_per_label = np.sqrt(
+                cell_mean_square - (wholecell_means[:, idx] ** 2)
+            )
+            cov_values[:, idx] = std_dev_per_label / (wholecell_means[:, idx] + 1e-8)
 
             # *** OPTIMIZATION 4: Optimize Laplacian calculation ***
-            # If high precision isn't critical, consider a downsampled approach
-            # or pre-allocate laplacian array to avoid temporary copies
             laplacian_img = np.abs(laplace(chan_data))
             laplacian_sum_per_label = np.bincount(
-                labels_matrix.ravel(), weights=laplacian_img.ravel()
+                cell_labels_matrix.ravel(),
+                weights=laplacian_img.ravel(),
+                minlength=max_label + 1,
             )[nucleus_ids]
-            laplacian_variances[:, idx] = laplacian_sum_per_label / count_per_label
+            laplacian_variances[:, idx] = np.divide(
+                laplacian_sum_per_label,
+                cell_count_per_label,
+                out=np.zeros_like(laplacian_sum_per_label),
+                where=cell_count_per_label > 0,
+            )
 
-            # Optional: explicitly free some memory
             del laplacian_img
 
     # Convert to dataframes using unique channel names
     markers = pd.DataFrame(
-        mean_intensities, index=nucleus_ids, columns=unique_channels
+        wholecell_means, index=nucleus_ids, columns=unique_channels
     )
 
     cov_df = pd.DataFrame(
@@ -156,6 +217,18 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
         laplacian_variances,
         index=nucleus_ids,
         columns=[f"{c}_laplacian_var" for c in unique_channels],
+    )
+
+    nucleus_intensity_df = pd.DataFrame(
+        nucleus_means,
+        index=nucleus_ids,
+        columns=[f"{c}_nucleus_mean" for c in unique_channels],
+    )
+
+    cytoplasm_intensity_df = pd.DataFrame(
+        cytoplasm_means,
+        index=nucleus_ids,
+        columns=[f"{c}_cytoplasm_mean" for c in unique_channels],
     )
 
     # Compute antibody entropy per cell
@@ -170,330 +243,29 @@ def extract_features_v2_optimized(image_dict, segmentation_masks, channels_to_qu
     )
 
     # Merge all metadata
-    props_df = props_df.join([cov_df, lap_var_df, cell_entropy_df])
-    props_df.rename(columns={"centroid-0": "y", "centroid-1": "x"}, inplace=True)
-
-    return markers, props_df
-
-
-def extract_features_v2(image_dict, segmentation_masks, channels_to_quantify):
-    """
-    Extract features from the given image dictionary and segmentation masks.
-
-    Parameters
-    ----------
-    image_dict : dict
-        Dictionary containing image data. Keys are channel names, values are 2D numpy arrays.
-    segmentation_masks : ndarray
-        2D numpy array containing segmentation masks.
-    channels_to_quantify : list
-        List of channel names to quantify.
-    output_file : str
-        Path to the output CSV file.
-    size_cutoff : int, optional
-        Minimum size of nucleus to consider. Nuclei smaller than this are ignored. Default is 0.
-
-    Returns
-    -------
-    markers : pd.DataFrame
-        Expression matrix (mean intensity of each antibody per cell).
-    props_df : pd.DataFrame
-        Cell metadata (morphological features, CoV, Laplacian variance, spatial entropy).
-    """
-    logger = logging.getLogger(__name__)
-    segmentation_masks = segmentation_masks.squeeze()
-
-    # Identify all nuclei (labels > 0) and exclude background (label=0)
-    nucleus_ids = np.unique(segmentation_masks)
-    nucleus_ids = nucleus_ids[nucleus_ids != 0]
-    nucleus_ids = nucleus_ids.astype(np.int64)
-    logger.info("Number of labeled nuclei found: %d", len(nucleus_ids))
-
-    # Create unique channel names by adding suffixes for duplicates
-    unique_channels = []
-    channel_counts = {}
-    has_duplicates = False
-    
-    for channel in channels_to_quantify:
-        if channel in channel_counts:
-            logger.warning(f"Duplicate channel name found: {channel}")
-            channel_counts[channel] += 1
-            unique_name = f"{channel}_{channel_counts[channel]}"
-            has_duplicates = True
-        else:
-            channel_counts[channel] = 0
-            unique_name = channel
-        unique_channels.append(unique_name)
-    
-    # Log channels - show original vs unique only if duplicates exist
-    if has_duplicates:
-        logger.warning("Duplicate channel names found in channels_to_quantify")
-        logger.info("Original channels: %s", channels_to_quantify)
-        logger.info("Unique channels: %s", unique_channels)
-    else:
-        logger.info("Channels: %s", channels_to_quantify)
-
-    # Filter out small objects from segmentation masks
-    filterimg = np.where(
-        np.isin(segmentation_masks, nucleus_ids), segmentation_masks, 0
-    ).astype(np.int32)
-
-    # Extract morphological features
-    props = regionprops_table(
-        filterimg,
-        properties=(
-            "centroid",
-            "eccentricity",
-            "perimeter",
-            "convex_area",
-            "area",
-            "axis_major_length",
-            "axis_minor_length",
-            "label",
-        ),
-    )
-    props_df = pd.DataFrame(props)
-    props_df.set_index(props_df["label"], inplace=True)
-
-    # Pre-allocate arrays for computed features
-    mean_intensities = np.empty((len(nucleus_ids), len(channels_to_quantify)))
-    cov_values = np.empty_like(mean_intensities)  # Coefficient of Variation
-    laplacian_variances = np.empty_like(mean_intensities)  # Laplacian variance
-
-    # For each channel, compute statistics for all labels using vectorized operations
-    for idx, chan in enumerate(channels_to_quantify):
-        logger.info(
-            "Processing channel %s (%d/%d)", chan, idx + 1, len(channels_to_quantify)
-        )
-        chan_data = image_dict[chan]
-        labels_matrix = (
-            np.isin(segmentation_masks, nucleus_ids).astype(int) * segmentation_masks
-        ).astype(np.int64)
-
-        sum_per_label = np.bincount(labels_matrix.ravel(), weights=chan_data.ravel())[
-            nucleus_ids
+    props_df = props_df.join(
+        [
+            cov_df,
+            lap_var_df,
+            cell_entropy_df,
+            nucleus_intensity_df,
+            cytoplasm_intensity_df,
         ]
-        count_per_label = np.bincount(labels_matrix.ravel())[nucleus_ids]
-        mean_intensities[:, idx] = sum_per_label / count_per_label
-
-        # Compute Coefficient of Variation (CoV)
-        sum_sq_per_label = np.bincount(
-            labels_matrix.ravel(), weights=(chan_data**2).ravel()
-        )[nucleus_ids]
-        std_dev_per_label = np.sqrt(
-            sum_sq_per_label / count_per_label - (mean_intensities[:, idx] ** 2)
-        )
-        cov_values[:, idx] = std_dev_per_label / (
-            mean_intensities[:, idx] + 1e-8
-        )  # Avoid division by zero
-
-        # Compute Laplacian-based spatial variance
-        laplacian_img = np.abs(laplace(chan_data))
-        laplacian_sum_per_label = np.bincount(
-            labels_matrix.ravel(), weights=laplacian_img.ravel()
-        )[nucleus_ids]
-        laplacian_variances[:, idx] = laplacian_sum_per_label / count_per_label
-
-    # Convert mean intensities into the expression matrix (markers) using unique channel names
-    markers = pd.DataFrame(
-        mean_intensities, index=nucleus_ids, columns=unique_channels
     )
-
-    # Convert computed spatial features into metadata using unique channel names
-    cov_df = pd.DataFrame(
-        cov_values,
-        index=nucleus_ids,
-        columns=[f"{c}_cov" for c in unique_channels],
-    )
-    lap_var_df = pd.DataFrame(
-        laplacian_variances,
-        index=nucleus_ids,
-        columns=[f"{c}_laplacian_var" for c in unique_channels],
-    )
-
-    # pixel_entropy_df = compute_pixel_entropy_vectorized(
-    #     image_dict, segmentation_masks, channels_to_quantify, nucleus_ids
-    # )
-
-    # Compute antibody entropy per cell (distribution across channels)
-    def compute_cell_entropy(row):
-        if np.sum(row) == 0:
-            return 0  # Avoid log(0) errors
-        probs = row / np.sum(row)  # Normalize to probability distribution
-        return entropy(probs, base=2)  # Shannon entropy with base 2
-
-    cell_entropy_df = pd.DataFrame(
-        markers.apply(compute_cell_entropy, axis=1), columns=["cell_entropy"]
-    )
-
-    # Merge all metadata into props_df
-    # props_df = props_df.join([cov_df, lap_var_df, pixel_entropy_df, cell_entropy_df])
-    props_df = props_df.join([cov_df, lap_var_df, cell_entropy_df])
-
-    # Rename columns
     props_df.rename(columns={"centroid-0": "y", "centroid-1": "x"}, inplace=True)
-
-    # Export to CSV (optional)
-    # markers.to_csv(output_file.replace('.csv', '_expression.csv'))
-    # props_df.to_csv(output_file.replace('.csv', '_metadata.csv'))
 
     return markers, props_df
 
 
-def compute_pixel_entropy_vectorized(
-    image_dict, segmentation_masks, channels_to_quantify, nucleus_ids
+def extract_features_v2(
+    image_dict,
+    nucleus_masks,
+    channels_to_quantify,
+    *,
+    cell_masks=None,
 ):
-    """
-    Compute spatial entropy of pixel intensities per cell using a vectorized approach.
-
-    Parameters
-    ----------
-    image_dict : dict
-        Dictionary containing image data. Keys are channel names, values are 2D numpy arrays.
-    segmentation_masks : ndarray
-        2D numpy array containing segmentation masks.
-    channels_to_quantify : list
-        List of channel names to quantify.
-    nucleus_ids : ndarray
-        List of unique cell IDs (excluding background).
-
-    Returns
-    -------
-    pixel_entropy_df : pd.DataFrame
-        DataFrame with spatial entropy values per cell.
-    """
-    logger = logging.getLogger(__name__)
-    num_channels = len(channels_to_quantify)
-    mask_flat = segmentation_masks.ravel()
-
-    # Stack all channels into a single 3D array: (height, width, num_channels)
-    stacked_image = np.dstack([image_dict[chan] for chan in channels_to_quantify])
-
-    # Flatten into (num_pixels, num_channels)
-    stacked_image_flat = stacked_image.reshape(-1, num_channels)
-
-    # Filter out background pixels (segmentation_masks == 0)
-    valid_pixels = mask_flat > 0
-    mask_flat = mask_flat[valid_pixels]
-    stacked_image_flat = stacked_image_flat[valid_pixels]
-
-    # Compute per-pixel probability distributions per cell
-    unique_cells = np.unique(mask_flat)
-    num_cells = len(unique_cells)
-    logger.info("Number of unique cells to process for pixel entropy: %d", num_cells)
-
-    pixel_distributions = np.zeros((unique_cells.shape[0], 1))
-    # Determine step size for logging every 10%
-    step = max(num_cells // 10, 1)  # at least 1 to avoid zero division
-
-    for i, cell_id in enumerate(unique_cells):
-        # Log progress approximately every 10%
-        if i % step == 0:
-            pct = (i / num_cells) * 100
-            logger.info(
-                "Processing cell %d of %d for pixel entropy (%.0f%% complete)",
-                i,
-                num_cells,
-                pct,
-            )
-
-        pixel_values = stacked_image_flat[mask_flat == cell_id]
-        pixel_sum = (
-            np.sum(pixel_values, axis=1, keepdims=True) + 1e-8
-        )  # Avoid division by zero
-        pixel_probs = pixel_values / pixel_sum  # Normalize per pixel
-        pixel_distributions[i] = np.mean(entropy(pixel_probs.T, base=2, axis=0))
-
-    # Convert to DataFrame
-    pixel_entropy_df = pd.DataFrame(
-        pixel_distributions, index=unique_cells, columns=["pixel_entropy"]
+    """Backward-compatible wrapper around the optimized feature extractor."""
+    return extract_features_v2_optimized(
+        image_dict, nucleus_masks, channels_to_quantify, cell_masks=cell_masks
     )
-    return pixel_entropy_df
 
-
-# def extract_features(
-#     image_dict, segmentation_masks, channels_to_quantify, output_file, size_cutoff=0
-# ):
-#     """
-#     Extract features from the given image dictionary and segmentation masks.
-
-#     Parameters
-#     ----------
-#     image_dict : dict
-#         Dictionary containing image data. Keys are channel names, values are 2D numpy arrays.
-#     segmentation_masks : ndarray
-#         2D numpy array containing segmentation masks.
-#     channels_to_quantify : list
-#         List of channel names to quantify.
-#     output_file : str
-#         Path to the output CSV file.
-#     size_cutoff : int, optional
-#         Minimum size of nucleus to consider. Nuclei smaller than this are ignored. Default is 0.
-
-#     Returns
-#     -------
-#     None
-#         The function doesn't return anything but writes the extracted features to a CSV file.
-
-#     """
-#     segmentation_masks = segmentation_masks.squeeze()
-
-#     # Count pixels for each nucleus
-#     _, counts = np.unique(segmentation_masks, return_counts=True)
-
-#     # Identify nucleus IDs above the size cutoff, excluding background (ID 0)
-#     nucleus_ids = np.where(counts > size_cutoff)[0][1:]
-
-#     # Filter out small objects from segmentation masks
-#     filterimg = np.where(
-#         np.isin(segmentation_masks, nucleus_ids), segmentation_masks, 0
-#     ).astype(np.int32)
-
-#     # Extract morphological features
-#     props = regionprops_table(
-#         filterimg,
-#         properties=(
-#             "centroid",
-#             "eccentricity",
-#             "perimeter",
-#             "convex_area",
-#             "area",
-#             "axis_major_length",
-#             "axis_minor_length",
-#             "label",
-#         ),
-#     )
-#     props_df = pd.DataFrame(props)
-#     props_df.set_index(props_df["label"], inplace=True)
-
-#     # Pre-allocate array for mean intensities
-#     mean_intensities = np.empty((len(nucleus_ids), len(channels_to_quantify)))
-
-#     # For each channel, compute mean intensities for all labels using vectorized operations
-#     for idx, chan in enumerate(tqdm(channels_to_quantify, desc="Processing channels")):
-#         chan_data = image_dict[chan]
-#         labels_matrix = (
-#             np.isin(segmentation_masks, nucleus_ids).astype(int) * segmentation_masks
-#         ).astype(np.int64)
-#         sum_per_label = np.bincount(labels_matrix.ravel(), weights=chan_data.ravel())[
-#             nucleus_ids
-#         ]
-#         count_per_label = np.bincount(labels_matrix.ravel())[nucleus_ids]
-#         mean_intensities[:, idx] = sum_per_label / count_per_label
-
-#     # Convert the array to a DataFrame
-#     mean_df = pd.DataFrame(
-#         mean_intensities, index=nucleus_ids, columns=channels_to_quantify
-#     )
-
-#     # Join with morphological features
-#     markers = mean_df.join(props_df)
-
-#     # rename column
-#     markers.rename(columns={"centroid-0": "y"}, inplace=True)
-#     markers.rename(columns={"centroid-1": "x"}, inplace=True)
-
-#     # Export to CSV
-#     # markers.to_csv(output_file)
-
-#     return markers, props_df

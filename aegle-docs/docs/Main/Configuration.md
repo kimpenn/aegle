@@ -138,7 +138,7 @@ visualization:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `visualize_whole_sample` | boolean | false | Save RGB visualization of entire sample |
+| `visualize_whole_sample` | boolean | false | (Deprecated in main pipeline) Whole-sample overview now generated during preprocess |
 | `downsample_factor` | integer | -1 | Downsampling for visualization (-1 = auto) |
 | `enhance_contrast` | boolean | true | Apply contrast enhancement |
 | `visualize_patches` | boolean | false | Save RGB visualizations of patches |
@@ -150,7 +150,7 @@ visualization:
 | Setting | Processing Time | Storage Space | Quality |
 |---------|----------------|---------------|---------|
 | All false | Fastest | Minimal | N/A |
-| `visualize_whole_sample: true` | +10-20% | +100MB | Good overview |
+| `visualize_whole_sample: true` | n/a | n/a | Use preprocess overview module instead |
 | `visualize_patches: true` | +30-50% | +1-5GB | Detailed |
 | All true | +50-100% | +5-20GB | Maximum |
 

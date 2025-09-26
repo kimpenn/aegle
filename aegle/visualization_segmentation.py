@@ -20,6 +20,19 @@ from matplotlib.patches import Patch
 logger = logging.getLogger(__name__)
 
 
+def _count_unique_labels(mask: Optional[np.ndarray]) -> int:
+    """Count unique non-zero labels in a segmentation mask."""
+    if mask is None:
+        return 0
+    mask_array = np.asarray(mask)
+    if mask_array.size == 0:
+        return 0
+    labels = np.unique(mask_array)
+    if labels.size <= 1:
+        return 0
+    return int(np.count_nonzero(labels))
+
+
 def _normalize_image_for_display(image: np.ndarray) -> np.ndarray:
     """Convert image to float RGB and normalize to [0, 1] for visualization."""
     if image.ndim == 2:
@@ -365,7 +378,8 @@ def create_quality_heatmaps(
             ax.set_xlabel('Patch Index')
             ax.set_ylabel(metric)
         
-        plt.colorbar(scatter if 'x_start' in patches_metadata.columns else None, ax=ax)
+        if 'x_start' in patches_metadata.columns:
+            fig.colorbar(scatter, ax=ax)
         ax.set_title(f'Spatial Distribution of {metric.replace("_", " ").title()}')
         
         figures[metric] = fig
@@ -683,8 +697,9 @@ def create_nucleus_mask_visualization(
         cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
         cbar.set_label('Nucleus area (pixels)', rotation=270, labelpad=15)
 
+    nucleus_count = _count_unique_labels(nucleus_mask)
     ax.set_title(
-        f'Nucleus Mask Visualization\n({len(props)} nuclei detected, color = area)'
+        f'Nucleus Mask Visualization\n({nucleus_count} nuclei detected, color = area)'
     )
     ax.axis('off')
 
@@ -743,8 +758,9 @@ def create_wholecell_mask_visualization(
         cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
         cbar.set_label('Cell area (pixels)', rotation=270, labelpad=15)
 
+    cell_count = _count_unique_labels(cell_mask)
     ax.set_title(
-        f'Whole Cell Mask Visualization\n({len(props)} cells detected, color = area)'
+        f'Whole-cell Mask Visualization\n({cell_count} cells detected, color = area)'
     )
     ax.axis('off')
 

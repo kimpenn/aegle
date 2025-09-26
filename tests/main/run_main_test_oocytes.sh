@@ -23,11 +23,11 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
-  # "oocyte_0"
-  # "oocyte_1"
-  # "oocyte_2"
-  # "oocyte_0_1"
-  # "oocyte_4"
+  "oocyte_0"
+  "oocyte_1"
+  "oocyte_2"
+  "oocyte_0_1"
+  "oocyte_4"
   "oocyte_4_1"
 )
 

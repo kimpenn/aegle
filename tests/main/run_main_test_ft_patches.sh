@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the experiment set name
-EXP_SET_NAME="test/ft_full_small_tiles"
+EXP_SET_NAME="test/ft_patches"
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -23,10 +23,7 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
-  "tile_0"
-  # "tile_1"
-  # "tile_2"
-  # "tile_3"
+  "amplua"
 )
 
 # Count total experiments

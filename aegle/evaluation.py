@@ -12,22 +12,24 @@ from aegle.codex_patches import CodexPatches
 from aegle.evaluation_func import *
 
 
-def _process_single_patch(idx, repaired_seg_res, original_seg_res_single, image_ndarray, config):
-    # Get cell count in the cell mask
+def _process_single_patch(local_idx, patch_tensor, repaired_seg_res, original_seg_res_single, patch_metadata_index, config):
+    """Evaluate a single patch and return the metrics dictionary."""
     cell_mask = repaired_seg_res["cell_matched_mask"]
     unique_cell_ids = np.unique(cell_mask)
-    # Subtract 1 for background (value 0)
     cell_count = len(unique_cell_ids) - (1 if 0 in unique_cell_ids else 0)
-    
-    # Skip patches with fewer than 20 cells
+
+    patch_label = patch_metadata_index if patch_metadata_index is not None else local_idx
+
     if cell_count < 20:
-        logging.warning(f"Skipping evaluation for patch {idx} with only {cell_count} cells (minimum 20 required)")
+        logging.warning(
+            f"Skipping evaluation for patch {patch_label} with only {cell_count} cells (minimum 20 required)"
+        )
         return {"QualityScore": float("nan")}
-    
+
     try:
         img_dict_single = {
-            "name": f"img_{idx}",
-            "data": image_ndarray[idx : idx + 1, :, :, :, :],
+            "name": f"img_{patch_label}",
+            "data": patch_tensor,
         }
         cell_matched_mask = repaired_seg_res["cell_matched_mask"]
         nucleus_matched_mask = repaired_seg_res["nucleus_matched_mask"]
@@ -43,12 +45,37 @@ def _process_single_patch(idx, repaired_seg_res, original_seg_res_single, image_
             pixelsizex=pixel_size,
             pixelsizey=pixel_size,
         )
-        logging.info(f"Evaluated segmentations for Patch: {idx}, Cell count: {cell_count}, QualityScore: {res['QualityScore']}")
+        logging.info(
+            f"Evaluated segmentation for patch {patch_label} (local index {local_idx}), cell count: {cell_count}, QualityScore: {res['QualityScore']}"
+        )
         return res
     except Exception as e:
-        logging.warning(f"Error evaluating patch {idx}: {str(e)}")
-        # Add a placeholder result with NaN values to maintain order
+        logging.warning(f"Error evaluating patch {patch_label}: {str(e)}")
         return {"QualityScore": float("nan")}
+
+
+def _prepare_patch_tensor(patch_array):
+    """Convert a raw patch array (H, W, C) to the evaluation tensor shape (1, C, 1, H, W)."""
+    patch_array = np.asarray(patch_array, dtype=np.float32)
+    if patch_array.ndim != 3:
+        raise ValueError(f"Expected patch array with 3 dimensions (H, W, C), got shape {patch_array.shape}")
+    patch_tensor = np.transpose(patch_array, (2, 0, 1))  # C, H, W
+    patch_tensor = np.expand_dims(patch_tensor, axis=1)  # C, 1, H, W
+    patch_tensor = np.expand_dims(patch_tensor, axis=0)  # 1, C, 1, H, W
+    return patch_tensor
+
+
+def _load_patch_tensor(codex_patches: CodexPatches, patch_index: int):
+    """Fetch a patch (in-memory or disk-based) and convert it to evaluation tensor format."""
+    if patch_index is None:
+        raise ValueError("patch_index must be provided for evaluation")
+
+    if codex_patches.is_using_disk_based_patches():
+        patch_array = codex_patches.load_patch_from_disk(patch_index, "extracted")
+    else:
+        patch_array = codex_patches.extracted_channel_patches[patch_index]
+
+    return _prepare_patch_tensor(patch_array)
 
 
 def run_seg_evaluation(
@@ -56,49 +83,132 @@ def run_seg_evaluation(
     config: dict,
     args: Optional[dict] = None,
 ):
-    original_seg_res_batch = codex_patches.original_seg_res_batch
-    repaired_seg_res_batch = codex_patches.repaired_seg_res_batch
+    original_seg_res_batch = codex_patches.original_seg_res_batch or []
+    repaired_seg_res_batch = codex_patches.repaired_seg_res_batch or []
+
+    if not repaired_seg_res_batch:
+        logging.info("No repaired segmentation results available - skipping evaluation step.")
+        codex_patches.seg_evaluation_metrics = []
+        return
+
     patches_metadata_df = codex_patches.get_patches_metadata()
-    idx = patches_metadata_df["is_informative"] == True
+    informative_indices = []
+    if patches_metadata_df is not None and "is_informative" in patches_metadata_df:
+        informative_mask = patches_metadata_df["is_informative"] == True
+        try:
+            informative_indices = np.flatnonzero(informative_mask.to_numpy())
+        except AttributeError:
+            informative_indices = np.flatnonzero(np.asarray(informative_mask))
 
-    image_ndarray = codex_patches.extracted_channel_patches[idx]
-    # reshape image_ndarray from batch, w, h, c to batch, c, w, h
-    image_ndarray = image_ndarray.transpose(0, 3, 1, 2)
-    # add an extra dimsion at axis 2
-    image_ndarray = np.expand_dims(image_ndarray, axis=2)
-    
-    logging.info(f"original_seg_res_batch: {len(original_seg_res_batch)}")
-    logging.info(f"repaired_seg_res_batch: {len(repaired_seg_res_batch)}")
-    logging.info(f"codex_patches.extracted_channel_patches: {codex_patches.extracted_channel_patches.shape}")
-    logging.info(f"patches_metadata_df informative: {patches_metadata_df['is_informative'].sum()}")
-    logging.info(f"image_ndarray: {image_ndarray.shape}")
+    if len(informative_indices) == 0:
+        informative_indices = np.arange(len(repaired_seg_res_batch))
 
-    # Run evaluation in parallel with 2 workers
-    logging.info("Starting parallel evaluation with 2 workers")
-    res_list = [None] * len(repaired_seg_res_batch)
-    
-    process_func = partial(_process_single_patch, 
-                          image_ndarray=image_ndarray,
-                          config=config)
-    
-    with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
-        # Create futures for each patch
-        future_to_idx = {
-            executor.submit(process_func, idx, repaired_seg_res, original_seg_res_batch[idx]): idx
-            for idx, repaired_seg_res in enumerate(repaired_seg_res_batch)
-        }
-        
-        # Process results as they complete
-        for future in concurrent.futures.as_completed(future_to_idx):
-            idx = future_to_idx[future]
+    if len(informative_indices) != len(repaired_seg_res_batch):
+        logging.warning(
+            "Length mismatch between informative patch indices (%d) and repaired segmentation batch (%d)",
+            len(informative_indices),
+            len(repaired_seg_res_batch),
+        )
+        informative_indices = informative_indices[: len(repaired_seg_res_batch)]
+
+    logging.info(
+        "Segmentation evaluation will process %d patch(es).", len(repaired_seg_res_batch)
+    )
+
+    res_list = [{"QualityScore": float("nan")} for _ in range(len(repaired_seg_res_batch))]
+
+    max_workers = min(2, len(repaired_seg_res_batch))
+    if len(repaired_seg_res_batch) > 200:
+        logging.info(
+            "Large patch count detected (%d) - running evaluation sequentially to reduce memory pressure.",
+            len(repaired_seg_res_batch),
+        )
+        max_workers = 1
+
+    if max_workers <= 1:
+        logging.info("Starting sequential segmentation evaluation.")
+        for local_idx in range(len(repaired_seg_res_batch)):
+            patch_metadata_index = (
+                informative_indices[local_idx] if local_idx < len(informative_indices) else None
+            )
             try:
-                res = future.result()
-                res_list[idx] = res
-            except Exception as e:
-                logging.error(f"Patch {idx} generated an exception: {str(e)}")
-                res_list[idx] = {"QualityScore": float("nan")}
-    
-    logging.info("Parallel evaluation completed")
+                patch_tensor = _load_patch_tensor(codex_patches, patch_metadata_index)
+            except Exception as exc:
+                logging.error(f"Failed to load patch {patch_metadata_index} for evaluation: {exc}")
+                res_list[local_idx] = {"QualityScore": float("nan")}
+                continue
+
+            orig_single = (
+                original_seg_res_batch[local_idx]
+                if len(original_seg_res_batch) > local_idx
+                else None
+            )
+            if orig_single is None:
+                logging.error(
+                    f"Missing original segmentation result for patch {patch_metadata_index}. Skipping evaluation."
+                )
+                res_list[local_idx] = {"QualityScore": float("nan")}
+                continue
+
+            res_list[local_idx] = _process_single_patch(
+                local_idx,
+                patch_tensor,
+                repaired_seg_res_batch[local_idx],
+                orig_single,
+                patch_metadata_index,
+                config,
+            )
+    else:
+        logging.info("Starting parallel segmentation evaluation with %d worker(s)", max_workers)
+        process_func = partial(_process_single_patch, config=config)
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {}
+            for local_idx in range(len(repaired_seg_res_batch)):
+                patch_metadata_index = (
+                    informative_indices[local_idx] if local_idx < len(informative_indices) else None
+                )
+                try:
+                    patch_tensor = _load_patch_tensor(codex_patches, patch_metadata_index)
+                except Exception as exc:
+                    logging.error(f"Failed to load patch {patch_metadata_index} for evaluation: {exc}")
+                    res_list[local_idx] = {"QualityScore": float("nan")}
+                    continue
+
+                orig_single = (
+                    original_seg_res_batch[local_idx]
+                    if len(original_seg_res_batch) > local_idx
+                    else None
+                )
+                if orig_single is None:
+                    logging.error(
+                        f"Missing original segmentation result for patch {patch_metadata_index}. Skipping evaluation."
+                    )
+                    res_list[local_idx] = {"QualityScore": float("nan")}
+                    continue
+
+                future = executor.submit(
+                    process_func,
+                    local_idx,
+                    patch_tensor,
+                    repaired_seg_res_batch[local_idx],
+                    orig_single,
+                    patch_metadata_index,
+                )
+                future_to_idx[future] = local_idx
+
+            for future in concurrent.futures.as_completed(future_to_idx):
+                local_idx = future_to_idx[future]
+                try:
+                    res_list[local_idx] = future.result()
+                except Exception as exc:
+                    patch_metadata_index = (
+                        informative_indices[local_idx] if local_idx < len(informative_indices) else None
+                    )
+                    patch_label = patch_metadata_index if patch_metadata_index is not None else local_idx
+                    logging.error(f"Patch {patch_label} generated an exception during evaluation: {exc}")
+                    res_list[local_idx] = {"QualityScore": float("nan")}
+
+    logging.info("Segmentation evaluation completed")
     codex_patches.seg_evaluation_metrics = res_list
 
 

@@ -2,11 +2,14 @@
 
 import os
 import sys
+import gzip
 import logging
 import numpy as np
 import pandas as pd
 import cv2
 from skimage.io import imsave
+from skimage.segmentation import find_boundaries
+from typing import Dict, List, Optional, Tuple
 from aegle.codex_image import CodexImage
 import pickle
 import tifffile
@@ -522,14 +525,6 @@ class CodexPatches:
             f"Identified {num_bad_patches} bad patches out of {total_patches} total patches."
         )
 
-    def save_metadata(self):
-        """
-        Save the patch metadata to a CSV file.
-        """
-        metadata_file_name = os.path.join(self.args.out_dir, "patches_metadata.csv")
-        self.patches_metadata.to_csv(metadata_file_name, index=False)
-        self.logger.info(f"Saved metadata to {metadata_file_name}")
-
     def save_patches(self, save_all_channel_patches=True):
         """
         Save the patches as NumPy arrays.
@@ -537,11 +532,15 @@ class CodexPatches:
         patches_file_name = os.path.join(
             self.args.out_dir, "extracted_channel_patches.npy"
         )
-        np.save(patches_file_name, self.extracted_channel_patches)
+        compressed_file_name = f"{patches_file_name}.gz"
+        with gzip.open(compressed_file_name, "wb") as file_handle:
+            np.save(file_handle, self.extracted_channel_patches)
         self.logger.info(
             f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}"
         )
-        self.logger.info(f"Saved extracted_channel_patches to {patches_file_name}")
+        self.logger.info(
+            f"Saved extracted_channel_patches to {compressed_file_name} using gzip compression"
+        )
 
         if save_all_channel_patches:
             patches_file_name = os.path.join(
@@ -625,11 +624,30 @@ class CodexPatches:
     def set_metadata(self, patches_metadata):
         self.patches_metadata = patches_metadata
 
-    def save_metadata(self, file_name="codex_patches_metadata.df"):
-        file_name = os.path.join(self.args.out_dir, file_name)
-        self.patches_metadata.to_csv(file_name, index=False)
-        self.logger.info(f"Saved codex_patches metadata to {file_name}")
-    
+    def save_metadata(self, file_name: Optional[str] = None):
+        """Persist patch metadata as CSV in the run output directory."""
+        if file_name is None:
+            target_path = os.path.join(self.args.out_dir, "patches_metadata.csv")
+        else:
+            target_path = (
+                file_name
+                if os.path.isabs(file_name)
+                else os.path.join(self.args.out_dir, file_name)
+            )
+
+        base, ext = os.path.splitext(target_path)
+        if ext.lower() not in {"", ".csv"}:
+            self.logger.warning(
+                "Replacing unsupported metadata extension '%s' with '.csv'", ext
+            )
+            target_path = f"{base}.csv"
+        elif ext == "":
+            target_path = f"{target_path}.csv"
+
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        self.patches_metadata.to_csv(target_path, index=False)
+        self.logger.info(f"Saved patch metadata to {target_path}")
+
     def save_seg_res(self):
         compression_cfg = self.config.get("segmentation", {})
         compression = str(
@@ -749,109 +767,39 @@ class CodexPatches:
         os.makedirs(output_dir, exist_ok=True)
         base_name = exp_id if exp_id else "segmentation"
 
-        channel_order = [
-            ("cell", "cell"),
-            ("nucleus", "nucleus"),
-            ("cell_boundary", "cell_boundary"),
-            ("nucleus_boundary", "nucleus_boundary"),
-        ]
-        matched_channel_order = [
-            ("cell_matched_mask", "cell_matched_mask"),
-            ("nucleus_matched_mask", "nucleus_matched_mask"),
-            ("cell_outside_nucleus_mask", "cell_outside_nucleus_mask"),
-            ("cell_matched_boundary", "cell_matched_boundary"),
-            ("nucleus_matched_boundary", "nucleus_matched_boundary"),
-        ]
-
-        image_shape = self.codex_image.extended_extracted_channel_image.shape[:2]
-        original_results = self.original_seg_res_batch or []
-        repaired_results = self.repaired_seg_res_batch or []
+        image_mpp = config.get("data", {}).get("image_mpp")
+        split_mode = self.config.get("patching", {}).get("split_mode", "patches")
 
         informative_mask = metadata_df["is_informative"] == True
         informative_indices = metadata_df[informative_mask].index.tolist()
+        original_results = self.original_seg_res_batch or []
+        repaired_results = self.repaired_seg_res_batch or []
 
-        if len(repaired_results) != len(informative_indices):
-            self.logger.warning(
-                "Mismatch between repaired results (%d) and informative patches (%d)",
-                len(repaired_results),
-                len(informative_indices),
+        exported = False
+
+        if split_mode == "patches":
+            exported = self._export_patch_masks(
+                base_name,
+                output_dir,
+                informative_indices,
+                metadata_df,
+                original_results,
+                repaired_results,
+                image_mpp,
             )
-
-        aggregated_masks = {}
-
-        for channel_key, result_key in channel_order:
-            aggregated_masks[channel_key] = self._merge_segmentation_masks(
+        else:
+            exported = self._export_aggregated_masks(
+                base_name,
+                output_dir,
                 metadata_df,
                 informative_indices,
                 original_results,
-                result_key,
-                image_shape,
-            )
-
-        for channel_key, result_key in matched_channel_order:
-            aggregated_masks[channel_key] = self._merge_segmentation_masks(
-                metadata_df,
-                informative_indices,
                 repaired_results,
-                result_key,
-                image_shape,
+                image_mpp,
             )
-
-        exported = False
-        image_mpp = config.get("data", {}).get("image_mpp")
-
-        for name in [
-            "cell",
-            "nucleus",
-            "cell_boundary",
-            "nucleus_boundary",
-            "cell_matched_mask",
-            "nucleus_matched_mask",
-            "cell_outside_nucleus_mask",
-        ]:
-            mask = aggregated_masks.get(name)
-            if mask is None:
-                continue
-
-            mask = mask.astype(np.uint32, copy=False)
-            stack = mask[None, ...]
-            pyramid = self._build_pyramid(stack)
-
-            metadata = {
-                "axes": "CYX",
-                "channel_names": [name],
-            }
-            if image_mpp:
-                metadata["PhysicalSizeX"] = float(image_mpp)
-                metadata["PhysicalSizeY"] = float(image_mpp)
-
-            mask_path = os.path.join(
-                output_dir, f"{base_name}.{name}.segmentations.ome.tiff"
-            )
-
-            with tifffile.TiffWriter(mask_path, bigtiff=True) as tif:
-                tif.write(
-                    pyramid[0],
-                    subifds=len(pyramid) - 1,
-                    dtype=np.uint32,
-                    compression="zlib",
-                    photometric="minisblack",
-                    metadata=metadata,
-                )
-                for level in pyramid[1:]:
-                    tif.write(
-                        level,
-                        subfiletype=1,
-                        dtype=np.uint32,
-                        compression="zlib",
-                        photometric="minisblack",
-                    )
-
-            exported = True
-            self.logger.info("Exported %s segmentation mask to %s", name, mask_path)
 
         if not exported:
-            self.logger.warning("No segmentation masks aggregated for export")
+            self.logger.warning("No segmentation masks exported")
 
     def _merge_segmentation_masks(
         self,
@@ -934,3 +882,232 @@ class CodexPatches:
             pyramid.append(down)
             current = down
         return pyramid
+
+    def _save_mask_stack(self, mask: Optional[np.ndarray], channel_name: str, output_path: str, image_mpp: Optional[float]) -> bool:
+        if mask is None:
+            return False
+        mask_array = np.asarray(mask)
+        if mask_array.size == 0:
+            return False
+        mask_array = np.squeeze(mask_array).astype(np.uint32, copy=False)
+
+        stack = mask_array[None, ...]
+        pyramid = self._build_pyramid(stack)
+
+        metadata = {
+            "axes": "CYX",
+            "channel_names": [channel_name],
+        }
+        if image_mpp:
+            try:
+                metadata["PhysicalSizeX"] = float(image_mpp)
+                metadata["PhysicalSizeY"] = float(image_mpp)
+            except (TypeError, ValueError):
+                pass
+
+        with tifffile.TiffWriter(output_path, bigtiff=True) as tif:
+            tif.write(
+                pyramid[0],
+                subifds=len(pyramid) - 1,
+                dtype=np.uint32,
+                compression="zlib",
+                photometric="minisblack",
+                metadata=metadata,
+            )
+            for level in pyramid[1:]:
+                tif.write(
+                    level,
+                    subfiletype=1,
+                    dtype=np.uint32,
+                    compression="zlib",
+                    photometric="minisblack",
+                )
+
+        self.logger.info("Exported %s segmentation mask to %s", channel_name, output_path)
+        return True
+
+    def _export_patch_masks(
+        self,
+        base_name: str,
+        output_dir: str,
+        informative_indices: List[int],
+        metadata_df: pd.DataFrame,
+        original_results: List[Dict],
+        repaired_results: List[Dict],
+        image_mpp: Optional[float],
+    ) -> bool:
+        if len(repaired_results) != len(informative_indices):
+            self.logger.warning(
+                "Mismatch between repaired results (%d) and informative patches (%d)",
+                len(repaired_results),
+                len(informative_indices),
+            )
+
+        exported = False
+
+        def compute_boundary(mask: Optional[np.ndarray]) -> Optional[np.ndarray]:
+            if mask is None:
+                return None
+            mask_array = np.asarray(mask)
+            if mask_array.size == 0:
+                return None
+            boundary_bool = find_boundaries(mask_array, mode="inner")
+            boundary = np.zeros_like(mask_array, dtype=np.uint32)
+            boundary[boundary_bool] = mask_array[boundary_bool]
+            return boundary
+
+        for idx_pos, patch_idx in enumerate(informative_indices):
+            seg_result = repaired_results[idx_pos] if idx_pos < len(repaired_results) else None
+            if seg_result is None:
+                continue
+
+            orig_seg_result = original_results[idx_pos] if idx_pos < len(original_results) else None
+            patch_meta = metadata_df.loc[patch_idx]
+            patch_id = patch_meta.get("patch_id", patch_meta.get("patch_index", idx_pos))
+            try:
+                patch_id_int = int(patch_id)
+            except (TypeError, ValueError):
+                patch_id_int = idx_pos
+
+            patch_base = f"{base_name}.patch_{patch_id_int:04d}"
+
+            cell_mask = None
+            if orig_seg_result is not None:
+                cell_mask = orig_seg_result.get("cell")
+            if cell_mask is None:
+                cell_mask = seg_result.get("cell")
+
+            nucleus_mask = None
+            if orig_seg_result is not None:
+                nucleus_mask = orig_seg_result.get("nucleus")
+            if nucleus_mask is None:
+                nucleus_mask = seg_result.get("nucleus")
+
+            cell_boundary = None
+            if orig_seg_result is not None:
+                cell_boundary = orig_seg_result.get("cell_boundary")
+            if cell_boundary is None:
+                cell_boundary = seg_result.get("cell_boundary")
+            if cell_boundary is None:
+                cell_boundary = compute_boundary(cell_mask)
+
+            nucleus_boundary = None
+            if orig_seg_result is not None:
+                nucleus_boundary = orig_seg_result.get("nucleus_boundary")
+            if nucleus_boundary is None:
+                nucleus_boundary = seg_result.get("nucleus_boundary")
+            if nucleus_boundary is None:
+                nucleus_boundary = compute_boundary(nucleus_mask)
+
+            cell_matched_mask = seg_result.get("cell_matched_mask", seg_result.get("cell"))
+            nucleus_matched_mask = seg_result.get("nucleus_matched_mask", seg_result.get("nucleus"))
+
+            cell_matched_boundary = seg_result.get("cell_matched_boundary")
+            if cell_matched_boundary is None:
+                cell_matched_boundary = compute_boundary(cell_matched_mask)
+
+            nucleus_matched_boundary = seg_result.get("nucleus_matched_boundary")
+            if nucleus_matched_boundary is None:
+                nucleus_matched_boundary = compute_boundary(nucleus_matched_mask)
+
+            cell_outside_nucleus_mask = seg_result.get("cell_outside_nucleus_mask")
+
+            masks_to_save = {
+                "cell": cell_mask,
+                "cell_boundary": cell_boundary,
+                "cell_matched_mask": cell_matched_mask,
+                "cell_matched_boundary": cell_matched_boundary,
+                "cell_outside_nucleus_mask": cell_outside_nucleus_mask,
+                "nucleus": nucleus_mask,
+                "nucleus_boundary": nucleus_boundary,
+                "nucleus_matched_mask": nucleus_matched_mask,
+                "nucleus_matched_boundary": nucleus_matched_boundary,
+            }
+
+            for name, mask in masks_to_save.items():
+                if mask is None:
+                    continue
+                mask_path = os.path.join(
+                    output_dir, f"{patch_base}.{name}.segmentations.ome.tiff"
+                )
+                if self._save_mask_stack(mask, name, mask_path, image_mpp):
+                    exported = True
+
+        return exported
+
+    def _export_aggregated_masks(
+        self,
+        base_name: str,
+        output_dir: str,
+        metadata_df: pd.DataFrame,
+        informative_indices: List[int],
+        original_results: List[Dict],
+        repaired_results: List[Dict],
+        image_mpp: Optional[float],
+    ) -> bool:
+        channel_order = [
+            ("cell", "cell"),
+            ("nucleus", "nucleus"),
+            ("cell_boundary", "cell_boundary"),
+            ("nucleus_boundary", "nucleus_boundary"),
+        ]
+        matched_channel_order = [
+            ("cell_matched_mask", "cell_matched_mask"),
+            ("nucleus_matched_mask", "nucleus_matched_mask"),
+            ("cell_outside_nucleus_mask", "cell_outside_nucleus_mask"),
+            ("cell_matched_boundary", "cell_matched_boundary"),
+            ("nucleus_matched_boundary", "nucleus_matched_boundary"),
+        ]
+
+        image_shape = self.codex_image.extended_extracted_channel_image.shape[:2]
+
+        if len(repaired_results) != len(informative_indices):
+            self.logger.warning(
+                "Mismatch between repaired results (%d) and informative patches (%d)",
+                len(repaired_results),
+                len(informative_indices),
+            )
+
+        aggregated_masks: Dict[str, Optional[np.ndarray]] = {}
+
+        for channel_key, result_key in channel_order:
+            aggregated_masks[channel_key] = self._merge_segmentation_masks(
+                metadata_df,
+                informative_indices,
+                original_results,
+                result_key,
+                image_shape,
+            )
+
+        for channel_key, result_key in matched_channel_order:
+            aggregated_masks[channel_key] = self._merge_segmentation_masks(
+                metadata_df,
+                informative_indices,
+                repaired_results,
+                result_key,
+                image_shape,
+            )
+
+        exported = False
+
+        for name in [
+            "cell",
+            "cell_boundary",
+            "cell_matched_mask",
+            "cell_matched_boundary",
+            "cell_outside_nucleus_mask",
+            "nucleus",
+            "nucleus_boundary",
+            "nucleus_matched_mask",
+            "nucleus_matched_boundary",
+        ]:
+            mask = aggregated_masks.get(name)
+            if mask is None:
+                continue
+            mask_path = os.path.join(
+                output_dir, f"{base_name}.{name}.segmentations.ome.tiff"
+            )
+            if self._save_mask_stack(mask, name, mask_path, image_mpp):
+                exported = True
+
+        return exported

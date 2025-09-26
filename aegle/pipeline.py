@@ -1,17 +1,22 @@
 import os
+import json
+import math
+import random
+import gzip
 import numpy as np
 import logging
 import pickle
 import shutil
 import time
 import matplotlib.pyplot as plt
-from typing import Optional
+import cv2
+from typing import Dict, List, Optional, Tuple
 from skimage.segmentation import find_boundaries
 
 from aegle.codex_image import CodexImage
 from aegle.codex_patches import CodexPatches
 
-from aegle.visualization import save_patches_rgb, save_image_rgb
+from aegle.visualization import save_patches_rgb
 
 from aegle.segment import run_cell_segmentation, visualize_cell_segmentation
 from aegle.evaluation import run_seg_evaluation
@@ -36,6 +41,237 @@ def _count_labels(mask: Optional[np.ndarray]) -> int:
         return 0
     unique_labels = np.unique(mask)
     return int(np.sum(unique_labels > 0))
+
+
+def _extract_matching_value(stats: Dict, key: str) -> float:
+    """Safely extract a numeric value from matching statistics."""
+    if not isinstance(stats, dict):
+        return 0.0
+
+    value = stats.get(key)
+    if value is None:
+        return 0.0
+
+    if isinstance(value, (list, tuple)) and value:
+        value = value[0]
+    elif hasattr(value, "shape"):
+        arr = np.asarray(value)
+        if arr.size == 0:
+            return 0.0
+        value = arr.flat[0]
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _compute_patch_metrics(seg_result: Dict, original_result: Optional[Dict]) -> Dict[str, float]:
+    """Compute segmentation metrics useful for visualization selection."""
+    matched_cell_mask = seg_result.get("cell_matched_mask", seg_result.get("cell"))
+    matched_nucleus_mask = seg_result.get("nucleus_matched_mask", seg_result.get("nucleus"))
+
+    metrics = {
+        "cell_count": _count_labels(matched_cell_mask),
+        "nucleus_count": _count_labels(matched_nucleus_mask),
+        "matched_fraction": seg_result.get("matched_fraction"),
+    }
+
+    matching_stats = seg_result.get("matching_stats") or {}
+    whole_stats = matching_stats.get("whole_cell", {})
+    nucleus_stats = matching_stats.get("nucleus", {})
+
+    metrics["unmatched_cells"] = _extract_matching_value(whole_stats, "unmatched")
+    metrics["unmatched_nuclei"] = _extract_matching_value(nucleus_stats, "unmatched")
+    metrics["total_cells_original"] = _count_labels(original_result.get("cell")) if original_result else None
+    metrics["total_nuclei_original"] = _count_labels(original_result.get("nucleus")) if original_result else None
+
+    matched_fraction = metrics.get("matched_fraction")
+    if matched_fraction is not None:
+        try:
+            matched_fraction = float(matched_fraction)
+        except (TypeError, ValueError):
+            matched_fraction = None
+    metrics["matched_fraction"] = matched_fraction
+
+    return metrics
+
+
+def _select_representative_patches(
+    patch_infos: List[Dict],
+    target_count: int,
+    seed: int = 17,
+) -> List[Dict]:
+    """Select a representative subset of patches for visualization."""
+    if target_count <= 0 or len(patch_infos) <= target_count:
+        # Copy to avoid mutating original references
+        result = [info.copy() for info in patch_infos]
+        for info in result:
+            info.setdefault("selection_reason", "all")
+        return result
+
+    info_copies = [info.copy() for info in patch_infos]
+    selected: List[Dict] = []
+    selected_ids = set()
+    rng = random.Random(seed)
+
+    def pick_best(key_func, reverse: bool, reason: str) -> None:
+        candidates = []
+        for info in info_copies:
+            if info["seg_idx"] in selected_ids:
+                continue
+            value = key_func(info)
+            if value is None:
+                continue
+            if isinstance(value, float) and math.isnan(value):
+                continue
+            candidates.append((value, info))
+
+        if not candidates:
+            return
+
+        candidates.sort(key=lambda x: x[0], reverse=reverse)
+        chosen = candidates[0][1]
+        chosen["selection_reason"] = reason
+        selected.append(chosen)
+        selected_ids.add(chosen["seg_idx"])
+
+    def pick_random(reason: str) -> None:
+        remaining = [info for info in info_copies if info["seg_idx"] not in selected_ids]
+        if not remaining:
+            return
+        chosen = rng.choice(remaining)
+        chosen["selection_reason"] = reason
+        selected.append(chosen)
+        selected_ids.add(chosen["seg_idx"])
+
+    # Priority selections
+    pick_best(lambda info: info.get("cell_count", 0), True, "high_density")
+    pick_best(lambda info: info.get("repair_score", 0), True, "repair_hotspot")
+    pick_best(lambda info: info.get("cell_count", 0), False, "low_density")
+    pick_random("representative")
+
+    # Fill remaining slots prioritising high cell counts
+    if len(selected) < target_count:
+        remaining = [info for info in info_copies if info["seg_idx"] not in selected_ids]
+        remaining.sort(key=lambda info: info.get("cell_count", 0), reverse=True)
+        for info in remaining:
+            info.setdefault("selection_reason", "coverage")
+            selected.append(info)
+            selected_ids.add(info["seg_idx"])
+            if len(selected) >= target_count:
+                break
+
+    # Clamp to target count and ensure deterministic order by selection_reason priority then seg_idx
+    priority_order = {
+        "high_density": 0,
+        "repair_hotspot": 1,
+        "low_density": 2,
+        "representative": 3,
+        "coverage": 4,
+        "all": 5,
+    }
+
+    selected = selected[:target_count]
+    selected.sort(
+        key=lambda info: (
+            priority_order.get(info.get("selection_reason", "coverage"), 9),
+            info.get("seg_idx", 0),
+        )
+    )
+
+    return selected
+
+
+def _generate_patch_overview(
+    viz_dir: str,
+    base_image: np.ndarray,
+    image_size: Tuple[int, int],
+    patches: List[Dict],
+    max_side: int = 512,
+) -> Optional[str]:
+    """Create a downsampled overview image with patch extents highlighted."""
+    if base_image is None or base_image.size == 0 or not patches:
+        return None
+
+    height, width = image_size
+    scale = max_side / max(height, width)
+    scaled_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+
+    if base_image.ndim == 2:
+        display_img = np.stack([base_image] * 3, axis=-1)
+    else:
+        display_img = base_image.copy()
+
+    display_img = display_img.astype(np.float32)
+    img_min, img_max = display_img.min(), display_img.max()
+    if img_max > img_min:
+        display_img = (display_img - img_min) / (img_max - img_min)
+    else:
+        display_img = np.zeros_like(display_img)
+
+    resized = cv2.resize(display_img, scaled_size, interpolation=cv2.INTER_AREA)
+    overview_img = (resized * 255).clip(0, 255).astype(np.uint8)
+
+    colors = [
+        (220, 20, 60),  # crimson
+        (65, 105, 225),  # royal blue
+        (60, 179, 113),  # medium sea green
+        (238, 130, 238),  # violet
+        (255, 165, 0),  # orange
+        (72, 61, 139),  # dark slate blue
+        (70, 130, 180),  # steel blue
+        (205, 92, 92),   # indian red
+    ]
+
+    label_entries = []
+    max_x = max(1, scaled_size[0] - 30)
+    max_y = max(1, scaled_size[1] - 10)
+
+    for idx, patch in enumerate(patches):
+        color = colors[idx % len(colors)]
+        x0 = int(patch["x_start"] * scale)
+        y0 = int(patch["y_start"] * scale)
+        x1 = int((patch["x_start"] + patch["width"]) * scale)
+        y1 = int((patch["y_start"] + patch["height"]) * scale)
+        cv2.rectangle(overview_img, (x0, y0), (x1, y1), color, thickness=2)
+        label = f"{idx + 1}"
+        text_x = min(max(5, x0 + 8), max_x)
+        text_y = min(max(18, y0 + 24), max_y)
+        label_entries.append((text_x, text_y, color, label))
+
+    for text_x, text_y, color, label in label_entries:
+        cv2.putText(
+            overview_img,
+            label,
+            (text_x, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 0, 0),
+            thickness=3,
+            lineType=cv2.LINE_AA,
+        )
+        cv2.putText(
+            overview_img,
+            label,
+            (text_x, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            color,
+            thickness=2,
+            lineType=cv2.LINE_AA,
+        )
+
+    output_path = os.path.join(viz_dir, "segmentation_patch_overview.png")
+    cv2.imwrite(output_path, cv2.cvtColor(overview_img, cv2.COLOR_RGB2BGR))
+    return output_path
+
+
+LARGE_SAMPLE_PIXEL_THRESHOLD = 1_000_000
+PATCH_VIS_SIZE = 1024
+PATCH_VIS_MIN = 4
+PATCH_VIS_MAX = 8
+PATCH_SELECTION_SEED = 17
 
 
 def run_pipeline(config, args):
@@ -78,38 +314,11 @@ def run_pipeline(config, args):
     codex_image.extend_image()
     logging.info("Image extension completed successfully.")
 
-    # Optional: Visualize whole sample image
+    # Whole-sample visualization is handled in the preprocess overview module.
     if config.get("visualization", {}).get("visualize_whole_sample", False):
-        logging.info("----- Visualizing whole sample image...")
-        start_time = time.time()
-        
-        # Get visualization settings from config or use defaults
-        downsample_factor = config.get("visualization", {}).get("downsample_factor", None)
-        enhance_contrast = config.get("visualization", {}).get("enhance_contrast", True)
-        
-        # Check if we should auto-downsample
-        image_shape = codex_image.extended_extracted_channel_image.shape
-        total_pixels = image_shape[0] * image_shape[1]
-        
-        # Auto-downsample if explicitly requested (-1) or implicitly needed (large image)
-        if total_pixels > 100000000 and downsample_factor == -1:
-            # Calculate a reasonable downsample factor based on image size
-            # Aim for ~25-50 million pixels in the final image
-            auto_downsample_factor = max(2, int(np.sqrt(total_pixels / 25000000)))
-            logging.info(f"Auto-downsampling image (original size: {image_shape})")
-            logging.info(f"Calculated downsample factor: {auto_downsample_factor}")
-            downsample_factor = auto_downsample_factor
-        
-        save_image_rgb(
-            codex_image.extended_extracted_channel_image,
-            "extended_extracted_channel_image.png",
-            args,
-            downsample_factor=downsample_factor,
-            enhance_contrast=enhance_contrast
+        logging.info(
+            "Skipping whole-sample visualization in main pipeline; overview is generated during preprocess."
         )
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        logging.info(f"Whole sample visualization completed in {elapsed_time:.2f} seconds.")
 
     # Step 2: Initialize CodexPatches object and generate patches
     logging.info("----- Initializing CodexPatches object and generating patches.")
@@ -171,9 +380,10 @@ def run_pipeline(config, args):
     if config["evaluation"]["compute_metrics"]:
         # TODO: if the number of cells are too large we should skip the evaluation
         run_seg_evaluation(codex_patches, config, args)
-        # save the seg_evaluation_metrics to a pickle file
-        with open(os.path.join(args.out_dir, "seg_evaluation_metrics.pkl"), "wb") as f:
-            pickle.dump(codex_patches.seg_evaluation_metrics, f)
+        # save the seg_evaluation_metrics to a gzip-compressed pickle file
+        metrics_path = os.path.join(args.out_dir, "seg_evaluation_metrics.pkl.gz")
+        with gzip.open(metrics_path, "wb") as file_handle:
+            pickle.dump(codex_patches.seg_evaluation_metrics, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Segmentation Visualization
     if config.get("visualization", {}).get("visualize_segmentation", False):
@@ -186,7 +396,8 @@ def run_pipeline(config, args):
         # Get patches metadata
         patches_metadata_df = codex_patches.get_patches_metadata()
         
-        # Visualize each patch
+        split_mode = config.get("patching", {}).get("split_mode", "patches")
+        use_segmentation_patches = split_mode == "patches"
         original_seg_results = getattr(codex_patches, "original_seg_res_batch", None)
 
         timing_totals = {
@@ -200,64 +411,333 @@ def run_pipeline(config, args):
             "highlight_unmatched_cell": 0.0,
         }
 
-        for idx, seg_result in enumerate(codex_patches.repaired_seg_res_batch):
-            orig_seg_result = None
-            if original_seg_results and idx < len(original_seg_results):
-                orig_seg_result = original_seg_results[idx]
-            if seg_result is None:
-                continue
-                
-            # Get the corresponding image patch
-            load_start = time.perf_counter()
-            if codex_patches.is_using_disk_based_patches():
-                # For disk-based patches, load the patch
-                patch_idx = patches_metadata_df[patches_metadata_df["is_informative"] == True].index[idx]
-                image_patch = codex_patches.load_patch_from_disk(patch_idx, "extracted")
-            else:
-                # For memory-based patches
-                image_patch = codex_patches.valid_patches[idx]
-            timing_totals["load_patch"] += time.perf_counter() - load_start
+        informative_mask = patches_metadata_df["is_informative"] == True
+        informative_indices = patches_metadata_df[informative_mask].index.tolist()
 
-            matched_nucleus_mask = seg_result.get("nucleus_matched_mask", seg_result.get("nucleus"))
-            matched_cell_mask = seg_result.get("cell_matched_mask", seg_result.get("cell"))
-            matched_cell_boundary = _get_or_compute_labeled_boundary(
-                seg_result,
-                "cell_matched_mask",
-                "cell_matched_boundary",
+        extended_image = getattr(codex_patches.codex_image, "extended_extracted_channel_image", None)
+        if extended_image is not None:
+            image_height, image_width = extended_image.shape[:2]
+        else:
+            image_height = int(patches_metadata_df.get("height", 0))
+            image_width = int(patches_metadata_df.get("width", 0))
+
+        total_pixels = max(1, int(image_height) * int(image_width))
+        is_large_sample = total_pixels > LARGE_SAMPLE_PIXEL_THRESHOLD
+
+        patch_summary_entries: List[Dict] = []
+        aggregated_masks: Dict[str, np.ndarray] = {}
+        overview_path = None
+        target_patch_count = 0
+        selected_patch_infos: List[Dict] = []
+
+        reason_labels = {
+            "high_density": "High density region",
+            "repair_hotspot": "Repair hotspot",
+            "low_density": "Sparse region",
+            "representative": "Representative area",
+            "coverage": "Additional coverage",
+            "all": "Full-sample patch",
+        }
+
+        def prepare_segmentation_patch_visuals() -> Tuple[List[Dict], int]:
+            patch_infos: List[Dict] = []
+
+            if informative_indices:
+                for idx, seg_result in enumerate(codex_patches.repaired_seg_res_batch):
+                    if seg_result is None:
+                        continue
+                    if idx >= len(informative_indices):
+                        logging.warning(
+                            "Segmentation result index %d has no matching metadata entry; skipping visualization.",
+                            idx,
+                        )
+                        continue
+
+                    patch_meta_idx = informative_indices[idx]
+                    patch_meta = patches_metadata_df.loc[patch_meta_idx]
+                    orig_seg_result = None
+                    if original_seg_results and idx < len(original_seg_results):
+                        orig_seg_result = original_seg_results[idx]
+
+                    metrics = _compute_patch_metrics(seg_result, orig_seg_result)
+
+                    patch_width = patch_meta.get("patch_width", patch_meta.get("width", 0))
+                    patch_height = patch_meta.get("patch_height", patch_meta.get("height", 0))
+
+                    if not patch_width or not patch_height:
+                        fallback_mask = seg_result.get("cell_matched_mask", seg_result.get("cell"))
+                        if fallback_mask is not None:
+                            patch_height, patch_width = fallback_mask.shape[:2]
+
+                    patch_width = int(round(float(patch_width))) if patch_width else 0
+                    patch_height = int(round(float(patch_height))) if patch_height else 0
+                    patch_area = max(patch_width * patch_height, 1)
+
+                    cell_density = metrics["cell_count"] / patch_area
+                    repair_score = metrics["unmatched_cells"] + metrics["unmatched_nuclei"]
+                    if metrics.get("matched_fraction") is not None:
+                        repair_score += max(0.0, 1.0 - metrics["matched_fraction"]) * max(metrics["cell_count"], 1)
+
+                    patch_infos.append(
+                        {
+                            "seg_idx": idx,
+                            "metadata_index": int(patch_meta_idx),
+                            "x_start": int(round(float(patch_meta.get("x_start", 0)))),
+                            "y_start": int(round(float(patch_meta.get("y_start", 0)))),
+                            "width": patch_width,
+                            "height": patch_height,
+                            "cell_count": metrics["cell_count"],
+                            "nucleus_count": metrics["nucleus_count"],
+                            "matched_fraction": metrics["matched_fraction"],
+                            "unmatched_cells": metrics["unmatched_cells"],
+                            "unmatched_nuclei": metrics["unmatched_nuclei"],
+                            "cell_density": cell_density,
+                            "repair_score": repair_score,
+                        }
+                    )
+            else:
+                logging.warning("No informative patches found for segmentation visualization.")
+
+            target = len(patch_infos)
+            selected: List[Dict] = []
+
+            if patch_infos:
+                if is_large_sample:
+                    approx_ratio = total_pixels / float(PATCH_VIS_SIZE * PATCH_VIS_SIZE * 2)
+                    suggested = max(1, math.ceil(approx_ratio))
+                    target = max(PATCH_VIS_MIN, min(PATCH_VIS_MAX, suggested))
+                    target = min(target, len(patch_infos))
+                    selected = _select_representative_patches(
+                        patch_infos,
+                        target,
+                        seed=PATCH_SELECTION_SEED,
+                    )
+                    logging.info(
+                        "Large sample detected (%d pixels). Selected %d patch(es) out of %d for visualization.",
+                        total_pixels,
+                        len(selected),
+                        len(patch_infos),
+                    )
+                else:
+                    selected = [info.copy() for info in patch_infos]
+                    for info in selected:
+                        info.setdefault("selection_reason", "all")
+                    target = len(selected)
+            else:
+                logging.warning("No segmentation results available for visualization.")
+
+            for display_idx, info in enumerate(selected):
+                info["display_index"] = display_idx
+                info.setdefault("display_name", f"Patch {display_idx + 1}")
+                info["selection_reason_label"] = reason_labels.get(
+                    info.get("selection_reason"),
+                    "Representative patch",
+                )
+                info["source_patch_index"] = info.get("seg_idx")
+
+            return selected, target
+
+        if use_segmentation_patches:
+            selected_patch_infos, target_patch_count = prepare_segmentation_patch_visuals()
+
+        else:
+            # Composite visualization from merged masks (halves/quarters/full image)
+            if not informative_indices:
+                logging.warning("No informative patches found for segmentation visualization.")
+
+            def merge_mask(result_key: str) -> Optional[np.ndarray]:
+                if not result_key:
+                    return None
+                return _merge_masks_for_visual(
+                    patches_metadata_df,
+                    informative_indices,
+                    codex_patches.repaired_seg_res_batch,
+                    original_seg_results,
+                    result_key,
+                    (image_height, image_width),
+                )
+
+            aggregated_masks["cell_matched_mask"] = merge_mask("cell_matched_mask")
+            aggregated_masks["nucleus_matched_mask"] = merge_mask("nucleus_matched_mask")
+            aggregated_masks["cell"] = merge_mask("cell")
+            aggregated_masks["nucleus"] = merge_mask("nucleus")
+
+            if aggregated_masks["cell_matched_mask"] is None or aggregated_masks["nucleus_matched_mask"] is None:
+                logging.warning("Unable to merge segmentation masks for composite visualization; falling back to raw patches.")
+                use_segmentation_patches = True
+                selected_patch_infos = []
+            else:
+                composite_infos = _generate_composite_patch_infos(
+                    image_width,
+                    image_height,
+                    aggregated_masks,
+                    PATCH_VIS_SIZE,
+                )
+
+                target_patch_count = len(composite_infos)
+                if target_patch_count == 0:
+                    logging.warning("No composite patches generated for visualization.")
+                if composite_infos:
+                    suggested = max(1, math.ceil(total_pixels / float(PATCH_VIS_SIZE * PATCH_VIS_SIZE * 2)))
+                    target_patch_count = max(PATCH_VIS_MIN, min(PATCH_VIS_MAX, suggested))
+                    target_patch_count = min(target_patch_count, len(composite_infos))
+                    selected_patch_infos = _select_representative_patches(
+                        composite_infos,
+                        target_patch_count,
+                        seed=PATCH_SELECTION_SEED,
+                    )
+                    for display_idx, info in enumerate(selected_patch_infos):
+                        info.setdefault("selection_reason", "representative")
+                        info["display_index"] = display_idx
+                        info.setdefault("display_name", f"ROI {display_idx + 1}")
+                        info["selection_reason_label"] = reason_labels.get(
+                            info.get("selection_reason"),
+                            "Representative area",
+                        )
+                        info["source_patch_index"] = None
+                else:
+                    selected_patch_infos = []
+
+                if extended_image is not None and selected_patch_infos:
+                    try:
+                        overview_channel = (
+                            extended_image[:, :, 0]
+                            if extended_image.ndim >= 3
+                            else extended_image
+                        )
+                        overview_path = _generate_patch_overview(
+                            viz_dir,
+                            overview_channel,
+                            (image_height, image_width),
+                            selected_patch_infos,
+                        )
+                    except Exception as exc:
+                        logging.warning(f"Failed to generate patch overview image: {exc}")
+                        overview_path = None
+
+        if use_segmentation_patches and not selected_patch_infos:
+            selected_patch_infos, target_patch_count = prepare_segmentation_patch_visuals()
+
+        reason_labels = {
+            "high_density": "High density region",
+            "repair_hotspot": "Repair hotspot",
+            "low_density": "Sparse region",
+            "representative": "Representative area",
+            "coverage": "Additional coverage",
+            "all": "Full-sample patch",
+        }
+
+        for info in selected_patch_infos:
+            display_idx = info.get("display_index", 0)
+            info["display_index"] = display_idx
+            info.setdefault("display_name", f"Patch {display_idx + 1}")
+            info.setdefault(
+                "selection_reason_label",
+                reason_labels.get(info.get("selection_reason"), "Representative patch"),
             )
-            matched_nucleus_boundary = _get_or_compute_labeled_boundary(
-                seg_result,
-                "nucleus_matched_mask",
-                "nucleus_matched_boundary",
-            )
-            matched_cell_count = _count_labels(matched_cell_mask)
-            matched_nucleus_count = _count_labels(matched_nucleus_mask)
-            original_nucleus_mask = orig_seg_result.get("nucleus") if orig_seg_result else None
-            original_cell_mask = orig_seg_result.get("cell") if orig_seg_result else None
+
+            display_name = info["display_name"]
+            selection_label = info.get("selection_reason_label")
+            files_record: Dict[str, str] = {}
+
+            # Prepare per-patch data depending on visualization mode
+            seg_idx = info.get("seg_idx")
+            orig_seg_result = None
+            image_patch = None
+            matched_cell_mask = None
+            matched_nucleus_mask = None
+            matched_cell_boundary = None
+            matched_nucleus_boundary = None
+            original_cell_mask = None
+            original_nucleus_mask = None
             original_cell_boundary = None
             original_nucleus_boundary = None
-            if orig_seg_result is not None:
-                original_cell_boundary = _get_or_compute_labeled_boundary(
-                    orig_seg_result,
-                    "cell",
-                    "cell_boundary",
-                )
-                original_nucleus_boundary = _get_or_compute_labeled_boundary(
-                    orig_seg_result,
-                    "nucleus",
-                    "nucleus_boundary",
-                )
+            seg_result_for_errors = None
+
+            if use_segmentation_patches:
+                if seg_idx is None:
+                    continue
+                seg_result = codex_patches.repaired_seg_res_batch[seg_idx]
+                if seg_result is None:
+                    continue
+
+                if original_seg_results and seg_idx < len(original_seg_results):
+                    orig_seg_result = original_seg_results[seg_idx]
+
+                load_start = time.perf_counter()
+                if codex_patches.is_using_disk_based_patches():
+                    image_patch = codex_patches.load_patch_from_disk(info["metadata_index"], "extracted")
+                else:
+                    image_patch = codex_patches.valid_patches[seg_idx]
+                timing_totals["load_patch"] += time.perf_counter() - load_start
+
+                matched_cell_mask = seg_result.get("cell_matched_mask", seg_result.get("cell"))
+                matched_nucleus_mask = seg_result.get("nucleus_matched_mask", seg_result.get("nucleus"))
+                matched_cell_boundary = _get_or_compute_labeled_boundary(seg_result, "cell_matched_mask", "cell_matched_boundary")
+                matched_nucleus_boundary = _get_or_compute_labeled_boundary(seg_result, "nucleus_matched_mask", "nucleus_matched_boundary")
+
+                if orig_seg_result is not None:
+                    original_cell_mask = orig_seg_result.get("cell")
+                    original_nucleus_mask = orig_seg_result.get("nucleus")
+                    original_cell_boundary = _get_or_compute_labeled_boundary(orig_seg_result, "cell", "cell_boundary")
+                    original_nucleus_boundary = _get_or_compute_labeled_boundary(orig_seg_result, "nucleus", "nucleus_boundary")
+
+                seg_result_for_errors = seg_result
+            else:
+                if extended_image is None:
+                    logging.warning("Extended image unavailable for composite visualization; skipping patch %d", display_idx)
+                    continue
+
+                x_start = int(info.get("x_start", 0))
+                y_start = int(info.get("y_start", 0))
+                width = int(info.get("width", PATCH_VIS_SIZE))
+                height = int(info.get("height", PATCH_VIS_SIZE))
+                x_end = min(image_width, x_start + width)
+                y_end = min(image_height, y_start + height)
+
+                image_patch = extended_image[y_start:y_end, x_start:x_end]
+                matched_cell_mask = aggregated_masks.get("cell_matched_mask")[y_start:y_end, x_start:x_end]
+                matched_nucleus_mask = aggregated_masks.get("nucleus_matched_mask")[y_start:y_end, x_start:x_end]
+                matched_cell_boundary = _compute_labeled_boundary(matched_cell_mask)
+                matched_nucleus_boundary = _compute_labeled_boundary(matched_nucleus_mask)
+
+                if aggregated_masks.get("cell") is not None:
+                    original_cell_mask = aggregated_masks["cell"][y_start:y_end, x_start:x_end]
+                    original_cell_boundary = _compute_labeled_boundary(original_cell_mask)
+                if aggregated_masks.get("nucleus") is not None:
+                    original_nucleus_mask = aggregated_masks["nucleus"][y_start:y_end, x_start:x_end]
+                    original_nucleus_boundary = _compute_labeled_boundary(original_nucleus_mask)
+
+                seg_result_for_errors = {
+                    "cell_matched_mask": matched_cell_mask,
+                    "nucleus_matched_mask": matched_nucleus_mask,
+                    "cell": original_cell_mask,
+                    "nucleus": original_nucleus_mask,
+                }
+
+            if matched_cell_mask is None or matched_nucleus_mask is None or image_patch is None:
+                logging.warning("Missing data for visualization patch %d; skipping", display_idx)
+                continue
+
+            matched_cell_count = _count_labels(matched_cell_mask)
+            matched_nucleus_count = _count_labels(matched_nucleus_mask)
             original_cell_count = _count_labels(original_cell_mask)
             original_nucleus_count = _count_labels(original_nucleus_mask)
 
-            # 1. Create segmentation overlay
+            overlay_title = f"Segmentation Overlay — {display_name}"
+            if is_large_sample and selection_label:
+                overlay_title += f" ({selection_label})"
+
+            base_channel = image_patch[:, :, 0] if image_patch.ndim == 3 else image_patch
+
+            # 1. Repaired segmentation overlay
             try:
                 t0 = time.perf_counter()
                 fig = create_segmentation_overlay(
-                    image_patch[:, :, 0],  # Use nuclear channel
+                    base_channel,
                     matched_nucleus_mask,
                     matched_cell_mask,
-                    show_ids=False,  # Too many cells make IDs cluttered
+                    show_ids=False,
                     alpha=0.6,
                     reference_nucleus_mask=original_nucleus_mask,
                     reference_cell_mask=original_cell_mask,
@@ -266,22 +746,27 @@ def run_pipeline(config, args):
                     fill_nucleus_mask=False,
                     cell_boundary_mask=matched_cell_boundary,
                     nucleus_boundary_mask=matched_nucleus_boundary,
-                    custom_title='Segmentation Overlay',
+                    custom_title=overlay_title,
                     cell_count=matched_cell_count,
                     nucleus_count=matched_nucleus_count,
                 )
-                fig.savefig(os.path.join(viz_dir, f"segmentation_overlay_patch_{idx}.png"), 
-                           dpi=150, bbox_inches='tight')
+                filename = f"vis_segmentation_overlay_patch_{display_idx}.png"
+                fig.savefig(os.path.join(viz_dir, filename), dpi=150, bbox_inches="tight")
                 plt.close(fig)
+                files_record["overlay_repaired"] = filename
                 timing_totals["overlay_repaired"] += time.perf_counter() - t0
             except Exception as e:
-                logging.warning(f"Failed to create segmentation overlay for patch {idx}: {e}")
+                logging.warning(
+                    "Failed to create segmentation overlay for display index %d: %s",
+                    display_idx,
+                    e,
+                )
 
-            if orig_seg_result is not None:
+            if original_nucleus_mask is not None or original_cell_mask is not None:
                 try:
                     t0 = time.perf_counter()
                     fig = create_segmentation_overlay(
-                        image_patch[:, :, 0],
+                        base_channel,
                         original_nucleus_mask,
                         original_cell_mask,
                         show_ids=False,
@@ -290,148 +775,131 @@ def run_pipeline(config, args):
                         fill_nucleus_mask=False,
                         cell_boundary_mask=original_cell_boundary,
                         nucleus_boundary_mask=original_nucleus_boundary,
-                        custom_title='Segmentation Overlay (Pre-Repair)',
+                        custom_title=f"Segmentation Overlay (Pre-Repair) — {display_name}",
                         cell_count=original_cell_count,
                         nucleus_count=original_nucleus_count,
                     )
-                    fig.savefig(
-                        os.path.join(viz_dir, f"segmentation_overlay_pre_repair_patch_{idx}.png"),
-                        dpi=150,
-                        bbox_inches='tight',
-                    )
+                    filename = f"vis_segmentation_overlay_pre_repair_patch_{display_idx}.png"
+                    fig.savefig(os.path.join(viz_dir, filename), dpi=150, bbox_inches="tight")
                     plt.close(fig)
+                    files_record["overlay_pre_repair"] = filename
                     timing_totals["overlay_pre_repair"] += time.perf_counter() - t0
                 except Exception as e:
                     logging.warning(
-                        "Failed to create pre-repair segmentation overlay for patch %d: %s",
-                        idx,
+                        "Failed to create pre-repair overlay for display index %d: %s",
+                        display_idx,
                         e,
                     )
 
-            # 2. Visualize potential errors
-            if config.get("visualization", {}).get("show_segmentation_errors", True):
-                try:
-                    t0 = time.perf_counter()
-                    fig = visualize_segmentation_errors(
-                        image_patch[:, :, 0],
-                        seg_result,
-                        error_types=['oversized', 'undersized', 'unmatched']
-                    )
-                    fig.savefig(os.path.join(viz_dir, f"segmentation_errors_patch_{idx}.png"),
-                               dpi=150, bbox_inches='tight')
-                    plt.close(fig)
-                    timing_totals["segmentation_errors"] += time.perf_counter() - t0
-                except Exception as e:
-                    logging.warning(f"Failed to visualize errors for patch {idx}: {e}")
-            
-            # 3. Create nucleus mask visualization
             try:
                 t0 = time.perf_counter()
                 fig = create_nucleus_mask_visualization(
-                    image_patch[:, :, 0],  # Use nuclear channel
+                    base_channel,
                     matched_nucleus_mask,
-                    show_ids=False  # Too many nuclei make IDs cluttered
+                    show_ids=False,
                 )
-                fig.savefig(os.path.join(viz_dir, f"nucleus_mask_patch_{idx}.png"), 
-                           dpi=150, bbox_inches='tight')
+                filename = f"vis_nucleus_mask_patch_{display_idx}.png"
+                fig.savefig(os.path.join(viz_dir, filename), dpi=150, bbox_inches="tight")
                 plt.close(fig)
+                files_record["nucleus_mask"] = filename
                 timing_totals["nucleus_mask"] += time.perf_counter() - t0
             except Exception as e:
-                logging.warning(f"Failed to create nucleus mask visualization for patch {idx}: {e}")
-            
-            # 4. Create whole cell mask visualization
+                logging.warning(
+                    "Failed to create nucleus mask visualization for display index %d: %s",
+                    display_idx,
+                    e,
+                )
+
             try:
                 t0 = time.perf_counter()
                 fig = create_wholecell_mask_visualization(
-                    image_patch[:, :, 0],  # Use nuclear channel as background
+                    base_channel,
                     matched_cell_mask,
-                    show_ids=False  # Too many cells make IDs cluttered
+                    show_ids=False,
                 )
-                fig.savefig(os.path.join(viz_dir, f"wholecell_mask_patch_{idx}.png"), 
-                           dpi=150, bbox_inches='tight')
+                filename = f"vis_wholecell_mask_patch_{display_idx}.png"
+                fig.savefig(os.path.join(viz_dir, filename), dpi=150, bbox_inches="tight")
                 plt.close(fig)
+                files_record["wholecell_mask"] = filename
                 timing_totals["cell_mask"] += time.perf_counter() - t0
             except Exception as e:
-                logging.warning(f"Failed to create whole cell mask visualization for patch {idx}: {e}")
+                logging.warning(
+                    "Failed to create whole-cell mask visualization for display index %d: %s",
+                    display_idx,
+                    e,
+                )
 
-            if orig_seg_result is not None:
-                # 4b. Create pre-repair nucleus mask visualization
+            if original_nucleus_mask is not None:
                 try:
                     fig = create_nucleus_mask_visualization(
-                        image_patch[:, :, 0],
+                        base_channel,
                         original_nucleus_mask,
-                        show_ids=False
+                        show_ids=False,
                     )
-                    fig.savefig(
-                        os.path.join(viz_dir, f"nucleus_mask_pre_repair_patch_{idx}.png"),
-                        dpi=150,
-                        bbox_inches="tight",
-                    )
+                    filename = f"vis_nucleus_mask_pre_repair_patch_{display_idx}.png"
+                    fig.savefig(os.path.join(viz_dir, filename), dpi=150, bbox_inches="tight")
                     plt.close(fig)
+                    files_record["nucleus_mask_pre_repair"] = filename
                 except Exception as e:
                     logging.warning(
-                        "Failed to create pre-repair nucleus mask visualization for patch %d: %s",
-                        idx,
+                        "Failed to create pre-repair nucleus visualization for display index %d: %s",
+                        display_idx,
                         e,
                     )
 
-                # 4c. Create pre-repair whole cell mask visualization
+            if original_cell_mask is not None:
                 try:
                     fig = create_wholecell_mask_visualization(
-                        image_patch[:, :, 0],
+                        base_channel,
                         original_cell_mask,
                         show_ids=False,
                     )
-                    fig.savefig(
-                        os.path.join(viz_dir, f"wholecell_mask_pre_repair_patch_{idx}.png"),
-                        dpi=150,
-                        bbox_inches="tight",
-                    )
+                    filename = f"vis_wholecell_mask_pre_repair_patch_{display_idx}.png"
+                    fig.savefig(os.path.join(viz_dir, filename), dpi=150, bbox_inches="tight")
                     plt.close(fig)
+                    files_record["wholecell_mask_pre_repair"] = filename
                 except Exception as e:
                     logging.warning(
-                        "Failed to create pre-repair whole cell mask visualization for patch %d: %s",
-                        idx,
+                        "Failed to create pre-repair whole-cell visualization for display index %d: %s",
+                        display_idx,
                         e,
                     )
 
-                # 4d. Highlight unmatched nuclei removed during repair
+            if original_nucleus_mask is not None:
                 try:
                     t0 = time.perf_counter()
                     fig = create_segmentation_overlay(
-                        image_patch[:, :, 0],
-                        matched_nucleus_mask,
-                        None,
+                        base_channel,
+                        original_nucleus_mask,
+                        matched_cell_mask,
                         show_ids=False,
                         alpha=0.6,
                         reference_nucleus_mask=original_nucleus_mask,
                         reference_cell_mask=None,
                         show_cell_overlay=False,
                         show_nucleus_overlay=False,
-                        custom_title='Unmatched Nuclei (removed during repair)\n\n',
+                        custom_title=f"Unmatched Nuclei — {display_name}\n\n",
                         show_reference_highlights=True,
                         cell_boundary_mask=matched_cell_boundary,
                         nucleus_boundary_mask=matched_nucleus_boundary,
                     )
-                    fig.savefig(
-                        os.path.join(viz_dir, f"segmentation_overlay_unmatched_nucleus_patch_{idx}.png"),
-                        dpi=150,
-                        bbox_inches='tight',
-                    )
+                    filename = f"vis_segmentation_overlay_unmatched_nucleus_patch_{display_idx}.png"
+                    fig.savefig(os.path.join(viz_dir, filename), dpi=150, bbox_inches="tight")
                     plt.close(fig)
+                    files_record["overlay_unmatched_nucleus"] = filename
                     timing_totals["highlight_unmatched_nucleus"] += time.perf_counter() - t0
                 except Exception as e:
                     logging.warning(
-                        "Failed to create unmatched nucleus overlay for patch %d: %s",
-                        idx,
+                        "Failed to create unmatched nucleus overlay for display index %d: %s",
+                        display_idx,
                         e,
                     )
 
-                # 4e. Highlight unmatched whole cells removed during repair
+            if original_cell_mask is not None:
                 try:
                     t0 = time.perf_counter()
                     fig = create_segmentation_overlay(
-                        image_patch[:, :, 0],
+                        base_channel,
                         None,
                         matched_cell_mask,
                         show_ids=False,
@@ -440,25 +908,83 @@ def run_pipeline(config, args):
                         reference_cell_mask=original_cell_mask,
                         show_cell_overlay=False,
                         show_nucleus_overlay=False,
-                        custom_title='Unmatched Cells (removed during repair)\n\n',
+                        custom_title=f"Unmatched Cells — {display_name}\n\n",
                         show_reference_highlights=True,
                         cell_boundary_mask=matched_cell_boundary,
                         nucleus_boundary_mask=matched_nucleus_boundary,
                     )
-                    fig.savefig(
-                        os.path.join(viz_dir, f"segmentation_overlay_unmatched_cell_patch_{idx}.png"),
-                        dpi=150,
-                        bbox_inches='tight',
-                    )
+                    filename = f"vis_segmentation_overlay_unmatched_cell_patch_{display_idx}.png"
+                    fig.savefig(os.path.join(viz_dir, filename), dpi=150, bbox_inches="tight")
                     plt.close(fig)
+                    files_record["overlay_unmatched_cell"] = filename
                     timing_totals["highlight_unmatched_cell"] += time.perf_counter() - t0
                 except Exception as e:
                     logging.warning(
-                        "Failed to create unmatched cell overlay for patch %d: %s",
-                        idx,
+                        "Failed to create unmatched cell overlay for display index %d: %s",
+                        display_idx,
                         e,
                     )
-        
+
+            patch_summary_entries.append(
+                {
+                    "display_index": display_idx,
+                    "display_name": display_name,
+                    "selection_reason": info.get("selection_reason"),
+                    "selection_reason_label": selection_label,
+                    "segmentation_index": int(info.get("source_patch_index", -1)) if info.get("source_patch_index") is not None else None,
+                    "source_patch_index": info.get("source_patch_index"),
+                    "metadata_index": int(info.get("metadata_index", -1)) if info.get("metadata_index") is not None else None,
+                    "x_start": int(info.get("x_start", 0)),
+                    "y_start": int(info.get("y_start", 0)),
+                    "width": int(info.get("width", image_width)),
+                    "height": int(info.get("height", image_height)),
+                    "cell_count": int(info.get("cell_count", 0)),
+                    "nucleus_count": int(info.get("nucleus_count", 0)),
+                    "matched_fraction": float(info.get("matched_fraction")) if info.get("matched_fraction") is not None else None,
+                    "unmatched_cells": float(info.get("unmatched_cells", 0.0)),
+                    "unmatched_nuclei": float(info.get("unmatched_nuclei", 0.0)),
+                    "cell_density": float(info.get("cell_density", 0.0)),
+                    "files": files_record,
+                }
+            )
+
+        overview_path = None
+        if is_large_sample and extended_image is not None and selected_patch_infos:
+            try:
+                overview_channel = (
+                    extended_image[:, :, 0]
+                    if extended_image.ndim >= 3
+                    else extended_image
+                )
+                overview_path = _generate_patch_overview(
+                    viz_dir,
+                    overview_channel,
+                    (image_height, image_width),
+                    selected_patch_infos,
+                )
+            except Exception as exc:
+                logging.warning(f"Failed to generate patch overview image: {exc}")
+                overview_path = None
+
+        summary_payload = {
+            "is_large_sample": bool(is_large_sample),
+            "large_sample_threshold": LARGE_SAMPLE_PIXEL_THRESHOLD,
+            "image_width": int(image_width),
+            "image_height": int(image_height),
+            "total_pixels": int(total_pixels),
+            "patch_visualization_size": PATCH_VIS_SIZE,
+            "target_patch_count": int(target_patch_count),
+            "selected_patch_count": len(selected_patch_infos),
+            "overview_image": os.path.basename(overview_path) if overview_path else None,
+            "patches": patch_summary_entries,
+        }
+
+        summary_path = os.path.join(viz_dir, "segmentation_patch_summary.json")
+        try:
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(summary_payload, f, indent=2)
+        except Exception as exc:
+            logging.warning(f"Failed to write segmentation patch summary: {exc}")
         # 5. Create quality heatmaps across all patches
         if len(codex_patches.repaired_seg_res_batch) > 1:
             try:
@@ -658,8 +1184,160 @@ def _get_or_compute_labeled_boundary(container: dict, mask_key: str, boundary_ke
     if mask is None:
         return None
 
-    bool_boundary = find_boundaries(mask, mode="outer")
+    bool_boundary = find_boundaries(mask, mode="inner")
     boundary = np.zeros_like(mask, dtype=np.uint32)
     boundary[bool_boundary] = mask[bool_boundary]
     container[boundary_key] = boundary
     return boundary
+
+
+def _compute_labeled_boundary(mask: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    if mask is None:
+        return None
+    bool_boundary = find_boundaries(mask, mode="inner")
+    boundary = np.zeros_like(mask, dtype=np.uint32)
+    boundary[bool_boundary] = mask[bool_boundary]
+    return boundary
+
+
+def _merge_masks_for_visual(
+    metadata_df,
+    informative_indices,
+    repaired_results,
+    original_results,
+    result_key: str,
+    image_shape: Tuple[int, int],
+) -> Optional[np.ndarray]:
+    if not informative_indices:
+        return None
+
+    use_original = result_key in {"cell", "nucleus", "cell_boundary", "nucleus_boundary"}
+    source_results = original_results if use_original and original_results else repaired_results
+    if not source_results:
+        return None
+
+    aggregated = np.zeros(image_shape, dtype=np.uint32)
+    current_label = 1
+
+    for idx_pos, patch_idx in enumerate(informative_indices):
+        if idx_pos >= len(source_results):
+            break
+        seg_result = source_results[idx_pos]
+        if seg_result is None:
+            continue
+        mask = seg_result.get(result_key)
+        if mask is None:
+            continue
+
+        mask = np.asarray(mask, dtype=np.uint32)
+        if mask.size == 0:
+            continue
+
+        row = metadata_df.loc[patch_idx]
+        y_start = int(round(float(row.get("y_start", 0))))
+        x_start = int(round(float(row.get("x_start", 0))))
+        height = mask.shape[0]
+        width = mask.shape[1]
+        y_end = min(image_shape[0], y_start + height)
+        x_end = min(image_shape[1], x_start + width)
+        if y_end <= y_start or x_end <= x_start:
+            continue
+
+        patch_mask = mask[: y_end - y_start, : x_end - x_start]
+        target_slice = aggregated[y_start:y_end, x_start:x_end]
+        non_zero = patch_mask > 0
+        if not np.any(non_zero):
+            continue
+
+        offset_mask = patch_mask.copy()
+        if current_label != 1:
+            offset_mask[non_zero] += current_label - 1
+
+        target_slice[non_zero] = offset_mask[non_zero]
+        aggregated[y_start:y_end, x_start:x_end] = target_slice
+
+        max_label = int(patch_mask.max())
+        if max_label > 0:
+            current_label += max_label
+
+    return aggregated
+
+
+def _generate_composite_patch_infos(
+    image_width: int,
+    image_height: int,
+    aggregated_masks: Dict[str, np.ndarray],
+    patch_size: int,
+) -> List[Dict]:
+    if image_width <= 0 or image_height <= 0:
+        return []
+
+    width = int(image_width)
+    height = int(image_height)
+    size = min(patch_size, max(width, height))
+    stride = max(size // 2, 1)
+
+    x_positions = list(range(0, max(width - size, 0) + 1, stride))
+    y_positions = list(range(0, max(height - size, 0) + 1, stride))
+
+    final_x = max(width - size, 0)
+    if x_positions and x_positions[-1] != final_x:
+        x_positions.append(final_x)
+
+    final_y = max(height - size, 0)
+    if y_positions and y_positions[-1] != final_y:
+        y_positions.append(final_y)
+
+    infos: List[Dict] = []
+    idx = 0
+    for y_start in y_positions:
+        for x_start in x_positions:
+            x_end = min(width, x_start + size)
+            y_end = min(height, y_start + size)
+            if x_end <= x_start or y_end <= y_start:
+                continue
+
+            roi_area = (x_end - x_start) * (y_end - y_start)
+            if roi_area == 0:
+                continue
+
+            cell_matched = aggregated_masks.get("cell_matched_mask")
+            nucleus_matched = aggregated_masks.get("nucleus_matched_mask")
+            if cell_matched is None or nucleus_matched is None:
+                continue
+
+            roi_cell_matched = cell_matched[y_start:y_end, x_start:x_end]
+            roi_nucleus_matched = nucleus_matched[y_start:y_end, x_start:x_end]
+            cell_count = _count_labels(roi_cell_matched)
+            nucleus_count = _count_labels(roi_nucleus_matched)
+
+            roi_cell_orig = aggregated_masks.get("cell")
+            roi_nucleus_orig = aggregated_masks.get("nucleus")
+            orig_cell_count = _count_labels(roi_cell_orig[y_start:y_end, x_start:x_end]) if roi_cell_orig is not None else cell_count
+            orig_nucleus_count = _count_labels(roi_nucleus_orig[y_start:y_end, x_start:x_end]) if roi_nucleus_orig is not None else nucleus_count
+
+            unmatched_cells = max(0, orig_cell_count - cell_count)
+            unmatched_nuclei = max(0, orig_nucleus_count - nucleus_count)
+            matched_fraction = cell_count / orig_cell_count if orig_cell_count > 0 else None
+            cell_density = cell_count / roi_area
+
+            infos.append(
+                {
+                    "seg_idx": idx,
+                    "metadata_index": None,
+                    "x_start": x_start,
+                    "y_start": y_start,
+                    "width": x_end - x_start,
+                    "height": y_end - y_start,
+                    "cell_count": cell_count,
+                    "nucleus_count": nucleus_count,
+                    "matched_fraction": matched_fraction,
+                    "unmatched_cells": unmatched_cells,
+                    "unmatched_nuclei": unmatched_nuclei,
+                    "cell_density": cell_density,
+                    "selection_reason": "representative",
+                }
+            )
+            idx += 1
+
+    return infos

@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import pickle
+import gzip
 import logging
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional, Any

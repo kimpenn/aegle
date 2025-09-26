@@ -145,7 +145,7 @@ Each CSV file contains:
 - `patching::patch_height`: Height of each patch (in pixels) for split_mode `patches`.
 - `patching::patch_width`: Width of each patch (in pixels) for split_mode `patches`.
 - `patching::overlap`: Overlap fraction between adjacent patches (0.1 means 10% overlap) for split_mode `patches`.
-- `visualization::visualize_whole_sample`: Whether to save an RGB visualization of the entire sample based on the nuclear channel and the whole-cell channel. By default, it is False in the template to save time of processing.
+- `visualization::visualize_whole_sample`: (Deprecated in main pipeline) Whole-sample overviews are produced in the preprocess module.
 - `visualization::downsample_factor`: How to downsample the visualization image. -1 means not valid. Other than -1, it should be a positive integer.
 - `visualization::enhance_contrast`: Whether to apply contrast enhancement to the visualization by adaptive histogram equalization.
 - `visualization::visualize_patches`: Whether to save RGB visualizations of all patches

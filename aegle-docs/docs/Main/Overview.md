@@ -21,13 +21,13 @@ output_directory/
 ├── cell_profiling/              # Single-cell data
 │   ├── patch-0-cell_by_marker.csv
 │   └── patch-0-cell_metadata.csv
-├── extracted_channel_patches.npy   # Processed image patches
+├── extracted_channel_patches.npy.gz   # Processed image patches
 ├── original_seg_res_batch.pickle   # Raw segmentation results
 ├── matched_seg_res_batch.pickle    # Processed segmentation results
 ├── patches_metadata.csv            # Patch-level metadata
 ├── channel_stats.csv              # Channel statistics
 └── copied_config.yaml             # Configuration record
-└── seg_evaluation_metrics.pkl     # Segmentation evaluation results
+└── seg_evaluation_metrics.pkl.gz     # Segmentation evaluation results
 ```
 ## Data Loading and Preprocessing
 Before segmentation, the pipeline loads the image and the antibodies data and prepare objects for further processing.
@@ -148,7 +148,7 @@ evaluation:
 
 **Outputs**
 
-The evaluation results are stored in `codex_patches.seg_evaluation_metrics` as a list of dictionaries, where each dictionary contains and saved in the `seg_evaluation_metrics.pkl` file.
+The evaluation results are stored in `codex_patches.seg_evaluation_metrics` as a list of dictionaries, where each dictionary contains and saved in the `seg_evaluation_metrics.pkl.gz` file.
 
 ## Post-Segmentation Analysis
 There are three modules to perform post-segmentation analysis: cell profiling, QC metrics, and visualizations.

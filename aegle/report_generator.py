@@ -6,14 +6,19 @@ Creates comprehensive HTML reports with analysis summaries and visualizations.
 import os
 import json
 import datetime
+import gzip
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+from matplotlib.patches import Rectangle
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import logging
 from jinja2 import Template
+import pickle
 import base64
 from io import BytesIO
 from collections import OrderedDict
@@ -49,6 +54,7 @@ class PipelineReportGenerator:
         self.codex_patches = codex_patches
         self.report_data = {}
         self.figures = {}
+        self.patch_quality_df = None
         
     def generate_report(self, report_path: Optional[str] = None) -> str:
         """
@@ -64,6 +70,10 @@ class PipelineReportGenerator:
             report_path = self.output_dir / "pipeline_report.html"
             
         logger.info("Generating pipeline report...")
+
+        split_mode = self.config.get('patching', {}).get('split_mode', 'patches')
+        self.report_data['split_mode'] = split_mode
+
         
         # Collect all data
         self._collect_metadata()
@@ -76,10 +86,16 @@ class PipelineReportGenerator:
         self._collect_mask_repair_stats()
         self._collect_expression_stats()
         self._collect_performance_metrics()
-        self._generate_summary_figures()
-        
-        # Generate HTML report
-        html_content = self._render_html_report()
+
+        if split_mode == "patches":
+            self._collect_patch_mode_quality_data()
+            self._generate_patch_mode_figures()
+            html_content = self._render_patch_mode_html_report()
+        else:
+            self._generate_summary_figures()
+            html_content = self._render_html_report()
+
+        # HTML content rendered above based on split mode
         
         # Save report
         with open(report_path, 'w', encoding='utf-8') as f:
@@ -323,249 +339,264 @@ class PipelineReportGenerator:
         return None
     
     def _collect_segmentation_visualization(self):
-        """Collect segmentation visualization images."""
+        """Collect segmentation visualization images and metadata for the report."""
         visualization_dir = self.output_dir / "visualization" / "segmentation"
 
-        segmentation_images = []
-
-        categories = OrderedDict([
-            ('overview', {'title': 'Segmentation Overview', 'layout': 'wide'}),
-            ('nucleus', {'title': 'Nucleus Mask Details', 'layout': 'paired'}),
-            ('wholecell', {'title': 'Whole-cell Mask Details', 'layout': 'paired'}),
-            ('other', {'title': 'Additional Visualizations', 'layout': 'paired'}),
-        ])
-
+        overlay_cards: List[Dict] = []
+        nucleus_cards: List[Dict] = []
+        wholecell_cards: List[Dict] = []
+        overview_image = None
         morphology_image = None
+        patch_summaries: List[Dict] = []
+        large_sample_note = None
+        is_large_sample = False
+        total_images = 0
 
-        if visualization_dir.exists():
-            # Define expected visualization files with descriptions
-            expected_files = {
-                'segmentation_overlay_patch_0.png': {
-                    'title': 'Segmentation Overlay',
-                    'description': 'Overlay of cell and nucleus masks',
-                    'category': 'overview',
-                    'tab_group': 'overlay_patch_0',
-                    'tab_title': 'Repaired',
-                    'card_title': 'Segmentation Overlay',
-                    'tab_order': 0
-                },
-                'segmentation_overlay_pre_repair_patch_0.png': {
-                    'title': 'Pre-Repair Segmentation Overlay',
-                    'description': 'Original segmentation before mask repair',
-                    'category': 'overview',
-                    'tab_group': 'overlay_patch_0',
-                    'tab_title': 'Pre-Repair',
-                    'card_title': 'Segmentation Overlay',
-                    'tab_order': 1
-                },
-                'segmentation_overlay_unmatched_nucleus_patch_0.png': {
-                    'title': 'Unmatched Nuclei Overlay',
-                    'description': 'Highlights nuclei removed during repair (yellow overlay)',
-                    'category': 'overview',
-                    'tab_group': 'overlay_patch_0',
-                    'tab_title': 'Unmatched Nuclei',
-                    'card_title': 'Segmentation Overlay',
-                    'tab_order': 2
-                },
-                'segmentation_overlay_unmatched_cell_patch_0.png': {
-                    'title': 'Unmatched Cell Overlay',
-                    'description': 'Highlights cells removed during repair (cyan overlay)',
-                    'category': 'overview',
-                    'tab_group': 'overlay_patch_0',
-                    'tab_title': 'Unmatched Cells',
-                    'card_title': 'Segmentation Overlay',
-                    'tab_order': 3
-                },
-                'nucleus_mask_patch_0.png': {
-                    'title': 'Nucleus Mask Visualization',
-                    'description': 'Nucleus mask boundaries with color mapped to nucleus area',
-                    'category': 'nucleus',
-                    'tab_group': 'nucleus_patch_0',
-                    'tab_title': 'Repaired',
-                    'card_title': 'Nucleus Mask Visualization',
-                    'tab_order': 0
-                },
-                'nucleus_mask_pre_repair_patch_0.png': {
-                    'title': 'Pre-Repair Nucleus Mask',
-                    'description': 'Original nucleus segmentation before mask repair',
-                    'category': 'nucleus',
-                    'tab_group': 'nucleus_patch_0',
-                    'tab_title': 'Pre-Repair',
-                    'card_title': 'Nucleus Mask Visualization',
-                    'tab_order': 1
-                },
-                'wholecell_mask_patch_0.png': {
-                    'title': 'Whole-cell Mask Visualization',
-                        'description': 'Whole-cell mask boundaries with color mapped to cell area',
-                    'category': 'wholecell',
-                    'tab_group': 'wholecell_patch_0',
-                    'tab_title': 'Repaired',
-                    'card_title': 'Whole-cell Mask Visualization',
-                    'tab_order': 0
-                },
-                'wholecell_mask_pre_repair_patch_0.png': {
-                    'title': 'Pre-Repair Whole-cell Mask',
-                    'description': 'Original whole-cell segmentation before mask repair',
-                    'category': 'wholecell',
-                    'tab_group': 'wholecell_patch_0',
-                    'tab_title': 'Pre-Repair',
-                    'card_title': 'Whole-cell Mask Visualization',
-                    'tab_order': 1
-                },
-                'cell_morphology_stats.png': {
-                    'title': 'Cell Morphology Statistics',
-                    'description': 'Distribution of cell morphology metrics',
-                    'category': 'statistics'
-                }
+        if not visualization_dir.exists():
+            logger.info(f"Segmentation visualization directory not found: {visualization_dir}")
+            self.report_data['segmentation_visualization'] = {
+                'overlay_cards': overlay_cards,
+                'nucleus_cards': nucleus_cards,
+                'wholecell_cards': wholecell_cards,
+                'overview_image': overview_image,
+                'is_large_sample': is_large_sample,
+                'large_sample_note': large_sample_note,
+                'selected_patch_count': 0,
+                'total_images': total_images,
+            }
+            self.report_data['segmentation_results_details'] = {'morphology_image': morphology_image}
+            return
+
+        summary_path = visualization_dir / "segmentation_patch_summary.json"
+        summary_data: Dict = {}
+        if summary_path.exists():
+            try:
+                with open(summary_path, 'r', encoding='utf-8') as f:
+                    summary_data = json.load(f)
+            except Exception as exc:
+                logger.warning(f"Failed to load segmentation patch summary: {exc}")
+                summary_data = {}
+        else:
+            logger.warning(f"Segmentation patch summary not found at {summary_path}")
+
+        patches = summary_data.get('patches', []) if isinstance(summary_data.get('patches'), list) else []
+        is_large_sample = bool(summary_data.get('is_large_sample'))
+        selected_patch_count = summary_data.get('selected_patch_count', len(patches))
+        target_patch_count = summary_data.get('target_patch_count', selected_patch_count)
+        total_pixels = summary_data.get('total_pixels')
+
+        if is_large_sample and total_pixels:
+            large_sample_note = (
+                f"Sample contains approximately {int(total_pixels):,} pixels. "
+                f"Displaying {selected_patch_count} representative patch"
+                f"{'es' if selected_patch_count != 1 else ''} (target {target_patch_count})."
+            )
+
+        def _load_image_data(path: Path) -> Optional[str]:
+            try:
+                with open(path, 'rb') as img_file:
+                    encoded = base64.b64encode(img_file.read()).decode()
+                suffix = path.suffix.lower()
+                mime = 'image/png' if suffix == '.png' else 'image/jpeg'
+                return f"data:{mime};base64,{encoded}"
+            except FileNotFoundError:
+                logger.debug(f"Visualization image missing: {path}")
+            except Exception as exc:
+                logger.warning(f"Failed to encode visualization image {path}: {exc}")
+            return None
+
+        def _build_image_dict(path: Path, title: str, description: str) -> Optional[Dict]:
+            data = _load_image_data(path)
+            if not data:
+                return None
+            return {
+                'filename': path.name,
+                'title': title,
+                'description': description,
+                'data': data,
             }
 
-            for filename, info in expected_files.items():
-                file_path = visualization_dir / filename
-                if file_path.exists():
-                    try:
-                        # Convert to base64 for embedding in HTML
-                        with open(file_path, 'rb') as f:
-                            img_data = base64.b64encode(f.read()).decode()
-                            if filename == 'cell_morphology_stats.png':
-                                morphology_image = {
-                                    'filename': filename,
-                                    'title': info['title'],
-                                    'description': info['description'],
-                                    'data': f"data:image/png;base64,{img_data}"
-                                }
-                            else:
-                                segmentation_images.append({
-                                    'filename': filename,
-                                    'title': info['title'],
-                                    'description': info['description'],
-                                    'data': f"data:image/png;base64,{img_data}",
-                                    'category': info.get('category', 'other'),
-                                    'tab_group': info.get('tab_group'),
-                                    'tab_title': info.get('tab_title'),
-                                    'card_title': info.get('card_title', info['title']),
-                                    'tab_order': info.get('tab_order', 0)
-                                })
-                            logger.info(f"Found segmentation visualization: {filename}")
-                    except Exception as e:
-                        logger.warning(f"Failed to load visualization image {file_path}: {e}")
-                else:
-                    logger.debug(f"Visualization file not found: {filename}")
-        else:
-            logger.info(f"Segmentation visualization directory not found: {visualization_dir}")
+        def _format_metrics(entry: Dict) -> str:
+            parts: List[str] = []
+            source_idx = entry.get('source_patch_index')
+            if source_idx is not None and source_idx != -1:
+                try:
+                    parts.append(f"Source segmentation patch #{int(source_idx)}")
+                except (TypeError, ValueError):
+                    pass
+            cell_count = entry.get('cell_count')
+            if cell_count is not None:
+                parts.append(f"Cells: {int(cell_count)}")
+            matched_fraction = entry.get('matched_fraction')
+            if matched_fraction is not None:
+                try:
+                    parts.append(f"Match rate: {float(matched_fraction) * 100:.1f}%")
+                except (TypeError, ValueError):
+                    pass
+            unmatched_cells = entry.get('unmatched_cells')
+            unmatched_nuclei = entry.get('unmatched_nuclei')
+            if (unmatched_cells or unmatched_nuclei) and (
+                (unmatched_cells or 0) > 0 or (unmatched_nuclei or 0) > 0
+            ):
+                parts.append(
+                    f"Unmatched cells/nuclei: {int(unmatched_cells or 0)}/{int(unmatched_nuclei or 0)}"
+                )
+            return " | ".join(parts)
 
-        grouped_images = []
-        for key, meta in categories.items():
-            group_items = [img for img in segmentation_images if img.get('category', 'other') == key]
+        overview_filename = summary_data.get('overview_image')
+        if overview_filename:
+            overview_path = visualization_dir / overview_filename
+            overview_image = _build_image_dict(
+                overview_path,
+                'Patch Selection Overview',
+                'Highlighted rectangles indicate sampled patches used for visualization.',
+            )
+            if overview_image:
+                total_images += 1
 
-            tab_groups = OrderedDict()
-            regular_images = []
+        overlay_tab_defs = [
+            ('overlay_repaired', 'Repaired', None),
+            ('overlay_pre_repair', 'Pre-Repair', 'Original segmentation prior to repair.'),
+            ('overlay_unmatched_nucleus', 'Unmatched Nuclei', 'Highlights nuclei removed during repair.'),
+            ('overlay_unmatched_cell', 'Unmatched Cells', 'Highlights cells removed during repair.'),
+        ]
+        nucleus_tab_defs = [
+            ('nucleus_mask', 'Repaired', 'Repaired nucleus mask.'),
+            ('nucleus_mask_pre_repair', 'Pre-Repair', 'Original nucleus mask.'),
+        ]
+        wholecell_tab_defs = [
+            ('wholecell_mask', 'Repaired', 'Repaired whole-cell mask.'),
+            ('wholecell_mask_pre_repair', 'Pre-Repair', 'Original whole-cell mask.'),
+        ]
+        for patch in patches:
+            files = patch.get('files') or {}
+            display_idx = patch.get('display_index', 0)
+            display_name = patch.get('display_name', f"Patch {display_idx + 1}")
+            reason_label = patch.get('selection_reason_label')
+            metrics_summary = _format_metrics(patch)
 
-            for img in group_items:
-                tab_group = img.get('tab_group')
-                if tab_group:
-                    tab_entry = tab_groups.setdefault(
-                        tab_group,
-                        {
-                            'card_title': img.get('card_title', img['title']),
-                            'tabs': []
-                        }
-                    )
-                    tab_entry['tabs'].append(
-                        {
-                            'title': img.get('tab_title', img['title']),
-                            'image': img,
-                            'order': img.get('tab_order', 0)
-                        }
-                    )
-                else:
-                    regular_images.append(img)
+            card_title_suffix = f" — {reason_label}" if reason_label else ''
+            card_title = f"{display_name}{card_title_suffix}"
 
-            tab_cards = []
-            for tab_id, tab_info in tab_groups.items():
-                sorted_tabs = sorted(tab_info['tabs'], key=lambda t: t['order'])
-                card_title = tab_info.get('card_title') or sorted_tabs[0]['image'].get('title')
-                tab_cards.append(
+            overlay_tabs = []
+            for key, tab_title, extra_desc in overlay_tab_defs:
+                filename = files.get(key)
+                if not filename:
+                    continue
+                image = _build_image_dict(
+                    visualization_dir / filename,
+                    tab_title,
+                    extra_desc or metrics_summary or tab_title,
+                )
+                if not image:
+                    continue
+                if metrics_summary and extra_desc is None:
+                    image['description'] = metrics_summary
+                overlay_tabs.append(
                     {
-                        'card_id': tab_id,
-                        'card_title': card_title,
-                        'tabs': [
-                            {
-                                'title': tab['title'],
-                                'image': tab['image']
-                            }
-                            for tab in sorted_tabs
-                        ]
+                        'title': tab_title,
+                        'image': image,
+                    }
+                )
+                total_images += 1
+
+            if overlay_tabs:
+                overlay_cards.append(
+                    {
+                        'card_id': f"patch_{display_idx}_overlay",
+                        'card_title': f"{card_title} — Segmentation Overlay",
+                        'tabs': overlay_tabs,
                     }
                 )
 
-            if regular_images or tab_cards:
-                grouped_images.append({
-                    'key': key,
-                    'title': meta['title'],
-                    'layout': meta['layout'],
-                    'images': regular_images,
-                    'tab_cards': tab_cards
-                })
+            nucleus_tabs = []
+            for key, tab_title, desc in nucleus_tab_defs:
+                filename = files.get(key)
+                if not filename:
+                    continue
+                image = _build_image_dict(
+                    visualization_dir / filename,
+                    tab_title,
+                    desc,
+                )
+                if not image:
+                    continue
+                nucleus_tabs.append({'title': tab_title, 'image': image})
+                total_images += 1
 
-        global_tab_groups = OrderedDict()
-        global_regular_images = []
-
-        for img in segmentation_images:
-            tab_group = img.get('tab_group')
-            if tab_group:
-                tab_entry = global_tab_groups.setdefault(
-                    tab_group,
+            if nucleus_tabs:
+                nucleus_cards.append(
                     {
-                        'card_title': img.get('card_title', img['title']),
-                        'tabs': []
+                        'card_id': f"patch_{display_idx}_nucleus",
+                        'card_title': f"{card_title} — Nucleus Mask",
+                        'tabs': nucleus_tabs,
                     }
                 )
-                tab_entry['tabs'].append(
+
+            wholecell_tabs = []
+            for key, tab_title, desc in wholecell_tab_defs:
+                filename = files.get(key)
+                if not filename:
+                    continue
+                image = _build_image_dict(
+                    visualization_dir / filename,
+                    tab_title,
+                    desc,
+                )
+                if not image:
+                    continue
+                wholecell_tabs.append({'title': tab_title, 'image': image})
+                total_images += 1
+
+            if wholecell_tabs:
+                wholecell_cards.append(
                     {
-                        'title': img.get('tab_title', img['title']),
-                        'image': img,
-                        'order': img.get('tab_order', 0)
+                        'card_id': f"patch_{display_idx}_wholecell",
+                        'card_title': f"{card_title} — Whole-cell Mask",
+                        'tabs': wholecell_tabs,
                     }
                 )
-            else:
-                global_regular_images.append(img)
 
-        global_tab_cards = []
-        for tab_id, tab_info in global_tab_groups.items():
-            sorted_tabs = sorted(tab_info['tabs'], key=lambda t: t['order'])
-            card_title = tab_info.get('card_title') or sorted_tabs[0]['image'].get('title')
-            global_tab_cards.append(
-                {
-                    'card_id': tab_id,
-                    'card_title': card_title,
-                    'tabs': [
-                        {
-                            'title': tab['title'],
-                            'image': tab['image']
-                        }
-                        for tab in sorted_tabs
-                    ]
-                }
+            if metrics_summary:
+                patch_summaries.append(
+                    {
+                        'display_name': display_name,
+                        'selection_reason_label': reason_label,
+                        'metrics': metrics_summary,
+                        'source_patch_index': patch.get('source_patch_index'),
+                    }
+                )
+
+        morphology_path = visualization_dir / 'cell_morphology_stats.png'
+        if morphology_path.exists():
+            morphology_image = _build_image_dict(
+                morphology_path,
+                'Cell Morphology Statistics',
+                'Distribution of key morphology metrics across matched cells.',
             )
 
         self.report_data['segmentation_visualization'] = {
-            'images': segmentation_images,
-            'groups': grouped_images,
-            'total_images': len(segmentation_images),
-            'visualization_dir': str(visualization_dir),
-            'tab_cards': global_tab_cards,
-            'regular_images': global_regular_images
+            'overlay_cards': overlay_cards,
+            'nucleus_cards': nucleus_cards,
+            'wholecell_cards': wholecell_cards,
+            'overview_image': overview_image,
+            'is_large_sample': is_large_sample,
+            'large_sample_note': large_sample_note,
+            'selected_patch_count': selected_patch_count,
+            'target_patch_count': target_patch_count,
+            'patch_summaries': patch_summaries,
+            'total_images': total_images,
         }
 
-        if segmentation_images:
-            logger.info(f"Collected {len(segmentation_images)} segmentation visualization images")
+        if total_images:
+            logger.info(f"Collected {total_images} segmentation visualization image(s)")
         else:
             logger.info("No segmentation visualization images found")
-        
+
         self.report_data['segmentation_results_details'] = {
             'morphology_image': morphology_image
         }
-            
+
     def _collect_segmentation_channel_info(self):
         """Collect segmentation channel usage information from CodexImage target_channels_dict."""
         segmentation_channel_info = {
@@ -698,6 +729,25 @@ class PipelineReportGenerator:
                 'informative_patches': 0,
             }
             
+    def _load_segmentation_metrics(self):
+        """Load segmentation evaluation metrics from available pickle artefacts."""
+        candidate_names = (
+            "seg_evaluation_metrics.pkl.gz",
+            "seg_evaluation_metrics.pkl",
+        )
+        for name in candidate_names:
+            path = self.output_dir / name
+            if not path.exists():
+                continue
+            opener = gzip.open if path.suffix == '.gz' else open
+            try:
+                with opener(path, 'rb') as handle:
+                    metrics = pickle.load(handle)
+                return metrics, path
+            except Exception as exc:
+                logger.warning(f"Failed to load {name}: {exc}")
+        return None, None
+
     def _collect_segmentation_stats(self):
         """Collect segmentation statistics."""
         # Try to load from saved files
@@ -734,15 +784,12 @@ class PipelineReportGenerator:
                 self._convert_cell_area_units(stats)
             
         # Load evaluation metrics if available
-        eval_metrics_path = self.output_dir / "seg_evaluation_metrics.pkl"
-        if eval_metrics_path.exists():
-            import pickle
-            with open(eval_metrics_path, 'rb') as f:
-                eval_metrics = pickle.load(f)
-                # Extract quality scores
-                quality_scores = [m.get('QualityScore', np.nan) 
-                                 for m in eval_metrics if m is not None]
-                stats['mean_quality_score'] = np.nanmean(quality_scores)
+        eval_metrics, eval_path = self._load_segmentation_metrics()
+        if eval_metrics is not None:
+            quality_scores = [m.get('QualityScore', np.nan)
+                              for m in eval_metrics if m is not None]
+            stats['mean_quality_score'] = np.nanmean(quality_scores)
+            logger.info(f"Loaded segmentation metrics from {eval_path.name}")
         
         # If we still don't have cell count, try to get from patches metadata
         if 'total_cells' not in stats:
@@ -937,6 +984,247 @@ class PipelineReportGenerator:
         
         self.report_data['performance'] = performance
         
+    def _collect_patch_mode_quality_data(self):
+        """Collect patch-level quality metrics for the patch split mode."""
+        patch_quality = {
+            'available': False,
+            'summary_rows': [],
+            'top_patches': [],
+            'bottom_patches': [],
+            'has_quality_scores': False,
+            'distribution_metric_label': None,
+            'map_metric_label': None,
+            'table_columns': [],
+        }
+        patches_path = self.output_dir / "cell_profiling" / "patches_metadata.csv"
+        if not patches_path.exists():
+            logger.warning("patches_metadata.csv not found; skipping patch-quality summary.")
+            self.report_data['patch_quality'] = patch_quality
+            self.patch_quality_df = None
+            return
+        try:
+            df = pd.read_csv(patches_path)
+        except Exception as exc:
+            logger.warning(f"Failed to load patches_metadata.csv: {exc}")
+            self.report_data['patch_quality'] = patch_quality
+            self.patch_quality_df = None
+            return
+
+        if 'patch_index' not in df.columns:
+            df['patch_index'] = df.index
+
+        if 'is_informative' not in df.columns:
+            if 'is_infomative' in df.columns:
+                df['is_informative'] = df['is_infomative']
+                logger.info("Renamed 'is_infomative' column to 'is_informative'.")
+            else:
+                df['is_informative'] = True
+        df['is_informative'] = df['is_informative'].fillna(False).astype(bool)
+
+        if 'quality_score' not in df.columns:
+            df['quality_score'] = np.nan
+
+        informative_indices = df.index[df['is_informative']].tolist()
+        eval_metrics, eval_path = self._load_segmentation_metrics()
+        if eval_metrics is not None:
+            for idx, patch_idx in enumerate(informative_indices):
+                if idx >= len(eval_metrics):
+                    break
+                metrics = eval_metrics[idx]
+                score = np.nan
+                if isinstance(metrics, dict):
+                    score = metrics.get('QualityScore', np.nan)
+                df.at[patch_idx, 'quality_score'] = score
+            if len(informative_indices) > len(eval_metrics):
+                logger.info("Fewer evaluation entries than informative patches; some patches lack quality scores.")
+        else:
+            logger.info("Segmentation metrics artefact not found; quality scores unavailable for patch-mode report.")
+
+        informative_df = df[df['is_informative']].copy()
+        quality_series = informative_df['quality_score'] if 'quality_score' in informative_df else pd.Series(dtype=float)
+        valid_quality = quality_series.dropna()
+        has_quality = not valid_quality.empty
+
+        def _safe_stat(series, func):
+            if series is None:
+                return None
+            series = series.dropna()
+            if series.empty:
+                return None
+            return func(series)
+
+        summary = {
+            'total_patches': int(len(df)),
+            'informative_patches': int(informative_df.shape[0]),
+            'evaluated_patches': int(valid_quality.shape[0]),
+            'quality_score_mean': _safe_stat(valid_quality, np.mean) if has_quality else None,
+            'quality_score_median': _safe_stat(valid_quality, np.median) if has_quality else None,
+            'quality_score_std': _safe_stat(valid_quality, np.std) if has_quality else None,
+            'quality_score_min': _safe_stat(valid_quality, np.min) if has_quality else None,
+            'quality_score_max': _safe_stat(valid_quality, np.max) if has_quality else None,
+        }
+        if 'matched_fraction' in informative_df.columns:
+            summary['matched_fraction_mean'] = _safe_stat(informative_df['matched_fraction'], np.mean)
+            summary['matched_fraction_std'] = _safe_stat(informative_df['matched_fraction'], np.std)
+
+        def _fmt_number(value, digits=3):
+            if value is None or (isinstance(value, float) and np.isnan(value)) or pd.isna(value):
+                return "N/A"
+            if isinstance(value, (int, np.integer)):
+                return str(int(value))
+            return f"{float(value):.{digits}f}"
+
+        summary_rows = [
+            {'label': 'Total patches', 'value': _fmt_number(summary['total_patches'])},
+            {'label': 'Informative patches', 'value': _fmt_number(summary['informative_patches'])},
+            {'label': 'Evaluated patches', 'value': _fmt_number(summary['evaluated_patches'])},
+            {'label': 'Mean quality score', 'value': _fmt_number(summary['quality_score_mean'])},
+            {'label': 'Median quality score', 'value': _fmt_number(summary['quality_score_median'])},
+            {'label': 'Std quality score', 'value': _fmt_number(summary['quality_score_std'])},
+            {'label': 'Min quality score', 'value': _fmt_number(summary['quality_score_min'])},
+            {'label': 'Max quality score', 'value': _fmt_number(summary['quality_score_max'])},
+        ]
+        if 'matched_fraction_mean' in summary:
+            summary_rows.append({'label': 'Mean matched fraction', 'value': _fmt_number(summary['matched_fraction_mean'])})
+            summary_rows.append({'label': 'Std matched fraction', 'value': _fmt_number(summary['matched_fraction_std'])})
+
+        table_columns = ['patch_index']
+        for candidate in ['quality_score', 'matched_fraction', 'nucleus_non_zero_perc', 'wholecell_non_zero_perc']:
+            if candidate in informative_df.columns and candidate not in table_columns:
+                table_columns.append(candidate)
+
+        top_patches = []
+        bottom_patches = []
+        if has_quality:
+            sorted_df = informative_df.dropna(subset=['quality_score']).sort_values('quality_score', ascending=False)
+            if not sorted_df.empty:
+                top_patches = sorted_df.head(3)[table_columns].to_dict('records')
+                bottom_df = sorted_df.sort_values('quality_score', ascending=True)
+                bottom_patches = bottom_df.head(3)[table_columns].to_dict('records')
+        elif 'matched_fraction' in informative_df.columns:
+            sorted_df = informative_df.dropna(subset=['matched_fraction']).sort_values('matched_fraction', ascending=False)
+            if not sorted_df.empty:
+                top_patches = sorted_df.head(3)[table_columns].to_dict('records')
+                bottom_df = sorted_df.sort_values('matched_fraction', ascending=True)
+                bottom_patches = bottom_df.head(3)[table_columns].to_dict('records')
+
+        for collection in (top_patches, bottom_patches):
+            for entry in collection:
+                for key, value in list(entry.items()):
+                    if isinstance(value, (float, int, np.floating, np.integer)):
+                        entry[key] = _fmt_number(value)
+
+        patch_quality.update({
+            'available': True,
+            'summary_rows': summary_rows,
+            'top_patches': top_patches,
+            'bottom_patches': bottom_patches,
+            'has_quality_scores': has_quality,
+            'table_columns': table_columns,
+        })
+        self.report_data['patch_quality'] = patch_quality
+        self.patch_quality_df = df
+
+    def _generate_patch_mode_figures(self):
+        """Generate figures specific to patch-mode reporting."""
+        patch_quality = self.report_data.get('patch_quality', {})
+        df = getattr(self, 'patch_quality_df', None)
+
+        if not patch_quality.get('available') or df is None or df.empty:
+            return
+
+        informative_df = df[df['is_informative']]
+
+        distribution_label = None
+        metric_series = pd.Series(dtype=float)
+        if 'quality_score' in informative_df and informative_df['quality_score'].dropna().any():
+            metric_series = informative_df['quality_score'].dropna()
+            distribution_label = 'Quality Score'
+        elif 'matched_fraction' in informative_df and informative_df['matched_fraction'].dropna().any():
+            metric_series = informative_df['matched_fraction'].dropna()
+            distribution_label = 'Matched Fraction'
+
+        if distribution_label is not None and not metric_series.empty:
+            fig, ax = plt.subplots(figsize=(8, 5))
+            bins = min(20, max(5, int(np.sqrt(metric_series.size))))
+            sns.histplot(metric_series, bins=bins, ax=ax, kde=True)
+            ax.set_title(f"{distribution_label} Distribution (Informative Patches)")
+            ax.set_xlabel(distribution_label)
+            ax.set_ylabel('Patch Count')
+            self.figures['patch_quality_distribution'] = self._fig_to_base64(fig)
+            plt.close(fig)
+        else:
+            self.figures.pop('patch_quality_distribution', None)
+
+        patch_quality['distribution_metric_label'] = distribution_label
+
+        width_col = 'patch_width' if 'patch_width' in df.columns else ('width' if 'width' in df.columns else None)
+        height_col = 'patch_height' if 'patch_height' in df.columns else ('height' if 'height' in df.columns else None)
+        spatial_ready = all(col in df.columns for col in ['x_start', 'y_start']) and width_col and height_col
+
+        map_metric_col = None
+        map_metric_label = None
+        if 'quality_score' in df and df['quality_score'].dropna().any():
+            map_metric_col = 'quality_score'
+            map_metric_label = 'Quality Score'
+        elif 'matched_fraction' in df and df['matched_fraction'].dropna().any():
+            map_metric_col = 'matched_fraction'
+            map_metric_label = 'Matched Fraction'
+
+        if spatial_ready and map_metric_col is not None:
+            fig, ax = plt.subplots(figsize=(8, 8))
+            cmap = plt.cm.viridis
+            scores = df[map_metric_col]
+            scores = scores[pd.notna(scores)]
+            if not scores.empty:
+                vmin = float(scores.min())
+                vmax = float(scores.max())
+                if vmin == vmax:
+                    vmin -= 0.5
+                    vmax += 0.5
+                norm = Normalize(vmin=vmin, vmax=vmax)
+            else:
+                norm = None
+
+            x_max = (df['x_start'] + df[width_col]).max()
+            y_max = (df['y_start'] + df[height_col]).max()
+
+            for _, row in df.iterrows():
+                width = row.get(width_col, 0)
+                height = row.get(height_col, 0)
+                if width == 0 or height == 0:
+                    continue
+                score = row.get(map_metric_col, np.nan)
+                informative = bool(row.get('is_informative', False))
+                alpha = 0.8 if informative else 0.25
+                facecolor = (0.85, 0.85, 0.85, 1.0)
+                if pd.notna(score) and norm is not None:
+                    facecolor = cmap(norm(score))
+                rect = Rectangle((row['x_start'], row['y_start']), width, height,
+                                 facecolor=facecolor, edgecolor='black', linewidth=0.3, alpha=alpha)
+                ax.add_patch(rect)
+
+            ax.set_xlim(df['x_start'].min(), x_max)
+            ax.set_ylim(df['y_start'].min(), y_max)
+            ax.set_aspect('equal', adjustable='box')
+            ax.invert_yaxis()
+            ax.set_xlabel('X (pixels)')
+            ax.set_ylabel('Y (pixels)')
+            ax.set_title(f"{map_metric_label} Across Patches")
+
+            if norm is not None:
+                sm = ScalarMappable(norm=norm, cmap=cmap)
+                sm.set_array([])
+                fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04, label=map_metric_label)
+
+            self.figures['patch_quality_map'] = self._fig_to_base64(fig)
+            plt.close(fig)
+        else:
+            self.figures.pop('patch_quality_map', None)
+
+        patch_quality['map_metric_label'] = map_metric_label
+        self.report_data['patch_quality'] = patch_quality
+
     def _generate_summary_figures(self):
         """Generate summary visualization figures."""
         # 1. Quality metrics dashboard
@@ -1172,7 +1460,12 @@ class PipelineReportGenerator:
             grid-template-columns: minmax(0, 1fr);
         }
         .segmentation-gallery--paired {
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        @media (max-width: 1100px) {
+            .segmentation-gallery--paired {
+                grid-template-columns: minmax(0, 1fr);
+            }
         }
         .segmentation-gallery--wide {
             grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
@@ -1496,16 +1789,40 @@ class PipelineReportGenerator:
         </div>
         {% endif %}
         
-        {% if segmentation_visualization.groups %}
         <h2>Segmentation Visualization</h2>
         <div class="summary-box">
-            <p>Found {{ segmentation_visualization.total_images }} segmentation visualization image(s) from pipeline analysis.</p>
-            {% for group in segmentation_visualization.groups %}
+            <p class="segmentation-note">
+                {% if segmentation_visualization.large_sample_note %}
+                    {{ segmentation_visualization.large_sample_note }}
+                {% else %}
+                    Displaying {{ segmentation_visualization.selected_patch_count }} patch(es) with {{ segmentation_visualization.total_images }} generated visualization image(s).
+                {% endif %}
+            </p>
+            {% if segmentation_visualization.patch_summaries %}
+            <div class="segmentation-caption">
+                {% for patch in segmentation_visualization.patch_summaries %}
+                <div>
+                    <strong>{{ patch.display_name }}</strong>{% if patch.selection_reason_label %} — {{ patch.selection_reason_label }}{% endif %}
+                    {% if patch.metrics %}: {{ patch.metrics }}{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if segmentation_visualization.overview_image %}
+            <figure class="segmentation-card">
+                <div class="segmentation-card__title">{{ segmentation_visualization.overview_image.title }}</div>
+                <img src="{{ segmentation_visualization.overview_image.data }}" alt="{{ segmentation_visualization.overview_image.filename }}">
+                <figcaption>
+                    <span class="segmentation-filename">{{ segmentation_visualization.overview_image.filename }}</span>
+                    {{ segmentation_visualization.overview_image.description }}
+                </figcaption>
+            </figure>
+            {% endif %}
+            {% if segmentation_visualization.overlay_cards %}
             <div class="segmentation-section">
-                <h3>{{ group.title }}</h3>
-                <div class="segmentation-gallery segmentation-gallery--{{ group.layout }}">
-                    {% if group.tab_cards %}
-                    {% for card in group.tab_cards %}
+                <h3>Segmentation Overlays</h3>
+                <div class="segmentation-gallery segmentation-gallery--wide">
+                    {% for card in segmentation_visualization.overlay_cards %}
                     <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
                         <div class="segmentation-card__title">{{ card.card_title }}</div>
                         <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
@@ -1526,62 +1843,66 @@ class PipelineReportGenerator:
                         {% endfor %}
                     </div>
                     {% endfor %}
-                    {% endif %}
-                    {% for image in group.images %}
-                    <figure class="segmentation-card">
-                        <div class="segmentation-card__title">{{ image.title }}</div>
-                        <img src="{{ image.data }}" alt="{{ image.filename }}">
-                        <figcaption>
-                            <span class="segmentation-filename">{{ image.filename }}</span>
-                            {{ image.description }}
-                        </figcaption>
-                    </figure>
-                    {% endfor %}
                 </div>
             </div>
-            {% endfor %}
-        </div>
-        {% elif segmentation_visualization.images %}
-        <h2>Segmentation Visualization</h2>
-        <div class="summary-box">
-            <p>Found {{ segmentation_visualization.total_images }} segmentation visualization image(s) from pipeline analysis.</p>
-            <div class="segmentation-gallery segmentation-gallery--paired">
-                {% if segmentation_visualization.tab_cards %}
-                {% for card in segmentation_visualization.tab_cards %}
-                <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
-                    <div class="segmentation-card__title">{{ card.card_title }}</div>
-                    <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
+            {% endif %}
+            {% if segmentation_visualization.nucleus_cards %}
+            <div class="segmentation-section">
+                <h3>Nucleus Masks</h3>
+                <div class="segmentation-gallery {{ 'segmentation-gallery--paired' if segmentation_visualization.nucleus_cards|length > 1 else 'segmentation-gallery--single' }}">
+                    {% for card in segmentation_visualization.nucleus_cards %}
+                    <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
+                        <div class="segmentation-card__title">{{ card.card_title }}</div>
+                        <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
+                            {% for tab in card.tabs %}
+                            <button type="button" class="segmentation-tab{% if loop.first %} is-active{% endif %}" role="tab" data-target="{{ card.card_id }}-{{ loop.index0 }}">
+                                {{ tab.title }}
+                            </button>
+                            {% endfor %}
+                        </div>
                         {% for tab in card.tabs %}
-                        <button type="button" class="segmentation-tab{% if loop.first %} is-active{% endif %}" role="tab" data-target="{{ card.card_id }}-{{ loop.index0 }}">
-                            {{ tab.title }}
-                        </button>
+                        <div class="segmentation-tab-panel{% if loop.first %} is-active{% endif %}" id="{{ card.card_id }}-{{ loop.index0 }}" role="tabpanel">
+                            <img src="{{ tab.image.data }}" alt="{{ tab.image.filename }}">
+                            <div class="segmentation-caption">
+                                <span class="segmentation-filename">{{ tab.image.filename }}</span>
+                                {{ tab.image.description }}
+                            </div>
+                        </div>
                         {% endfor %}
                     </div>
-                    {% for tab in card.tabs %}
-                    <div class="segmentation-tab-panel{% if loop.first %} is-active{% endif %}" id="{{ card.card_id }}-{{ loop.index0 }}" role="tabpanel">
-                        <img src="{{ tab.image.data }}" alt="{{ tab.image.filename }}">
-                        <div class="segmentation-caption">
-                            <span class="segmentation-filename">{{ tab.image.filename }}</span>
-                            {{ tab.image.description }}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if segmentation_visualization.wholecell_cards %}
+            <div class="segmentation-section">
+                <h3>Whole-cell Masks</h3>
+                <div class="segmentation-gallery {{ 'segmentation-gallery--paired' if segmentation_visualization.wholecell_cards|length > 1 else 'segmentation-gallery--single' }}">
+                    {% for card in segmentation_visualization.wholecell_cards %}
+                    <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
+                        <div class="segmentation-card__title">{{ card.card_title }}</div>
+                        <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
+                            {% for tab in card.tabs %}
+                            <button type="button" class="segmentation-tab{% if loop.first %} is-active{% endif %}" role="tab" data-target="{{ card.card_id }}-{{ loop.index0 }}">
+                                {{ tab.title }}
+                            </button>
+                            {% endfor %}
                         </div>
+                        {% for tab in card.tabs %}
+                        <div class="segmentation-tab-panel{% if loop.first %} is-active{% endif %}" id="{{ card.card_id }}-{{ loop.index0 }}" role="tabpanel">
+                            <img src="{{ tab.image.data }}" alt="{{ tab.image.filename }}">
+                            <div class="segmentation-caption">
+                                <span class="segmentation-filename">{{ tab.image.filename }}</span>
+                                {{ tab.image.description }}
+                            </div>
+                        </div>
+                        {% endfor %}
                     </div>
                     {% endfor %}
                 </div>
-                {% endfor %}
-                {% endif %}
-                {% for image in segmentation_visualization.regular_images %}
-                <figure class="segmentation-card">
-                    <div class="segmentation-card__title">{{ image.title }}</div>
-                    <img src="{{ image.data }}" alt="{{ image.filename }}">
-                    <figcaption>
-                        <span class="segmentation-filename">{{ image.filename }}</span>
-                        {{ image.description }}
-                    </figcaption>
-                </figure>
-                {% endfor %}
             </div>
+            {% endif %}
         </div>
-        {% endif %}
 
         {% if figures.quality_dashboard %}
         <h2>Quality Metrics</h2>
@@ -1647,6 +1968,475 @@ document.addEventListener('DOMContentLoaded', function () {
         template = Template(template_str)
         return template.render(**self.report_data, figures=self.figures)
 
+
+    def _render_patch_mode_html_report(self) -> str:
+        """Render HTML report tailored for patch-mode outputs."""
+        template_str = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>PhenoCycler Patch Report - {{ metadata.experiment_id }}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 24px;
+            box-shadow: 0 0 12px rgba(0, 0, 0, 0.08);
+            border-radius: 8px;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 12px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 32px;
+            border-bottom: 1px solid #dfe6e9;
+            padding-bottom: 8px;
+        }
+        h3 {
+            color: #2c3e50;
+            margin-top: 24px;
+            margin-bottom: 12px;
+        }
+        .summary-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin: 16px 0 24px 0;
+        }
+        .summary-item {
+            flex: 1 1 220px;
+            background-color: #f8fbff;
+            border: 1px solid #d6e4ff;
+            border-radius: 6px;
+            padding: 12px 16px;
+        }
+        .summary-label {
+            display: block;
+            color: #5f6c7b;
+            font-size: 13px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .summary-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e3d59;
+            word-break: break-word;
+        }
+        .summary-box {
+            background-color: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 16px;
+            margin: 16px 0 24px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+        th, td {
+            border: 1px solid #dfe6e9;
+            padding: 10px 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #ecf5ff;
+            color: #2c3e50;
+        }
+        tr:nth-child(even) td {
+            background-color: #fafcfe;
+        }
+        .figure {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .figure img {
+            max-width: 100%;
+            border: 1px solid #dfe6e9;
+            border-radius: 4px;
+            background: white;
+        }
+        .patch-tables {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+        .patch-table-card {
+            border: 1px solid #dfe6e9;
+            border-radius: 6px;
+            background-color: white;
+            padding: 12px 16px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+        }
+        .figure-caption {
+            color: #5f6c7b;
+            font-size: 13px;
+            margin-top: 6px;
+        }
+        .segmentation-section {
+            margin-bottom: 32px;
+        }
+        .segmentation-section + .segmentation-section {
+            border-top: 1px solid #e0e0e0;
+            padding-top: 20px;
+        }
+        .segmentation-card {
+            background-color: #ffffff;
+            border: 1px solid #dfe6e9;
+            border-radius: 8px;
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.04);
+            padding: 12px;
+        }
+        .segmentation-card__title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        .segmentation-gallery {
+            display: grid;
+            gap: 24px;
+        }
+        .segmentation-gallery--paired {
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        }
+        .segmentation-gallery--single {
+            grid-template-columns: minmax(320px, 520px);
+        }
+        .segmentation-card img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }
+        .segmentation-caption {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #5f6c7b;
+        }
+        .segmentation-tab-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .segmentation-tab {
+            border: 1px solid #b2bec3;
+            background-color: #ecf0f1;
+            color: #34495e;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .segmentation-tab.is-active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #4CAF50;
+        }
+        .segmentation-tab-panel {
+            display: none;
+        }
+        .segmentation-tab-panel.is-active {
+            display: block;
+        }
+        .note {
+            background-color: #fff9e6;
+            border: 1px solid #ffe599;
+            color: #8a6d3b;
+            padding: 10px 12px;
+            border-radius: 4px;
+            margin: 12px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PhenoCycler Patch Report - {{ metadata.experiment_id }}</h1>
+
+        <div class="summary-grid">
+            <div class="summary-item">
+                <span class="summary-label">Report Generated</span>
+                <span class="summary-value">{{ metadata.report_generated }}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Split Mode</span>
+                <span class="summary-value">{{ split_mode }}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Image Dimensions</span>
+                <span class="summary-value">{{ input_info.image_width }} × {{ input_info.image_height }}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Microns Per Pixel</span>
+                <span class="summary-value">{{ input_info.microns_per_pixel }}</span>
+            </div>
+        </div>
+
+        {% if patch_quality.summary_rows %}
+        <h2>Patch Quality Overview</h2>
+        <div class="summary-box">
+            <table>
+                <tbody>
+                {% for row in patch_quality.summary_rows %}
+                    <tr>
+                        <th>{{ row.label }}</th>
+                        <td>{{ row.value }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        {% if segmentation_stats %}
+        <h2>Segmentation Statistics</h2>
+        <table>
+            <tbody>
+            {% for key, value in segmentation_stats.items() %}
+                <tr>
+                    <th>{{ key.replace('_', ' ') | title }}</th>
+                    <td>{{ value }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if patch_quality.distribution_metric_label and figures.patch_quality_distribution %}
+        <h2>{{ patch_quality.distribution_metric_label }} Distribution</h2>
+        <div class="figure">
+            <img src="{{ figures.patch_quality_distribution }}" alt="{{ patch_quality.distribution_metric_label }} Distribution">
+        </div>
+        {% endif %}
+
+        {% if patch_quality.map_metric_label and figures.patch_quality_map %}
+        <h2>{{ patch_quality.map_metric_label }} Across Patches</h2>
+        <div class="figure">
+            <img src="{{ figures.patch_quality_map }}" alt="{{ patch_quality.map_metric_label }} Map">
+        </div>
+        {% endif %}
+
+        <div class="patch-tables">
+            {% if patch_quality.top_patches %}
+            <div class="patch-table-card">
+                <h3>Top Patches</h3>
+                <table>
+                    <thead>
+                        <tr>
+                        {% for col in patch_quality.table_columns %}
+                            <th>{{ col.replace('_', ' ') | title }}</th>
+                        {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for patch in patch_quality.top_patches %}
+                        <tr>
+                        {% for col in patch_quality.table_columns %}
+                            <td>{{ patch.get(col, 'N/A') }}</td>
+                        {% endfor %}
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            {% if patch_quality.bottom_patches %}
+            <div class="patch-table-card">
+                <h3>Lowest Patches</h3>
+                <table>
+                    <thead>
+                        <tr>
+                        {% for col in patch_quality.table_columns %}
+                            <th>{{ col.replace('_', ' ') | title }}</th>
+                        {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for patch in patch_quality.bottom_patches %}
+                        <tr>
+                        {% for col in patch_quality.table_columns %}
+                            <td>{{ patch.get(col, 'N/A') }}</td>
+                        {% endfor %}
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if segmentation_visualization.overlay_cards or segmentation_visualization.nucleus_cards or segmentation_visualization.wholecell_cards %}
+        <h2>Segmentation Highlights</h2>
+        {% if segmentation_visualization.large_sample_note %}
+        <div class="note">{{ segmentation_visualization.large_sample_note }}</div>
+        {% endif %}
+
+        {% if segmentation_visualization.overlay_cards %}
+        <div class="segmentation-section">
+            <h3>Overlay Visualizations</h3>
+            <div class="segmentation-gallery {{ 'segmentation-gallery--paired' if segmentation_visualization.overlay_cards|length > 1 else 'segmentation-gallery--single' }}">
+                {% for card in segmentation_visualization.overlay_cards %}
+                <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
+                    <div class="segmentation-card__title">{{ card.card_title }}</div>
+                    <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
+                        {% for tab in card.tabs %}
+                        <button type="button" class="segmentation-tab{% if loop.first %} is-active{% endif %}" role="tab" data-target="{{ card.card_id }}-{{ loop.index0 }}">
+                            {{ tab.title }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    {% for tab in card.tabs %}
+                    <div class="segmentation-tab-panel{% if loop.first %} is-active{% endif %}" id="{{ card.card_id }}-{{ loop.index0 }}" role="tabpanel">
+                        <img src="{{ tab.image.data }}" alt="{{ tab.image.filename }}">
+                        <div class="segmentation-caption">
+                            <span class="segmentation-filename">{{ tab.image.filename }}</span>
+                            {{ tab.image.description }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if segmentation_visualization.nucleus_cards %}
+        <div class="segmentation-section">
+            <h3>Nucleus Masks</h3>
+            <div class="segmentation-gallery {{ 'segmentation-gallery--paired' if segmentation_visualization.nucleus_cards|length > 1 else 'segmentation-gallery--single' }}">
+                {% for card in segmentation_visualization.nucleus_cards %}
+                <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
+                    <div class="segmentation-card__title">{{ card.card_title }}</div>
+                    <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
+                        {% for tab in card.tabs %}
+                        <button type="button" class="segmentation-tab{% if loop.first %} is-active{% endif %}" role="tab" data-target="{{ card.card_id }}-{{ loop.index0 }}">
+                            {{ tab.title }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    {% for tab in card.tabs %}
+                    <div class="segmentation-tab-panel{% if loop.first %} is-active{% endif %}" id="{{ card.card_id }}-{{ loop.index0 }}" role="tabpanel">
+                        <img src="{{ tab.image.data }}" alt="{{ tab.image.filename }}">
+                        <div class="segmentation-caption">
+                            <span class="segmentation-filename">{{ tab.image.filename }}</span>
+                            {{ tab.image.description }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if segmentation_visualization.wholecell_cards %}
+        <div class="segmentation-section">
+            <h3>Whole-cell Masks</h3>
+            <div class="segmentation-gallery {{ 'segmentation-gallery--paired' if segmentation_visualization.wholecell_cards|length > 1 else 'segmentation-gallery--single' }}">
+                {% for card in segmentation_visualization.wholecell_cards %}
+                <div class="segmentation-card segmentation-card--tabbed" data-card-id="{{ card.card_id }}">
+                    <div class="segmentation-card__title">{{ card.card_title }}</div>
+                    <div class="segmentation-tab-bar" role="tablist" aria-label="{{ card.card_title }}">
+                        {% for tab in card.tabs %}
+                        <button type="button" class="segmentation-tab{% if loop.first %} is-active{% endif %}" role="tab" data-target="{{ card.card_id }}-{{ loop.index0 }}">
+                            {{ tab.title }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    {% for tab in card.tabs %}
+                    <div class="segmentation-tab-panel{% if loop.first %} is-active{% endif %}" id="{{ card.card_id }}-{{ loop.index0 }}" role="tabpanel">
+                        <img src="{{ tab.image.data }}" alt="{{ tab.image.filename }}">
+                        <div class="segmentation-caption">
+                            <span class="segmentation-filename">{{ tab.image.filename }}</span>
+                            {{ tab.image.description }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        <h2>Pipeline Metadata</h2>
+        <table>
+            <tbody>
+                <tr>
+                    <th>Output Directory</th>
+                    <td>{{ metadata.output_directory }}</td>
+                </tr>
+                <tr>
+                    <th>Pipeline Version</th>
+                    <td>{{ metadata.pipeline_version }}</td>
+                </tr>
+                <tr>
+                    <th>Image File</th>
+                    <td>{{ input_info.image_file }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="note">Report generation completed successfully.</div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var tabbedCards = document.querySelectorAll('.segmentation-card--tabbed');
+        tabbedCards.forEach(function (card) {
+            var tabs = card.querySelectorAll('.segmentation-tab');
+            var panels = card.querySelectorAll('.segmentation-tab-panel');
+            tabs.forEach(function (tab, tabIndex) {
+                var targetId = tab.getAttribute('data-target');
+                tab.setAttribute('aria-selected', tabIndex === 0 ? 'true' : 'false');
+                tab.addEventListener('click', function () {
+                    tabs.forEach(function (t) {
+                        t.classList.remove('is-active');
+                        t.setAttribute('aria-selected', 'false');
+                    });
+                    panels.forEach(function (panel) {
+                        panel.classList.remove('is-active');
+                    });
+                    tab.classList.add('is-active');
+                    tab.setAttribute('aria-selected', 'true');
+                    var targetPanel = card.querySelector('#' + targetId);
+                    if (targetPanel) {
+                        targetPanel.classList.add('is-active');
+                    }
+                });
+            });
+        });
+    });
+    </script>
+</body>
+</html>
+"""
+        template = Template(template_str)
+        context = {
+            'metadata': self.report_data.get('metadata', {}),
+            'input_info': self.report_data.get('input_info', {}),
+            'patch_quality': self.report_data.get('patch_quality', {}),
+            'figures': self.figures,
+            'sample_preview': self.report_data.get('sample_preview', {'images': []}),
+            'segmentation_visualization': self.report_data.get('segmentation_visualization', {}),
+            'segmentation_stats': self.report_data.get('segmentation_stats', {}),
+            'split_mode': self.report_data.get('split_mode', 'patches'),
+        }
+        return template.render(**context)
 
 def generate_pipeline_report(output_dir: str, config: Dict, codex_patches=None) -> str:
     """

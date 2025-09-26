@@ -1,16 +1,16 @@
 # Top-level configuration for CODEX pipeline test
-exp_id: test_tile_0
+exp_id: test_ft_full_small_tiles_tile_1
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
   file_name: 
-    /workspaces/codex-analysis/data/test/ft_small_tiles/tile_000.ome.tiff
+    /workspaces/codex-analysis/data/test/main/ft_small_tiles/tile_001.ome.tiff
 
   # Path to the TSV file containing antibody definitions (one row per channel)
   antibodies_file: 
-    /workspaces/codex-analysis/data/test/ft_small_tiles/extras/antibodies.tsv
+    /workspaces/codex-analysis/data/test/main/ft_small_tiles/extras/antibodies.tsv
 
   # Microns per pixel for this image; used in downstream calculations (e.g., segmentation scaling)
   image_mpp: 0.5
@@ -53,16 +53,6 @@ patching:
 # (D) Visualization Settings
 # -----------------------------------------------------------------------------
 visualization:
-  # Whether to save an RGB visualization of the entire sample (e.g., nuclear vs. whole-cell)
-  visualize_whole_sample: true
-
-  # How to downsample the visualization image (null = no downsampling, -1 = auto-downsampling, 
-  # or positive integer for specific downsample factor)
-  downsample_factor: NULL
-
-  # Whether to apply contrast enhancement to the visualization (slower but better quality)
-  enhance_contrast: true
-
   # Whether to save RGB visualizations of all patches
   visualize_patches: true
 
@@ -71,9 +61,6 @@ visualization:
 
   # Whether to visualize and save the segmentation mask overlay (after segmentation)
   visualize_segmentation: true
-  
-  # Whether to show potential segmentation errors
-  show_segmentation_errors: true
 
 # -----------------------------------------------------------------------------
 # (E) QC (Patch-Level Quality Control)
@@ -100,7 +87,8 @@ segmentation:
 
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
   save_segmentation_pickle: true
-
+  segmentation_pickle_compression: gzip      # options: none|gzip|bz2|lzma
+  segmentation_pickle_compression_level: 5   # optional, honours backend limits
   # If True, run segmentation analysis
   segmentation_analysis: false
   density_analysis:
@@ -127,10 +115,3 @@ testing:
 # -----------------------------------------------------------------------------
 evaluation:
   compute_metrics: true
-
-# -----------------------------------------------------------------------------
-# (I) Report Generation
-# -----------------------------------------------------------------------------
-report:
-  generate_report: true
-  report_format: html  # Options: html, pdf (future)

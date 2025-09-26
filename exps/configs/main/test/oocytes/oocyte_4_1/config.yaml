@@ -55,16 +55,6 @@ patching:
 # (D) Visualization Settings
 # -----------------------------------------------------------------------------
 visualization:
-  # Whether to save an RGB visualization of the entire sample (e.g., nuclear vs. whole-cell)
-  visualize_whole_sample: true
-
-  # How to downsample the visualization image (null = no downsampling, -1 = auto-downsampling, 
-  # or positive integer for specific downsample factor)
-  downsample_factor: NULL
-
-  # Whether to apply contrast enhancement to the visualization (slower but better quality)
-  enhance_contrast: true
-
   # Whether to save RGB visualizations of all patches
   visualize_patches: true
 
@@ -73,9 +63,6 @@ visualization:
 
   # Whether to visualize and save the segmentation mask overlay (after segmentation)
   visualize_segmentation: true
-  
-  # Whether to show potential segmentation errors
-  show_segmentation_errors: true
 
 # -----------------------------------------------------------------------------
 # (E) QC (Patch-Level Quality Control)
