@@ -4,12 +4,12 @@ from deepcell.applications import Mesmer
 from skimage.segmentation import find_boundaries
 from skimage.measure import regionprops
 import numpy as np
-import pandas as pd
 from typing import List, Tuple, Dict, Optional
 import logging
 from scipy.sparse import csr_matrix
 
 from aegle.codex_patches import CodexPatches
+from aegle.evaluation_func import get_indices_pandas
 from aegle.visualization import make_outline_overlay
 import logging
 
@@ -209,13 +209,6 @@ def get_boundary(mask):
     mask_boundary = find_boundaries(mask, mode="inner")
     mask_boundary_indexed = get_indexed_mask(mask, mask_boundary)
     return mask_boundary_indexed
-
-
-def get_indices_pandas(data):
-    d = data.ravel()
-    f = lambda x: np.unravel_index(x.index, data.shape)
-    return pd.Series(d).groupby(d).apply(f)
-
 
 def compute_M(data):
     cols = np.arange(data.size)

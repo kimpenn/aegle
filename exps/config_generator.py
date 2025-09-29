@@ -1,162 +1,196 @@
+from __future__ import annotations
+import argparse
+import copy
 import csv
 import os
+import sys
+from collections.abc import MutableMapping
+
 from ruamel.yaml import YAML
-import ast
+from ruamel.yaml.comments import CommentedMap
 
-# TODO:: Change this according to the csv file
-# test0206_preprocess, test0206_main， test_analysis
-# preprocess_ft, main_ft, analysis_ft
-experiment_set_name = "main_ft"
-# TODO:: Change this according to the analysis step
-# "preprocess", "main", "analysis"
-analysis_step = "main"  
-# analysis_step = "analysis"  
-base_dir = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps"
-# Path to the input CSV file
-design_table_path = (
-    f"{base_dir}/csvs/{experiment_set_name}.csv"
-)
-# Path to the YAML template
-default_config_path = (
-    f"{base_dir}/{analysis_step}_template.yaml"
+from schema_validator import (
+    SchemaLoadingError,
+    SchemaValidationError,
+    load_schema,
 )
 
-# Base path for saving the configs
-output_dir = f"{base_dir}/configs/{analysis_step}/{experiment_set_name}"
-print(f"Output directory: {output_dir}")
+# -----------------------------------------------------------------------------
+# Default configuration (can be overridden via CLI arguments)
+# -----------------------------------------------------------------------------
+DEFAULT_EXPERIMENT_SET = "main_ft"
+DEFAULT_ANALYSIS_STEP = "main"  # "preprocess", "main", or "analysis"
+BASE_DIR = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps"
 
-def read_csv(file_path):
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate pipeline configs from CSV + schema")
+    parser.add_argument("--experiment-set", default=DEFAULT_EXPERIMENT_SET, help="Experiment set name")
+    parser.add_argument(
+        "--analysis-step",
+        default=DEFAULT_ANALYSIS_STEP,
+        choices=["preprocess", "main", "analysis"],
+        help="Pipeline stage this config targets",
+    )
+    parser.add_argument("--base-dir", default=BASE_DIR, help="Base directory for experiment assets")
+    parser.add_argument("--csv", dest="design_table", help="Path to design table CSV")
+    parser.add_argument("--template", dest="template_path", help="Path to template YAML")
+    parser.add_argument("--schema", dest="schema_path", help="Path to schema YAML")
+    parser.add_argument("--output-dir", dest="output_dir", help="Directory for generated configs")
+    return parser.parse_args()
+
+
+def read_csv(file_path: str) -> tuple[list[dict[str, str]], list[str]]:
     with open(file_path, newline="") as csvfile:
         reader = csv.DictReader(csvfile)
-        return list(reader)
+        rows = list(reader)
+        fieldnames = reader.fieldnames or []
+    return rows, fieldnames
 
 
-def read_yaml(file_path):
+def read_yaml(file_path: str):
     yaml = YAML()
     with open(file_path, "r") as yamlfile:
         return yaml.load(yamlfile)
 
 
-def write_yaml(data, file_path):
-    def my_represent_none(self, data):
+def write_yaml(data, file_path: str) -> None:
+    def represent_null(self, value):
         return self.represent_scalar("tag:yaml.org,2002:null", "NULL")
 
     yaml = YAML()
     yaml.preserve_quotes = True
-    yaml.representer.add_representer(type(None), my_represent_none)
-    # ref: https://yaml.readthedocs.io/en/latest/detail/
+    yaml.representer.add_representer(type(None), represent_null)
     yaml.indent(mapping=2, sequence=4, offset=2)
 
     with open(file_path, "w") as yamlfile:
         yaml.dump(data, yamlfile)
 
 
-def generate_experiments_string(design_table_path):
-    # Generate a string in the following format for name column in design table.
-    # This string can be used to set up experiments in a bash script.
-    # experiments=(
-    #   "exp3-1 0"
-    #   "exp3-2 0"
-    #   "exp3-3 0"
-    # )
-    design_table = read_csv(design_table_path)
-    experiments = [row["exp_id"] for row in design_table]
-    experiments_string = "experiments=(\n"
-    for i, experiment in enumerate(experiments):
-        cuda_device = f"cuda:{i % 2}"
-        # experiments_string += f'  "{experiment} {cuda_device}"\n'
-        experiments_string += f'  "{experiment}"\n'
-    experiments_string += ")"
-    return experiments_string
+def update_nested_dict(container: MutableMapping, keys: list[str], value) -> None:
+    current = container
+    for key in keys[:-1]:
+        if key not in current or not isinstance(current[key], MutableMapping):
+            current[key] = CommentedMap() if isinstance(current, CommentedMap) else {}
+        current = current[key]
+        if not isinstance(current, MutableMapping):  # pragma: no cover - guardrail
+            raise TypeError(f"Cannot assign nested key through non-mapping for '{'::'.join(keys)}'")
+    final_key = keys[-1]
+    current[final_key] = value
 
 
-def update_nested_dict(d, keys, value):
-    if len(keys) > 1:
-        if keys[0] not in d:
-            d[keys[0]] = {}
-        update_nested_dict(d[keys[0]], keys[1:], value)
-    else:
-        d[keys[0]] = value
+def generate_experiments_string(exp_ids: list[str]) -> str:
+    lines = ["experiments=("]
+    for exp_id in exp_ids:
+        lines.append(f'  "{exp_id}"')
+    lines.append(")")
+    return "\n".join(lines)
 
 
-def str_to_bool(s):
-    if s.lower() in ["yes", "true", "t", "y", "1"]:
-        return True
-    elif s.lower() in ["no", "false", "f", "n", "0"]:
-        return False
-    else:
-        raise ValueError("Cannot convert {} to a bool".format(s))
+def build_output_paths(base_dir: str, analysis_step: str, experiment_set: str) -> dict[str, str]:
+    configs_dir = os.path.join(base_dir, "configs", analysis_step, experiment_set)
+    csv_path = os.path.join(base_dir, "csvs", f"{experiment_set}.csv")
+    template_path = os.path.join(base_dir, f"{analysis_step}_template.yaml")
+    schema_path = os.path.join(base_dir, "schemas", f"{analysis_step}.yaml")
+    return {
+        "csv": csv_path,
+        "template": template_path,
+        "schema": schema_path,
+        "output": configs_dir,
+    }
 
 
-def generate_config_files(design_table_path, default_config_path, output_dir):
-    # Read design table and default config
-    design_table = read_csv(design_table_path)
-    default_config = read_yaml(default_config_path)
+def apply_post_processing(analysis_step: str, row_results) -> None:
+    if analysis_step != "preprocess":
+        return
 
-    for row in design_table:
-        # Extract the experiment ID
-        exp_id = row["exp_id"]
+    DEFAULT_DOWNSCALE = 64
+    for result in row_results:
+        visualize = result.final_values.get("tissue_extraction::visualize")
+        downscale = result.final_values.get("tissue_extraction::downscale_factor")
 
-        # Create directory for the config if it doesn't exist
-        exp_config_dir = os.path.join(output_dir, exp_id)
-        os.makedirs(exp_config_dir, exist_ok=True)
+        needs_default = False
+        if isinstance(downscale, (int, float)):
+            needs_default = downscale <= 0
+        elif downscale in (None, ""):
+            needs_default = True
 
-        # Copy template and update with values from the row
-        config = default_config.copy()
-        config["exp_id"] = exp_id  # Update exp_id from the CSV file
+        if visualize and needs_default:
+            result.final_values["tissue_extraction::downscale_factor"] = DEFAULT_DOWNSCALE
+            result.values_to_set["tissue_extraction::downscale_factor"] = DEFAULT_DOWNSCALE
 
-        for k, v in row.items():
-            print(f"Processing key: {k}, value: {v}")
-            keys = k.split("::")
-            if keys[-1] in ["wholecell_channel"]:
-                # transform string "phylodist,gaussian_noise,pca" into list of strings
-                v = v.split(",")
-                if keys[-1] == "assign_sizes":
-                    v = [float(i) for i in v]
-            elif keys[-1] in [
-                "patch_width",
-                "patch_height",
-                "patch_index",
-                "n_tissue",
-                "downscale_factor",
-                "min_area"
-            ]:
-                v = int(v)
-            elif keys[-1] == "output_dim":
-                try:
-                    v = int(v)
-                except ValueError:
-                    pass  # v is a string, leave it as is
-            elif keys[-1] == "hidden_dims":
-                v = ast.literal_eval(v)
-            elif keys[-1] in [
-                "generate_channel_stats", "visualize_whole_sample", 
-                "visualize_patches", "save_all_channel_patches", 
-                "visualize_segmentation", "save_segmentation_images", 
-                "save_segmentation_pickle", "save_disrupted_patches", 
-                "compute_metrics", "skip_viz", "enhance_contrast", "visualize", 
-                "segmentation_analysis"
-                ]:
-                v = str_to_bool(v)
-            elif v == "None":
-                v = None
-            else:
-                try:
-                    v = float(v)
-                except ValueError:
-                    pass  # v is a string, leave it as is
-            update_nested_dict(config, keys, v)
 
-        # Save the new config as a YAML file
-        config_filename = os.path.join(exp_config_dir, "config.yaml")
-        # print(config)
-        write_yaml(config, config_filename)
+def write_configs(row_results, template_config, output_dir: str) -> None:
+    os.makedirs(output_dir, exist_ok=True)
+    for result in row_results:
+        exp_dir = os.path.join(output_dir, result.exp_id)
+        os.makedirs(exp_dir, exist_ok=True)
 
-    print("Configuration files have been created.")
+        config_obj = copy.deepcopy(template_config)
+        config_obj["exp_id"] = result.exp_id
+
+        for full_key, value in result.values_to_set.items():
+            key_parts = full_key.split("::")
+            update_nested_dict(config_obj, key_parts, value)
+
+        write_yaml(config_obj, os.path.join(exp_dir, "config.yaml"))
+
+
+def main() -> int:
+    args = parse_args()
+
+    base_dir = args.base_dir
+    experiment_set = args.experiment_set
+    analysis_step = args.analysis_step
+
+    paths = build_output_paths(base_dir, analysis_step, experiment_set)
+    design_table_path = args.design_table or paths["csv"]
+    template_path = args.template_path or paths["template"]
+    schema_path = args.schema_path or paths["schema"]
+    output_dir = args.output_dir or paths["output"]
+
+    try:
+        design_rows, csv_columns = read_csv(design_table_path)
+    except FileNotFoundError:
+        print(f"CSV not found: {design_table_path}", file=sys.stderr)
+        return 1
+
+    try:
+        template_config = read_yaml(template_path)
+    except FileNotFoundError:
+        print(f"Template not found: {template_path}", file=sys.stderr)
+        return 1
+
+    if template_config is None:
+        print(f"Template is empty: {template_path}", file=sys.stderr)
+        return 1
+
+    try:
+        schema = load_schema(schema_path)
+    except SchemaLoadingError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    try:
+        schema.validate_columns(csv_columns)
+        row_results = schema.validate_rows(design_rows)
+    except SchemaValidationError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    if not row_results:
+        print("No rows found in design table; nothing to generate.")
+        return 0
+
+    apply_post_processing(analysis_step, row_results)
+
+    write_configs(row_results, template_config, output_dir)
+
+    exp_ids = [result.exp_id for result in row_results]
+    print(f"Generated {len(exp_ids)} configs under {output_dir}")
+    print(generate_experiments_string(exp_ids))
+    return 0
 
 
 if __name__ == "__main__":
-
-    generate_config_files(design_table_path, default_config_path, output_dir)
-    print(f"experiment_set_name: {experiment_set_name}")
-    print(generate_experiments_string(design_table_path))
+    sys.exit(main())

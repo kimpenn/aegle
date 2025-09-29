@@ -106,9 +106,30 @@ def fraction(img_bi, mask_bi):
 
 
 def get_indices_pandas(data):
-    d = data.ravel()
-    f = lambda x: np.unravel_index(x.index, data.shape)
-    return pd.Series(d).groupby(d).apply(f)
+    """Vectorized replacement for the original pandas.groupby-based helper.
+
+    Returns a pandas Series whose index contains the unique label values
+    present in ``data`` and whose values are tuples of coordinate arrays
+    (one array per dimension). The implementation avoids ``groupby`` so it
+    scales linearly with the number of elements while keeping per-label
+    Python overhead minimal.
+    """
+
+    arr = np.asarray(data)
+    if arr.size == 0:
+        return pd.Series(dtype=object)
+
+    flat = arr.ravel()
+
+    order = np.argsort(flat, kind="stable")
+    sorted_labels = flat[order]
+    labels, counts = np.unique(sorted_labels, return_counts=True)
+    split_points = np.cumsum(counts[:-1])
+    groups = np.split(order, split_points) if split_points.size else [order]
+
+    grouped_coords = [np.unravel_index(group, arr.shape) for group in groups]
+
+    return pd.Series(grouped_coords, index=labels)
 
 
 def thresholding(img):
@@ -445,13 +466,6 @@ def get_indices_sparse(data):
     data = data.astype(np.uint64)
     M = compute_M(data)
     return [np.unravel_index(row.data, data.shape) for row in M]
-
-
-def get_indices_pandas(data):
-    d = data.ravel()
-    f = lambda x: np.unravel_index(x.index, data.shape)
-    return pd.Series(d).groupby(d).apply(f)
-
 
 def get_indexed_mask(mask, boundary):
     boundary = boundary * 1

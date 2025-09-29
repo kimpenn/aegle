@@ -50,15 +50,7 @@ class CodexImage:
             "Initializing CodexImage object with provided configuration and arguments."
         )
         self.load_data()
-        # Set patching parameters
-        patching_config = self.config.get("patching", {})
-        self.patch_height = patching_config.get("patch_height", -1)
-        self.patch_width = patching_config.get("patch_width", -1)
-        self.patch_overlap = patching_config.get("patch_overlap", 0)
-        overlap_height = int(self.patch_height * self.patch_overlap)
-        overlap_width = int(self.patch_width * self.patch_overlap)
-        self.step_height = self.patch_height - overlap_height
-        self.step_width = self.patch_width - overlap_width
+        self._configure_patching()
 
         self.logger.info(
             f"""
@@ -72,6 +64,95 @@ class CodexImage:
         self.logger.info(f"Target channels: {self.target_channels_dict}")
         # self.channel_stats_df = self.calculate_channel_statistics()
         # save channel stats to a file
+
+    def _configure_patching(self):
+        """Derive patching parameters from configuration, handling missing values."""
+        patching_config = self.config.get("patching", {})
+        self.split_mode = patching_config.get("split_mode", "patches")
+
+        raw_patch_height = patching_config.get("patch_height")
+        raw_patch_width = patching_config.get("patch_width")
+        raw_overlap = patching_config.get("patch_overlap")
+        if raw_overlap is None:
+            raw_overlap = patching_config.get("overlap")
+
+        patch_height = self._normalize_patch_dimension(raw_patch_height, "patch_height")
+        patch_width = self._normalize_patch_dimension(raw_patch_width, "patch_width")
+        patch_overlap = self._normalize_overlap(raw_overlap)
+
+        # For modes that operate on the whole image, fall back to full dimensions.
+        if self.split_mode in {"full_image", "halves", "quarters"}:
+            if patch_height is None:
+                self.logger.debug(
+                    "patch_height not provided for %s mode; defaulting to image height %s",
+                    self.split_mode,
+                    self.img_height,
+                )
+            if patch_width is None:
+                self.logger.debug(
+                    "patch_width not provided for %s mode; defaulting to image width %s",
+                    self.split_mode,
+                    self.img_width,
+                )
+            patch_height = self.img_height
+            patch_width = self.img_width
+            patch_overlap = 0.0
+
+        if patch_height is None or patch_width is None:
+            error_msg = (
+                "patch_height and patch_width must be positive integers when split_mode is 'patches'. "
+                f"Received patch_height={raw_patch_height!r}, patch_width={raw_patch_width!r}, split_mode={self.split_mode!r}."
+            )
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if patch_overlap is None:
+            patch_overlap = 0.0
+
+        self.patch_height = patch_height
+        self.patch_width = patch_width
+        self.patch_overlap = patch_overlap
+
+        overlap_height = int(self.patch_height * self.patch_overlap)
+        overlap_width = int(self.patch_width * self.patch_overlap)
+        self.step_height = max(1, self.patch_height - overlap_height)
+        self.step_width = max(1, self.patch_width - overlap_width)
+
+    def _normalize_patch_dimension(self, value, name):
+        """Return a positive integer for patch dimensions or None if unset."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            try:
+                value = float(value)
+            except ValueError as exc:
+                raise ValueError(f"Invalid {name} value: {value!r}") from exc
+        if isinstance(value, (int, float)):
+            if value <= 0:
+                return None
+            return int(value)
+        raise TypeError(f"{name} must be numeric when provided; got {type(value).__name__}")
+
+    def _normalize_overlap(self, value):
+        """Validate overlap value and return a float in [0, 1)."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            try:
+                value = float(value)
+            except ValueError as exc:
+                raise ValueError(f"Invalid overlap value: {value!r}") from exc
+        if not isinstance(value, (int, float)):
+            raise TypeError(f"overlap must be numeric when provided; got {type(value).__name__}")
+        if value < 0 or value >= 1:
+            raise ValueError(f"overlap must be in the range [0, 1); received {value}")
+        return float(value)
 
     def calculate_channel_statistics(self):
         """

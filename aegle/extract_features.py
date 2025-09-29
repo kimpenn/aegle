@@ -68,8 +68,8 @@ def extract_features_v2_optimized(
         np.isin(nucleus_masks, nucleus_ids), nucleus_masks, 0
     ).astype(np.int32)
 
-    # Extract morphological features
-    props = regionprops_table(
+    # Extract nucleus morphology metrics (kept for backward compatibility)
+    nucleus_props = regionprops_table(
         nucleus_filterimg,
         properties=(
             "centroid",
@@ -79,11 +79,64 @@ def extract_features_v2_optimized(
             "area",
             "axis_major_length",
             "axis_minor_length",
+            "solidity",
             "label",
         ),
     )
-    props_df = pd.DataFrame(props)
+    props_df = pd.DataFrame(nucleus_props)
     props_df.set_index(props_df["label"], inplace=True)
+
+    nucleus_aliases = {
+        "eccentricity": "nucleus_eccentricity",
+        "perimeter": "nucleus_perimeter",
+        "convex_area": "nucleus_convex_area",
+        "area": "nucleus_area",
+        "axis_major_length": "nucleus_axis_major_length",
+        "axis_minor_length": "nucleus_axis_minor_length",
+        "solidity": "nucleus_solidity",
+        "centroid-0": "nucleus_centroid_y",
+        "centroid-1": "nucleus_centroid_x",
+    }
+    for legacy_name, alias in nucleus_aliases.items():
+        if legacy_name in props_df.columns:
+            props_df[alias] = props_df[legacy_name]
+
+    cell_filterimg = np.where(
+        np.isin(cell_masks, nucleus_ids), cell_masks, 0
+    ).astype(np.int32)
+
+    cell_props = regionprops_table(
+        cell_filterimg,
+        properties=(
+            "centroid",
+            "eccentricity",
+            "perimeter",
+            "convex_area",
+            "area",
+            "axis_major_length",
+            "axis_minor_length",
+            "solidity",
+            "label",
+        ),
+    )
+    cell_props_df = pd.DataFrame(cell_props)
+    if not cell_props_df.empty:
+        cell_props_df.set_index(cell_props_df["label"], inplace=True)
+        cell_props_df = cell_props_df.reindex(props_df.index, fill_value=float('nan'))
+        cell_aliases = {
+            "eccentricity": "cell_eccentricity",
+            "perimeter": "cell_perimeter",
+            "convex_area": "cell_convex_area",
+            "area": "cell_area",
+            "axis_major_length": "cell_axis_major_length",
+            "axis_minor_length": "cell_axis_minor_length",
+            "solidity": "cell_solidity",
+            "centroid-0": "cell_centroid_y",
+            "centroid-1": "cell_centroid_x",
+        }
+        for column, alias in cell_aliases.items():
+            if column in cell_props_df.columns:
+                props_df[alias] = cell_props_df[column]
 
     max_label = int(max(cell_masks.max(), nucleus_masks.max()))
 

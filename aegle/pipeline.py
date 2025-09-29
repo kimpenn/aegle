@@ -10,6 +10,8 @@ import shutil
 import time
 import matplotlib.pyplot as plt
 import cv2
+import pandas as pd
+import glob
 from typing import Dict, List, Optional, Tuple
 from skimage.segmentation import find_boundaries
 
@@ -103,9 +105,36 @@ def _select_representative_patches(
     seed: int = 17,
 ) -> List[Dict]:
     """Select a representative subset of patches for visualization."""
+
+    def has_content(info: Dict) -> bool:
+        """Return True when a patch contains meaningful segmentation content."""
+
+        def to_float(key: str) -> float:
+            value = info.get(key)
+            if value is None:
+                return 0.0
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+
+        cell_count = to_float("cell_count")
+        nucleus_count = to_float("nucleus_count")
+        if cell_count >= 200.0 or nucleus_count >= 200.0:
+            return True
+
+        unmatched_nuclei = to_float("unmatched_nuclei")
+        if unmatched_nuclei >= 200.0:
+            return True
+
+        unmatched_cells = to_float("unmatched_cells")
+        return unmatched_cells >= 200.0
+
     if target_count <= 0 or len(patch_infos) <= target_count:
         # Copy to avoid mutating original references
-        result = [info.copy() for info in patch_infos]
+        result = [info.copy() for info in patch_infos if has_content(info)]
+        if not result:
+            result = [info.copy() for info in patch_infos]
         for info in result:
             info.setdefault("selection_reason", "all")
         return result
@@ -119,6 +148,8 @@ def _select_representative_patches(
         candidates = []
         for info in info_copies:
             if info["seg_idx"] in selected_ids:
+                continue
+            if not has_content(info):
                 continue
             value = key_func(info)
             if value is None:
@@ -140,7 +171,9 @@ def _select_representative_patches(
         remaining = [info for info in info_copies if info["seg_idx"] not in selected_ids]
         if not remaining:
             return
-        chosen = rng.choice(remaining)
+        prioritized = [info for info in remaining if has_content(info)]
+        pool = prioritized if prioritized else remaining
+        chosen = rng.choice(pool)
         chosen["selection_reason"] = reason
         selected.append(chosen)
         selected_ids.add(chosen["seg_idx"])
@@ -155,10 +188,16 @@ def _select_representative_patches(
     if len(selected) < target_count:
         remaining = [info for info in info_copies if info["seg_idx"] not in selected_ids]
         remaining.sort(key=lambda info: info.get("cell_count", 0), reverse=True)
-        for info in remaining:
-            info.setdefault("selection_reason", "coverage")
-            selected.append(info)
-            selected_ids.add(info["seg_idx"])
+        prioritized = [info for info in remaining if has_content(info)]
+        fallback = [info for info in remaining if not has_content(info)]
+
+        for pool in (prioritized, fallback):
+            for info in pool:
+                info.setdefault("selection_reason", "coverage")
+                selected.append(info)
+                selected_ids.add(info["seg_idx"])
+                if len(selected) >= target_count:
+                    break
             if len(selected) >= target_count:
                 break
 
@@ -267,6 +306,32 @@ def _generate_patch_overview(
     return output_path
 
 
+def _load_cell_metadata_dataframe(profiling_out_dir: str) -> Optional[pd.DataFrame]:
+    """Load merged cell metadata if available, concatenating patch files as needed."""
+    combined_path = os.path.join(profiling_out_dir, 'cell_metadata.csv')
+    if os.path.exists(combined_path):
+        try:
+            return pd.read_csv(combined_path)
+        except Exception as exc:
+            logging.warning('Failed to read %s: %s', combined_path, exc)
+
+    patch_paths = sorted(glob.glob(os.path.join(profiling_out_dir, 'patch-*-cell_metadata.csv')))
+    if not patch_paths:
+        return None
+
+    frames: List[pd.DataFrame] = []
+    for path_str in patch_paths:
+        try:
+            frames.append(pd.read_csv(path_str))
+        except Exception as exc:
+            logging.warning('Failed to read %s: %s', path_str, exc)
+
+    if frames:
+        return pd.concat(frames, ignore_index=True)
+
+    return None
+
+
 LARGE_SAMPLE_PIXEL_THRESHOLD = 1_000_000
 PATCH_VIS_SIZE = 1024
 PATCH_VIS_MIN = 4
@@ -287,6 +352,8 @@ def run_pipeline(config, args):
     logging.info(f"Output directory set to: {args.out_dir}")
     copied_config_path = os.path.join(args.out_dir, "copied_config.yaml")
     shutil.copy(args.config_file, copied_config_path)
+
+    cell_metadata_df: Optional[pd.DataFrame] = None
 
     # ---------------------------------
     # (A) Load Image and Antibodies Data
@@ -384,6 +451,20 @@ def run_pipeline(config, args):
         metrics_path = os.path.join(args.out_dir, "seg_evaluation_metrics.pkl.gz")
         with gzip.open(metrics_path, "wb") as file_handle:
             pickle.dump(codex_patches.seg_evaluation_metrics, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    # ---------------------------------
+    # (D) Cell Profiling
+    # ---------------------------------
+    logging.info("Running cell profiling.")
+    run_cell_profiling(codex_patches, config, args)
+    logging.info("Cell profiling completed.")
+
+    profiling_out_dir = os.path.join(args.out_dir, "cell_profiling")
+    try:
+        cell_metadata_df = _load_cell_metadata_dataframe(profiling_out_dir)
+    except Exception as exc:
+        logging.warning(f"Failed to load cell metadata dataframe: {exc}")
+        cell_metadata_df = None
 
     # Segmentation Visualization
     if config.get("visualization", {}).get("visualize_segmentation", False):
@@ -1008,7 +1089,8 @@ def run_pipeline(config, args):
             t0 = time.perf_counter()
             fig = plot_cell_morphology_stats(
                 codex_patches.repaired_seg_res_batch,
-                viz_dir
+                viz_dir,
+                metadata_df=cell_metadata_df,
             )
             plt.close(fig)
             logging.info(
@@ -1023,23 +1105,6 @@ def run_pipeline(config, args):
             {k: round(v, 2) for k, v in timing_totals.items()},
         )
         logging.info("Segmentation visualization completed.")
-
-    # ---------------------------------
-    # (D) Cell Profiling
-    # ---------------------------------
-    logging.info("Running cell profiling.")
-    run_cell_profiling(codex_patches, config, args)
-    logging.info("Cell profiling completed.")
-    
-    # # Clean up intermediate patch files if using disk-based patches
-    # # This is done after cell profiling since profiling needs access to the "all" channel patches
-    # if codex_patches.is_using_disk_based_patches():
-    #     try:
-    #         codex_patches.cleanup_intermediate_patches()
-    #         logging.info("Intermediate patch files cleaned up successfully")
-    #     except Exception as e:
-    #         logging.warning(f"Failed to clean up intermediate patch files: {e}")
-
     # ---------------------------------
     # (E) Segmentation Analysis
     # ---------------------------------

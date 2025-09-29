@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the experiment set name
-EXP_SET_NAME="main_ft"  # "explore-eval-scores-dev" or "explore-eval-scores", "test0206_main"
+EXP_SET_NAME="main_ft_hb"  # 
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -23,7 +23,12 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
-  # "D10_0"
+  # "D10_0_0"
+  # "D10_0_1"
+  # "D10_0_2"
+  # "D10_0_3"  
+  # "D10_0_1_test"
+  # "D10_0"   
   # "D10_1"
   # "D10_2"
   # "D10_3"

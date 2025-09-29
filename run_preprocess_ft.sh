@@ -4,7 +4,7 @@
 MAX_CONCURRENT=${1:-2}
 
 # Define the experiment set name (same logic as in the main script)
-EXP_SET_NAME="preprocess/preprocess_ft"  # test0206_preprocess
+EXP_SET_NAME="preprocess/preprocess_ft_hb"  # test0206_preprocess
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -26,14 +26,14 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names (or ID's)
 declare -a EXPERIMENTS=(
-  # "D10"
+  "D10"
   "D11"
-  # "D13"
-  # "D14"
-  # "D15"
-  # "D16"
-  # "D17"
-  # "D18"
+  "D13"
+  "D14"
+  "D15"
+  "D16"
+  "D17"
+  "D18"
 )
 
 echo "Starting processing with maximum $MAX_CONCURRENT concurrent experiments"

@@ -1,0 +1,77 @@
+version: 1
+schema: preprocess
+strict_columns: true
+allow_missing_optionals: true
+
+defaults:
+  data_dir: /workspaces/codex-analysis/data
+
+fields:
+  - key: exp_id
+    type: str
+    required: true
+    regex: '^[A-Za-z0-9._-]+$'
+    description: Unique identifier for the experiment.
+
+  - key: data::file_name
+    type: path
+    required: true
+    allow_relative: false
+    path_exists: true
+    description: Absolute path to the raw input image.
+
+  - key: bftools::showinf_path
+    type: path
+    required: false
+    default: /workspaces/codex-analysis/bftools/showinf
+    path_exists: true
+    description: Path to the Bio-Formats showinf executable.
+
+  - key: tissue_extraction::output_dir
+    type: path
+    required: true
+    allow_relative: false
+    path_exists: false
+    description: Destination directory for tissue extraction outputs.
+
+  - key: tissue_extraction::visualize
+    type: bool
+    required: false
+    default: false
+    description: Whether to render visualization overlays during extraction.
+
+  - key: tissue_extraction::downscale_factor
+    type: int
+    required: false
+    min: 1
+    description: Preview downscale factor when auto-selecting tissues.
+
+  - key: tissue_extraction::n_tissue
+    type: int
+    required: false
+    min: 0
+    description: Maximum number of tissue regions to keep when auto-selecting.
+
+  - key: tissue_extraction::min_area
+    type: int
+    required: false
+    min: 0
+    description: Minimum area threshold for detected tissues (pixels at full resolution).
+
+  - key: tissue_extraction::manual_mask_json
+    type: path
+    required: false
+    allow_null: true
+    allow_relative: false
+    path_exists: true
+    description: Optional manual ROI annotations exported from napari (JSON).
+
+rules:
+  - type: require_if
+    if:
+      key: tissue_extraction::manual_mask_json
+      is_null: true
+    required_keys:
+        - tissue_extraction::downscale_factor
+        - tissue_extraction::n_tissue
+        - tissue_extraction::min_area

@@ -2,6 +2,7 @@
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 import logging
+import time
 from skimage.filters import threshold_mean  # , threshold_otsu
 from skimage.morphology import area_closing, closing, disk
 from skimage.segmentation import morphological_geodesic_active_contour as MorphGAC
@@ -26,6 +27,14 @@ def _process_single_patch(local_idx, patch_tensor, repaired_seg_res, original_se
         )
         return {"QualityScore": float("nan")}
 
+    verbose_logging = config.get("patching", {}).get("split_mode", "patches") != "patches"
+    if verbose_logging:
+        logging.info(
+            f"Starting detailed segmentation evaluation for patch {patch_label} (local index {local_idx}) with {cell_count} cells"
+        )
+
+    start_time = time.perf_counter()
+
     try:
         img_dict_single = {
             "name": f"img_{patch_label}",
@@ -44,9 +53,11 @@ def _process_single_patch(local_idx, patch_tensor, repaired_seg_res, original_se
             unit="nanometer",
             pixelsizex=pixel_size,
             pixelsizey=pixel_size,
+            log_progress=verbose_logging,
         )
+        elapsed_minutes = (time.perf_counter() - start_time) / 60.0
         logging.info(
-            f"Evaluated segmentation for patch {patch_label} (local index {local_idx}), cell count: {cell_count}, QualityScore: {res['QualityScore']}"
+            f"Evaluated segmentation for patch {patch_label} (local index {local_idx}), cell count: {cell_count}, QualityScore: {res['QualityScore']} (elapsed {elapsed_minutes:.2f} min)"
         )
         return res
     except Exception as e:
@@ -221,9 +232,13 @@ def evaluate_seg_single(
     unit="nanometer",
     pixelsizex=377.5,
     pixelsizey=377.5,
+    log_progress: bool = False,
 ):
     cell_mask = seg_res["cell"]
     nucleus_mask = seg_res["nucleus"]
+
+    if log_progress:
+        logging.info('Segmentation evaluation: preparing masks and computing foreground models')
 
     metric_mask = np.expand_dims(cell_matched_mask, 0)
     metric_mask = np.vstack((metric_mask, np.expand_dims(nucleus_matched_mask, 0)))
@@ -249,6 +264,8 @@ def evaluate_seg_single(
     fraction_background = background_pixel_num / (
         img_binary.shape[0] * img_binary.shape[1]
     )
+    if log_progress:
+        logging.info('Segmentation evaluation: foreground separation complete (background %.2f%%)', fraction_background * 100.0)
     # np.savetxt(output_dir / f"{img["name"]}_img_binary.txt.gz", img_binary)
     # fg_bg_image = Image.fromarray(img_binary.astype(np.uint8) * 255, mode="L").convert("1")
     # fg_bg_image.save(output_dir / (img["name"] + "img_binary.png"))
@@ -261,6 +278,8 @@ def evaluate_seg_single(
     ]
     metrics = {}
     for channel in range(metric_mask.shape[0]):
+        if log_progress:
+            logging.info('Segmentation evaluation: computing metrics for %s', channel_names[channel])
         current_mask = metric_mask[channel]
         mask_binary = np.sign(current_mask)
         metrics[channel_names[channel]] = {}
@@ -360,6 +379,8 @@ def evaluate_seg_single(
     except:
         quality_score = float("nan")
     metrics["QualityScore"] = quality_score
+    if log_progress:
+        logging.info('Segmentation evaluation: quality score computed: %.3f', quality_score)
 
     # return metrics, fraction_background, 1 / (background_CV + 1), background_PCA
     return metrics

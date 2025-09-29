@@ -391,103 +391,169 @@ def create_quality_heatmaps(
     return figures
 
 
+
+# Utility to prepare morphology data for visualization
+
+def _prepare_morphology_dataframe(
+    segmentation_results: List[Dict],
+    metadata_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    if metadata_df is not None:
+        return metadata_df.copy()
+
+    records: List[pd.DataFrame] = []
+    for seg_result in segmentation_results:
+        if not seg_result:
+            continue
+
+        cell_mask = seg_result.get('cell_matched_mask', seg_result.get('cell'))
+        nucleus_mask = seg_result.get('nucleus_matched_mask', seg_result.get('nucleus'))
+        if cell_mask is None or nucleus_mask is None:
+            continue
+
+        cell_mask = np.asarray(cell_mask)
+        nucleus_mask = np.asarray(nucleus_mask)
+        if cell_mask.size == 0 or nucleus_mask.size == 0:
+            continue
+
+        matched_ids = np.unique(cell_mask)
+        matched_ids = matched_ids[matched_ids > 0]
+        if matched_ids.size == 0:
+            continue
+
+        cell_filtered = np.where(np.isin(cell_mask, matched_ids), cell_mask, 0).astype(np.int32)
+        nucleus_filtered = np.where(np.isin(nucleus_mask, matched_ids), nucleus_mask, 0).astype(np.int32)
+
+        cell_props = measure.regionprops_table(
+            cell_filtered,
+            properties=('area', 'eccentricity', 'solidity', 'label'),
+        )
+        nucleus_props = measure.regionprops_table(
+            nucleus_filtered,
+            properties=('area', 'label'),
+        )
+
+        if not len(cell_props.get('label', [])):
+            continue
+
+        cell_df = pd.DataFrame(cell_props).set_index('label')
+        if len(nucleus_props.get('label', [])):
+            nucleus_df = pd.DataFrame(nucleus_props).set_index('label')
+        else:
+            nucleus_df = pd.DataFrame()
+
+        combined = pd.DataFrame(index=cell_df.index)
+        if 'area' in cell_df:
+            combined['cell_area'] = cell_df['area']
+        if 'eccentricity' in cell_df:
+            combined['cell_eccentricity'] = cell_df['eccentricity']
+        if 'solidity' in cell_df:
+            combined['cell_solidity'] = cell_df['solidity']
+        if not nucleus_df.empty and 'area' in nucleus_df:
+            combined['nucleus_area'] = nucleus_df.reindex(combined.index)['area']
+
+        records.append(combined)
+
+    if not records:
+        return pd.DataFrame()
+
+    return pd.concat(records, axis=0, ignore_index=False)
+
+
 def plot_cell_morphology_stats(
     segmentation_results: List[Dict],
     output_dir: str,
+    metadata_df: Optional[pd.DataFrame] = None,
     figsize: Tuple[int, int] = (15, 10)
 ) -> plt.Figure:
-    """
-    Create comprehensive morphology statistics plots.
-    
-    Args:
-        segmentation_results: List of segmentation results
-        output_dir: Directory to save figure
-        figsize: Figure size
-        
-    Returns:
-        matplotlib figure
-    """
-    # Collect all morphology data
-    all_areas = []
-    all_eccentricities = []
-    all_solidities = []
-    all_nuc_cell_ratios = []
-    
-    for seg_result in segmentation_results:
-        if seg_result is None:
-            continue
-            
-        cell_mask = seg_result.get('cell_matched_mask', seg_result.get('cell'))
-        nucleus_mask = seg_result.get('nucleus_matched_mask', seg_result.get('nucleus'))
-        
-        # Get matched pairs
-        cell_props = {r.label: r for r in measure.regionprops(cell_mask)}
-        nuc_props = {r.label: r for r in measure.regionprops(nucleus_mask)}
-        
-        for cell_id, cell_region in cell_props.items():
-            if cell_id == 0:
-                continue
-                
-            all_areas.append(cell_region.area)
-            all_eccentricities.append(cell_region.eccentricity)
-            all_solidities.append(cell_region.solidity)
-            
-            # Find corresponding nucleus
-            nucleus_overlap = nucleus_mask[cell_mask == cell_id]
-            nucleus_ids = np.unique(nucleus_overlap[nucleus_overlap > 0])
-            
-            if len(nucleus_ids) == 1:
-                nuc_id = nucleus_ids[0]
-                if nuc_id in nuc_props:
-                    ratio = nuc_props[nuc_id].area / cell_region.area
-                    all_nuc_cell_ratios.append(ratio)
-    
-    # Create subplots
-    fig, axes = plt.subplots(2, 2, figsize=figsize)
-    
-    # Cell area distribution
-    axes[0, 0].hist(all_areas, bins=50, edgecolor='black', alpha=0.7)
-    axes[0, 0].set_xlabel('Cell Area (pixels)')
-    axes[0, 0].set_ylabel('Count')
-    axes[0, 0].set_title('Cell Area Distribution')
-    axes[0, 0].axvline(np.median(all_areas), color='red', linestyle='--', 
-                       label=f'Median: {np.median(all_areas):.1f}')
-    axes[0, 0].legend()
-    
-    # Eccentricity distribution
-    axes[0, 1].hist(all_eccentricities, bins=30, edgecolor='black', alpha=0.7)
-    axes[0, 1].set_xlabel('Eccentricity (0=circle, 1=line)')
-    axes[0, 1].set_ylabel('Count')
-    axes[0, 1].set_title('Cell Eccentricity Distribution')
-    
-    # Solidity distribution
-    axes[1, 0].hist(all_solidities, bins=30, edgecolor='black', alpha=0.7)
-    axes[1, 0].set_xlabel('Solidity (0=irregular, 1=convex)')
-    axes[1, 0].set_ylabel('Count')
-    axes[1, 0].set_title('Cell Solidity Distribution')
-    
-    # Nucleus/Cell ratio
-    axes[1, 1].hist(all_nuc_cell_ratios, bins=30, edgecolor='black', alpha=0.7)
-    axes[1, 1].set_xlabel('Nucleus/Cell Area Ratio')
-    axes[1, 1].set_ylabel('Count')
-    axes[1, 1].set_title('Nucleus to Cell Ratio Distribution')
-    axes[1, 1].axvline(np.median(all_nuc_cell_ratios), color='red', linestyle='--',
-                       label=f'Median: {np.median(all_nuc_cell_ratios):.2f}')
-    axes[1, 1].legend()
-    
-    plt.tight_layout()
-    
-    # Save figure
-    fig.savefig(os.path.join(output_dir, 'cell_morphology_stats.png'), 
-               dpi=150, bbox_inches='tight')
-    
-    # Log statistics
-    logger.info(f"Total cells analyzed: {len(all_areas)}")
-    logger.info(f"Mean cell area: {np.mean(all_areas):.1f} ± {np.std(all_areas):.1f} pixels²")
-    logger.info(f"Mean nucleus/cell ratio: {np.mean(all_nuc_cell_ratios):.3f} ± {np.std(all_nuc_cell_ratios):.3f}")
-    
-    return fig
+    """Create morphology statistics plots using precomputed metadata when available."""
 
+    df = _prepare_morphology_dataframe(segmentation_results, metadata_df)
+    if df.empty:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, 'No morphology data available', ha='center', va='center', fontsize=12)
+        ax.axis('off')
+        fig.savefig(os.path.join(output_dir, 'cell_morphology_stats.png'), dpi=150, bbox_inches='tight')
+        logger.warning('No morphology data available for visualization.')
+        return fig
+
+    cell_area_col = 'cell_area' if 'cell_area' in df.columns else 'area'
+    cell_ecc_col = 'cell_eccentricity' if 'cell_eccentricity' in df.columns else 'eccentricity'
+    cell_solidity_col = 'cell_solidity' if 'cell_solidity' in df.columns else 'solidity'
+    nucleus_area_col = 'nucleus_area' if 'nucleus_area' in df.columns else None
+
+    areas = df[cell_area_col].astype(float).dropna().to_numpy()
+    eccs = df[cell_ecc_col].astype(float).dropna().to_numpy()
+    solidities = df[cell_solidity_col].astype(float).dropna().to_numpy()
+
+    ratios = np.array([])
+    if nucleus_area_col:
+        valid = df[[nucleus_area_col, cell_area_col]].replace(0, np.nan).dropna()
+        if not valid.empty:
+            with np.errstate(divide='ignore', invalid='ignore'):
+                ratios = (valid[nucleus_area_col] / valid[cell_area_col]).to_numpy()
+            ratios = ratios[np.isfinite(ratios)]
+
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+
+    def _plot_distribution(ax, data, bins, xlabel, title, median_fmt='{:.1f}'):
+        if data.size == 0:
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', fontsize=10)
+            ax.axis('off')
+            return
+        ax.hist(data, bins=bins, edgecolor='black', alpha=0.7)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel('Count')
+        ax.set_title(title)
+        median_val = np.median(data)
+        ax.axvline(median_val, color='red', linestyle='--', label=f'Median: {median_fmt.format(median_val)}')
+        ax.legend()
+
+    _plot_distribution(
+        axes[0, 0],
+        areas,
+        bins=50,
+        xlabel='Cell Area (pixels)',
+        title='Cell Area Distribution',
+    )
+
+    _plot_distribution(
+        axes[0, 1],
+        eccs,
+        bins=30,
+        xlabel='Eccentricity (0=circle, 1=line)',
+        title='Cell Eccentricity Distribution',
+        median_fmt='{:.2f}',
+    )
+
+    _plot_distribution(
+        axes[1, 0],
+        solidities,
+        bins=30,
+        xlabel='Solidity (0=irregular, 1=convex)',
+        title='Cell Solidity Distribution',
+        median_fmt='{:.2f}',
+    )
+
+    _plot_distribution(
+        axes[1, 1],
+        ratios,
+        bins=30,
+        xlabel='Nucleus/Cell Area Ratio',
+        title='Nucleus to Cell Ratio Distribution',
+        median_fmt='{:.2f}',
+    )
+
+    plt.tight_layout()
+    fig.savefig(os.path.join(output_dir, 'cell_morphology_stats.png'), dpi=150, bbox_inches='tight')
+
+    logger.info('Total cells analyzed: %d', areas.size)
+    if areas.size:
+        logger.info('Mean cell area: %.1f ± %.1f pixels²', np.mean(areas), np.std(areas))
+    if ratios.size:
+        logger.info('Mean nucleus/cell ratio: %.3f ± %.3f', np.mean(ratios), np.std(ratios))
+
+    return fig
 
 def visualize_segmentation_errors(
     image: np.ndarray,

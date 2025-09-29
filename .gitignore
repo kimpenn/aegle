@@ -6,6 +6,7 @@ aegle/test.ipynb
 aegle_agents
 notebooks/for_ashna/
 aegle_patch_viewer/
+debug_synthetic_previews
 *.pkl
 *.csv
 notebooks

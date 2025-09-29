@@ -1,0 +1,292 @@
+version: 1
+schema: main
+strict_columns: true
+allow_missing_optionals: true
+
+defaults:
+  data_dir: /workspaces/codex-analysis/data
+  segmentation_model_path: /workspaces/codex-analysis/data/deepcell/v7/MultiplexSegmentation
+
+fields:
+  - key: exp_id
+    type: str
+    required: true
+    regex: '^[A-Za-z0-9._-]+$'
+    description: Unique identifier for the experiment.
+
+  - key: data::file_name
+    type: path
+    required: true
+    allow_relative: false
+    path_exists: true
+    description: Absolute path to the main CODEX image.
+
+  - key: data::antibodies_file
+    type: path
+    required: true
+    allow_relative: false
+    path_exists: true
+    description: Absolute path to the TSV of antibody definitions.
+
+  - key: data::image_mpp
+    type: float
+    required: true
+    min: 0.0001
+    description: Microns per pixel for the input image.
+
+  - key: data::generate_channel_stats
+    type: bool
+    required: false
+    default: true
+    description: Whether to compute channel-level statistics during preprocessing.
+
+  - key: channels::nuclear_channel
+    type: str
+    required: true
+    description: Name of the nuclear marker channel.
+
+  - key: channels::wholecell_channel
+    type: list[str]
+    required: true
+    delimiter: ','
+    allow_null: false
+    description: Comma-separated list of whole-cell marker channels.
+
+  - key: patching::split_mode
+    type: str
+    required: true
+    default: full_image
+    choices:
+      - full_image
+      - halves
+      - quarters
+      - patches
+    description: Strategy used to split the image prior to patch extraction.
+
+  - key: patching::split_direction
+    type: str
+    required: false
+    allow_null: true
+    choices:
+      - vertical
+      - horizontal
+    description: Direction for splitting when split_mode is halves.
+
+  - key: patching::patch_height
+    type: int
+    required: false
+    allow_null: true
+    default: -1
+    description: Patch height (pixels). Positive when split_mode is patches; otherwise -1.
+
+  - key: patching::patch_width
+    type: int
+    required: false
+    allow_null: true
+    default: -1
+    description: Patch width (pixels). Positive when split_mode is patches; otherwise -1.
+
+  - key: patching::overlap
+    type: float
+    required: false
+    allow_null: true
+    default: 0.1
+    min: 0.0
+    max: 0.9
+    description: Fractional overlap between adjacent patches for split_mode == patches.
+
+  - key: visualization::visualize_patches
+    type: bool
+    required: false
+    default: false
+    description: Enable saving RGB visualizations of patches (only for split_mode == patches).
+
+  - key: visualization::save_all_channel_patches
+    type: bool
+    required: false
+    default: false
+    description: TODO confirm default; saves raw multi-channel patches when true.
+
+  - key: visualization::visualize_segmentation
+    type: bool
+    required: false
+    default: true
+    description: Whether to save segmentation overlays.
+
+  - key: patch_qc::non_zero_perc_threshold
+    type: float
+    required: false
+    default: 0.05
+    min: 0.0
+    max: 1.0
+    description: Minimum non-zero pixel fraction required for a patch to pass QC.
+
+  - key: patch_qc::mean_intensity_threshold
+    type: float
+    required: false
+    default: 1.0
+    min: 0.0
+    description: Minimum mean intensity required for a patch to pass QC.
+
+  - key: patch_qc::std_intensity_threshold
+    type: float
+    required: false
+    default: 1.0
+    min: 0.0
+    description: Minimum standard deviation required for a patch to pass QC.
+
+  - key: segmentation::model_path
+    type: path
+    required: false
+    allow_relative: false
+    default: /workspaces/codex-analysis/data/deepcell/v7/MultiplexSegmentation
+    path_exists: true
+    description: Absolute path to the segmentation model directory.
+
+  - key: segmentation::save_segmentation_images
+    type: bool
+    required: false
+    default: true
+    description: Save segmentation masks as images when true.
+
+  - key: segmentation::save_segmentation_pickle
+    type: bool
+    required: false
+    default: true
+    description: Persist segmentation results as serialized pickle.
+
+  - key: segmentation::segmentation_pickle_compression
+    type: str
+    required: false
+    default: gzip
+    choices:
+      - none
+      - gzip
+      - bz2
+      - lzma
+    description: Compression backend for segmentation pickle artifacts.
+
+  - key: segmentation::segmentation_pickle_compression_level
+    type: int
+    required: false
+    default: 5
+    min: 1
+    max: 9
+    description: Compression level used when writing segmentation pickle artifacts.
+
+  - key: segmentation::segmentation_analysis
+    type: bool
+    required: false
+    default: false
+    description: Run downstream segmentation analysis routines when true.
+
+  - key: segmentation::density_analysis::calculate_global_density
+    type: bool
+    required: false
+    default: false
+    description: Toggle global density calculation in segmentation analysis.
+
+  - key: segmentation::density_analysis::calculate_local_density
+    type: bool
+    required: false
+    default: false
+    description: Toggle local density calculation in segmentation analysis.
+
+  - key: testing::data_disruption::type
+    type: str
+    required: false
+    allow_null: true
+    default: null
+    choices:
+      - downsampling
+      - gaussian
+    description: Optional data corruption applied for stress testing.
+
+  - key: testing::data_disruption::level
+    type: float
+    required: false
+    allow_null: true
+    default: null
+    description: Intensity of data disruption when enabled.
+
+  - key: testing::data_disruption::save_disrupted_patches
+    type: bool
+    required: false
+    allow_null: true
+    default: null
+    description: Persist disrupted patches for inspection when true.
+
+  - key: evaluation::compute_metrics
+    type: bool
+    required: false
+    default: true
+    description: Run evaluation metrics post segmentation.
+
+  - key: report::generate_report
+    type: bool
+    required: false
+    default: true
+    description: Produce HTML summary report after pipeline completion.
+
+  - key: report::report_format
+    type: str
+    required: false
+    default: html
+    choices:
+      - html
+      - pdf
+    description: Output format of the generated report.
+
+rules:
+  - type: require_if
+    if:
+      key: patching::split_mode
+      equals: halves
+    required_keys:
+        - patching::split_direction
+
+  - type: forbid_if
+    if:
+      key: patching::split_mode
+      not_in:
+        - halves
+    forbidden_when_set:
+        - patching::split_direction
+
+  - type: require_if
+    if:
+      key: patching::split_mode
+      equals: patches
+    required_keys:
+        - patching::patch_height
+        - patching::patch_width
+        - patching::overlap
+
+  - type: range_if
+    key: patching::patch_height
+    if:
+      key: patching::split_mode
+      equals: patches
+    min: 1
+
+  - type: range_if
+    key: patching::patch_width
+    if:
+      key: patching::split_mode
+      equals: patches
+    min: 1
+
+  - type: range_if
+    key: patching::overlap
+    if:
+      key: patching::split_mode
+      equals: patches
+    min: 0.0
+    max: 0.9
+
+  - type: require_if
+    if:
+      key: visualization::visualize_patches
+      equals: true
+    required_values:
+        patching::split_mode: patches

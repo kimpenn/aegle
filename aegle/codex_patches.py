@@ -546,8 +546,12 @@ class CodexPatches:
             patches_file_name = os.path.join(
                 self.args.out_dir, "all_channel_patches.npy"
             )
-            np.save(patches_file_name, self.all_channel_patches)
-            self.logger.info(f"Saved all_channel_patches to {patches_file_name}")
+            compressed_file_name = f"{patches_file_name}.gz"
+            with gzip.open(compressed_file_name, "wb") as file_handle:
+                np.save(file_handle, self.all_channel_patches)
+            self.logger.info(
+                f"Saved all_channel_patches to {compressed_file_name} using gzip compression"
+            )
 
     def add_disruptions(self, disruption_type, disruption_level):
         """

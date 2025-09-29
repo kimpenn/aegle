@@ -777,10 +777,11 @@ class PipelineReportGenerator:
         cell_metadata_path = self.output_dir / "cell_profiling" / "cell_metadata.csv"
         if cell_metadata_path.exists():
             meta_df = pd.read_csv(cell_metadata_path)
-            if 'area' in meta_df:
-                stats['mean_cell_area'] = meta_df['area'].mean()
-                stats['median_cell_area'] = meta_df['area'].median()
-                stats['cell_area_std'] = meta_df['area'].std()
+            area_col = 'cell_area' if 'cell_area' in meta_df.columns else 'area'
+            if area_col in meta_df:
+                stats['mean_cell_area'] = meta_df[area_col].mean()
+                stats['median_cell_area'] = meta_df[area_col].median()
+                stats['cell_area_std'] = meta_df[area_col].std()
                 self._convert_cell_area_units(stats)
             
         # Load evaluation metrics if available
