@@ -13,6 +13,7 @@ setup(
         "matplotlib",
         "Pillow",
         "pyyaml",
+        "zstandard",
     ],
     author="Da Kuang",
     author_email="kuangda@seas.upenn.edu",

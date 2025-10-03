@@ -79,13 +79,11 @@ def run_cell_profiling(codex_patches, config, args):
             continue
 
         # Get the full multi-channel patch from all channels (or extracted channels)
+        patch_img = codex_patches.get_all_channel_patch(patch_idx)
         if codex_patches.is_using_disk_based_patches():
-            # Load patch from disk
-            patch_img = codex_patches.load_patch_from_disk(patch_idx, "all")
-            logger.info(f"Loaded patch {patch_idx} from disk for profiling with shape: {patch_img.shape}")
-        else:
-            # Load from memory
-            patch_img = codex_patches.all_channel_patches[patch_idx]
+            logger.info(
+                f"Loaded patch {patch_idx} from disk for profiling with shape: {patch_img.shape}"
+            )
 
         # Build the image_dict for extract_features_v2
         # Each entry is {antibody_name: 2D image}

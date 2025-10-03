@@ -87,7 +87,7 @@ segmentation:
 
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
   save_segmentation_pickle: true
-  segmentation_pickle_compression: gzip      # options: none|gzip|bz2|lzma
+  segmentation_pickle_compression: zstd      # options: none|gzip|bz2|lzma|zstd
   segmentation_pickle_compression_level: 5   # optional, honours backend limits
   # If True, run segmentation analysis
   segmentation_analysis: false

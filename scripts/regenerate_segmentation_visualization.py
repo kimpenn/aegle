@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import gzip
 import json
 import logging
 import math
@@ -16,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tifffile
 import yaml
+import zstandard as zstd
 
 import sys
 
@@ -68,11 +68,11 @@ class VisualizationRegenerator:
             return yaml.safe_load(f) or {}
 
     def _load_extracted_image(self) -> np.ndarray:
-        array_path = self.output_dir / "extracted_channel_patches.npy.gz"
+        array_path = self.output_dir / "extracted_channel_patches.npy.zst"
         if not array_path.exists():
             raise FileNotFoundError(f"Missing extracted_channel_patches at {array_path}")
-        with gzip.open(array_path, "rb") as f:
-            data = np.load(f)
+        with zstd.open(array_path, "rb") as f:
+            data = np.load(f, allow_pickle=False)
         if data.ndim == 3:
             return data
         if data.ndim == 4:

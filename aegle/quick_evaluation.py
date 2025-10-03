@@ -53,7 +53,10 @@ def run_quick_evaluation(
     # Filter for informative patches
     informative_idx = patches_metadata_df["is_informative"] == True
     logging.info(f"Number of informative patches: {informative_idx.sum()}")
-    image_ndarray = codex_patches.all_channel_patches[informative_idx]
+    if codex_patches.is_using_disk_based_patches():
+        raise ValueError("Quick evaluation requires in-memory all_channel_patches.")
+
+    image_ndarray = codex_patches.get_all_channel_patches()[informative_idx]
     logging.info(f"image_ndarray.shape: {image_ndarray.shape}")
 
     output_dir = config.get("output_dir", "./output")

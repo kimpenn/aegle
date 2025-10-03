@@ -169,7 +169,10 @@ def run_segmentation_analysis(codex_patches: CodexPatches, config: dict, args=No
     # Filter for informative patches
     informative_idx = patches_metadata_df["is_informative"]
     logger.info(f"Number of informative patches: {informative_idx.sum()}")
-    image_ndarray = codex_patches.all_channel_patches[informative_idx]
+    if codex_patches.is_using_disk_based_patches():
+        raise ValueError("Segmentation analysis does not support disk-based patches; please run with in-memory patches.")
+
+    image_ndarray = codex_patches.get_all_channel_patches()[informative_idx]
     logger.info(f"image_ndarray.shape: {image_ndarray.shape}")
 
     # --- Matched fraction ------------------------------------------

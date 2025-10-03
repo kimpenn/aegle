@@ -3,6 +3,7 @@
 import os
 import sys
 import logging
+import gc
 import numpy as np
 import pandas as pd
 import tifffile as tiff
@@ -484,3 +485,10 @@ class CodexImage:
         self.logger.info(
             f"Extended extracted channel image shape: {self.extended_extracted_channel_image.shape}"
         )
+
+        # Release references to the original arrays now that the extended
+        # versions are materialised. This keeps only one copy of each large
+        # tensor in memory before segmentation begins.
+        self.all_channel_image = None
+        self.extracted_channel_image = None
+        gc.collect()

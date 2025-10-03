@@ -1585,7 +1585,15 @@ class PipelineReportGenerator:
                 <div class="metric-label">Valid Patches</div>
             </div>
             <div class="metric">
-                <div class="metric-value">{{ "%.2f"|format(segmentation_stats.mean_quality_score|default(0)) }}</div>
+                {% set quality_score = segmentation_stats.mean_quality_score if segmentation_stats and ('mean_quality_score' in segmentation_stats) else None %}
+                <div class="metric-value">
+                    {# quality_score == quality_score filters out NaN values #}
+                    {% if quality_score is not none and quality_score == quality_score %}
+                        {{ "%.2f"|format(quality_score) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </div>
                 <div class="metric-label">Quality Score</div>
             </div>
             {% if segmentation_stats.matched_fraction %}
@@ -1729,7 +1737,15 @@ class PipelineReportGenerator:
             </tr>
             <tr>
                 <td>Quality Score</td>
-                <td>{{ "%.3f"|format(segmentation_stats.mean_quality_score|default(0)) }}</td>
+                {% set quality_score = segmentation_stats.mean_quality_score if segmentation_stats and ('mean_quality_score' in segmentation_stats) else None %}
+                <td>
+                    {# Repeat the NaN guard to avoid printing misleading values #}
+                    {% if quality_score is not none and quality_score == quality_score %}
+                        {{ "%.3f"|format(quality_score) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
             </tr>
         </table>
         {% if segmentation_results_details.morphology_image %}
@@ -1903,6 +1919,12 @@ class PipelineReportGenerator:
                 </div>
             </div>
             {% endif %}
+            <div class="segmentation-note">
+                <strong>Visualization notes:</strong>
+                Segmentation overlays and mask panels reuse the extracted DAPI channel as a grayscale background.
+                The channel is min-max normalised per patch, so low-intensity regions appear dark while nuclei remain bright.
+                Mask views show the same background at 50% transparency beneath the coloured masks to keep boundaries visible.
+            </div>
         </div>
 
         {% if figures.quality_dashboard %}

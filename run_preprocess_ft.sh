@@ -12,6 +12,7 @@ ROOT_DIR="/workspaces/codex-analysis"
 # Define other variables for the two run scripts
 RUN_TISSUE_FILE="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/scripts/run_extract_tissue.sh"
 RUN_ANTIBODY_FILE="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/scripts/run_extract_antibody.sh"
+RUN_OVERVIEW_FILE="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/scripts/run_generate_overview.sh"
 
 DATA_DIR="${ROOT_DIR}/data"
 CONFIG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/exps/configs/${EXP_SET_NAME}"
@@ -68,6 +69,17 @@ run_experiment() {
       "${CONFIG_DIR}" \
       "${OUT_DIR}"
     echo "Antibody extraction for ${EXP_ID} completed."
+
+    # (3) Overview Thumbnails
+    echo "Generating annotation overviews for ${EXP_ID}"
+    time bash "${RUN_OVERVIEW_FILE}" \
+      "${EXP_SET_NAME}" \
+      "${EXP_ID}" \
+      "${ROOT_DIR}" \
+      "${DATA_DIR}" \
+      "${CONFIG_DIR}" \
+      "${OUT_DIR}"
+    echo "Overview generation for ${EXP_ID} completed."
 
   } > "$LOG_FILE" 2>&1
   

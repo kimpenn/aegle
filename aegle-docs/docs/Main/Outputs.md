@@ -22,7 +22,7 @@ experiment_output_directory/
 │   ├── patches_rgb/                   # Individual patch visualizations
 │   └── segmentation_overlays/         # Segmentation mask overlays
 ├── channel_stats.csv                 # Channel-level statistics
-├── extracted_channel_patches.npy.gz     # Processed image patches
+├── extracted_channel_patches.npy.zst     # Processed image patches
 ├── original_seg_res_batch.pickle     # Raw segmentation results
 ├── matched_seg_res_batch.pickle      # Processed segmentation results
 ├── patches_metadata.csv              # Patch-level metadata and QC
@@ -96,7 +96,7 @@ The `cell_profiling/` directory contains the primary analytical outputs for sing
 **File Size**: Small (< 10KB)
 **Usage**: Quality control, intensity normalization, channel selection
 
-#### `extracted_channel_patches.npy.gz`
+#### `extracted_channel_patches.npy.zst`
 
 **Purpose**: Processed image patches ready for segmentation
 **Format**: NumPy array with dimensions `(num_patches, patch_height, patch_width, num_channels)`

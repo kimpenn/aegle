@@ -21,7 +21,7 @@ output_directory/
 ├── cell_profiling/              # Single-cell data
 │   ├── patch-0-cell_by_marker.csv
 │   └── patch-0-cell_metadata.csv
-├── extracted_channel_patches.npy.gz   # Processed image patches
+├── extracted_channel_patches.npy.zst   # Processed image patches
 ├── original_seg_res_batch.pickle   # Raw segmentation results
 ├── matched_seg_res_batch.pickle    # Processed segmentation results
 ├── patches_metadata.csv            # Patch-level metadata

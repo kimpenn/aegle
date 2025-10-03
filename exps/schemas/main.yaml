@@ -37,7 +37,7 @@ fields:
   - key: data::generate_channel_stats
     type: bool
     required: false
-    default: true
+    default: false
     description: Whether to compute channel-level statistics during preprocessing.
 
   - key: channels::nuclear_channel
@@ -105,7 +105,21 @@ fields:
     type: bool
     required: false
     default: false
-    description: TODO confirm default; saves raw multi-channel patches when true.
+    description: When true, retain a copy of all-channel patches in the run output directory.
+
+  - key: visualization::cache_all_channel_patches
+    type: bool
+    required: false
+    default: true
+    description: Write all-channel patches to temporary compressed storage for reuse during the pipeline.
+
+  - key: visualization::all_channel_compression_threads
+    type: int
+    required: false
+    allow_null: true
+    default: 0
+    min: -1
+    description: Number of threads for compressing all-channel patches (0=auto, -1=all cores).
 
   - key: visualization::visualize_segmentation
     type: bool
@@ -158,12 +172,13 @@ fields:
   - key: segmentation::segmentation_pickle_compression
     type: str
     required: false
-    default: gzip
+    default: zstd
     choices:
       - none
       - gzip
       - bz2
       - lzma
+      - zstd
     description: Compression backend for segmentation pickle artifacts.
 
   - key: segmentation::segmentation_pickle_compression_level
@@ -173,6 +188,14 @@ fields:
     min: 1
     max: 9
     description: Compression level used when writing segmentation pickle artifacts.
+
+  - key: segmentation::segmentation_pickle_compression_threads
+    type: int
+    required: false
+    allow_null: true
+    default: 0
+    min: -1
+    description: Threads for segmentation pickle compression (0=auto, -1=all cores).
 
   - key: segmentation::segmentation_analysis
     type: bool

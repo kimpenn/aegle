@@ -2,11 +2,14 @@
 
 import os
 import sys
-import gzip
 import logging
+import gc
+import gzip
+import zstandard as zstd
 import numpy as np
 import pandas as pd
 import cv2
+import tempfile
 from skimage.io import imsave
 from skimage.segmentation import find_boundaries
 from typing import Dict, List, Optional, Tuple
@@ -47,12 +50,20 @@ class CodexPatches:
         self.extracted_channel_patches = None
         self.noisy_extracted_channel_patches = None
         self.patches_metadata = None
+        self.all_channel_patches_path = None
+        self.extracted_channel_patches_path = None
+        self.extended_image_shape = None
 
         self.valid_patches = None
         self.repaired_seg_res_batch = None
         self.original_seg_res_batch = None
 
         self.tif_image_details = codex_image.tif_image_details
+
+        vis_config = self.config.get("visualization", {})
+        self.save_all_channel_patches_flag = vis_config.get("save_all_channel_patches", False)
+        self.cache_all_channel_patches = vis_config.get("cache_all_channel_patches", True)
+        self.all_channel_compression_threads = vis_config.get("all_channel_compression_threads", 0)
 
         self.generate_patches()
         self.update_patch_metadata()
@@ -168,6 +179,7 @@ class CodexPatches:
         # Get image dimensions
         extracted_img = self.codex_image.extended_extracted_channel_image
         all_img = self.codex_image.extended_all_channel_image
+        self.extended_image_shape = extracted_img.shape
         img_height, img_width, img_channels = extracted_img.shape
         
         if split_mode == "full_image":
@@ -193,13 +205,17 @@ class CodexPatches:
             f"Number of patches generated: {len(self.extracted_channel_patches)}"
         )
 
+        # Drop references to the extended images now that patches are stored.
+        del extracted_img, all_img
+        gc.collect()
+
     def _generate_full_image_patch(self, extracted_img, all_img):
         """Generate a single patch using the entire image."""
         self.logger.info("Using the entire extended image as a single patch.")
         
-        # Store them as a single entry list
-        self.extracted_channel_patches = np.array([extracted_img])
-        self.all_channel_patches = np.array([all_img])
+        # Store them as a single entry list without creating duplicate copies
+        self.extracted_channel_patches = np.expand_dims(extracted_img, axis=0)
+        self.all_channel_patches = np.expand_dims(all_img, axis=0)
         
         self.logger.info(
             f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}"
@@ -525,33 +541,119 @@ class CodexPatches:
             f"Identified {num_bad_patches} bad patches out of {total_patches} total patches."
         )
 
-    def save_patches(self, save_all_channel_patches=True):
-        """
-        Save the patches as NumPy arrays.
-        """
-        patches_file_name = os.path.join(
-            self.args.out_dir, "extracted_channel_patches.npy"
-        )
-        compressed_file_name = f"{patches_file_name}.gz"
-        with gzip.open(compressed_file_name, "wb") as file_handle:
-            np.save(file_handle, self.extracted_channel_patches)
+    def save_patches(self):
+        """Save extracted and (optionally) all-channel patches to disk using Zstandard."""
+        raw_threads = self.all_channel_compression_threads
+        if raw_threads is None:
+            threads = 0
+        elif raw_threads == -1:
+            threads = os.cpu_count() or 1
+        else:
+            threads = max(int(raw_threads), 0)
+
+        if threads <= 1:
+            self.logger.info("Compressing patches with single-threaded Zstandard.")
+        else:
+            self.logger.info("Compressing patches with %d Zstandard threads.", threads)
+
+        extracted_path = os.path.join(self.args.out_dir, "extracted_channel_patches.npy.zst")
+        self._write_array_zstd(self.extracted_channel_patches, extracted_path, threads)
+        self.extracted_channel_patches_path = extracted_path
         self.logger.info(
             f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}"
         )
         self.logger.info(
-            f"Saved extracted_channel_patches to {compressed_file_name} using gzip compression"
+            f"Saved extracted_channel_patches to {extracted_path} using Zstandard compression"
         )
 
-        if save_all_channel_patches:
-            patches_file_name = os.path.join(
-                self.args.out_dir, "all_channel_patches.npy"
-            )
-            compressed_file_name = f"{patches_file_name}.gz"
-            with gzip.open(compressed_file_name, "wb") as file_handle:
-                np.save(file_handle, self.all_channel_patches)
-            self.logger.info(
-                f"Saved all_channel_patches to {compressed_file_name} using gzip compression"
-            )
+        write_all_channel = self.cache_all_channel_patches or self.save_all_channel_patches_flag
+        if not write_all_channel:
+            self.logger.info("Skipping all_channel_patches export per configuration.")
+            return
+
+        if self.all_channel_patches is None or self.all_channel_patches.size == 0:
+            self.logger.info("Skipping all_channel_patches export because data is unavailable in memory.")
+            return
+
+        all_path = os.path.join(self.args.out_dir, "all_channel_patches.npy.zst")
+        self._write_array_zstd(self.all_channel_patches, all_path, threads)
+        self.all_channel_patches_path = all_path
+        self.logger.info(
+            f"Saved all_channel_patches to {all_path} using Zstandard compression"
+        )
+
+        if self.cache_all_channel_patches:
+            self.logger.info("Dropping in-memory all_channel_patches after caching to disk.")
+            self.all_channel_patches = None
+            gc.collect()
+
+    def _ensure_all_channel_patches_loaded(self):
+        """Return all-channel patches, reloading from disk if necessary."""
+        if self.is_using_disk_based_patches():
+            raise ValueError("Disk-based patches should be accessed via load_patch_from_disk")
+
+        if self.all_channel_patches is not None and self.all_channel_patches.size > 0:
+            return self.all_channel_patches
+
+        if not self.all_channel_patches_path or not os.path.exists(self.all_channel_patches_path):
+            raise ValueError("All-channel patches are not available in memory or on disk")
+
+        self.logger.info(
+            f"Loading all_channel_patches from {self.all_channel_patches_path} to satisfy request."
+        )
+        self.all_channel_patches = self._read_array_zstd(self.all_channel_patches_path)
+        return self.all_channel_patches
+
+    def _write_array_zstd(self, array: np.ndarray, path: str, threads: int = 0) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        compressor = zstd.ZstdCompressor(threads=threads)
+        with open(path, 'wb') as raw:
+            with compressor.stream_writer(raw) as writer:
+                np.save(writer, array, allow_pickle=False)
+
+    def _read_array_zstd(self, path: str) -> np.ndarray:
+        dctx = zstd.ZstdDecompressor()
+        with open(path, 'rb') as raw:
+            with tempfile.NamedTemporaryFile(suffix='.npy', delete=False) as tmp:
+                tmp_path = tmp.name
+                dctx.copy_stream(raw, tmp)
+        try:
+            array = np.load(tmp_path, allow_pickle=False)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                self.logger.warning(f'Failed to remove temporary file {tmp_path}')
+        return array
+
+    def get_all_channel_patches(self):
+        """Return the full all-channel patch tensor, loading it if needed."""
+        return self._ensure_all_channel_patches_loaded()
+
+    def get_all_channel_patch(self, patch_index: int):
+        """Return a single all-channel patch regardless of storage strategy."""
+        if self.is_using_disk_based_patches():
+            return self.load_patch_from_disk(patch_index, "all")
+
+        patches = self._ensure_all_channel_patches_loaded()
+        return patches[patch_index]
+
+    def finalize_all_channel_cache(self) -> None:
+        """Remove cached all-channel patches when they are not meant to persist."""
+        if self.save_all_channel_patches_flag:
+            return
+
+        if self.all_channel_patches_path and os.path.exists(self.all_channel_patches_path):
+            try:
+                os.remove(self.all_channel_patches_path)
+                self.logger.info(
+                    f"Removed cached all_channel_patches at {self.all_channel_patches_path}"
+                )
+            except OSError as exc:
+                self.logger.warning(
+                    f"Failed to remove cached all_channel_patches {self.all_channel_patches_path}: {exc}"
+                )
+        self.all_channel_patches_path = None
 
     def add_disruptions(self, disruption_type, disruption_level):
         """
@@ -671,6 +773,24 @@ class CodexPatches:
                 )
                 compression_level = None
 
+        seg_threads = None
+        threads_cfg = compression_cfg.get("segmentation_pickle_compression_threads", 0)
+        if threads_cfg is not None and threads_cfg != "":
+            try:
+                threads_val = int(threads_cfg)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "Invalid segmentation_pickle_compression_threads '%s'; ignoring",
+                    threads_cfg,
+                )
+            else:
+                if threads_val < 0:
+                    seg_threads = max(1, os.cpu_count() or 1)
+                elif threads_val == 0:
+                    seg_threads = None
+                else:
+                    seg_threads = max(1, threads_val)
+
         def inspect_and_save(data, base_file_name):
             """Inspect the type, shape, and sample content of the data before saving."""
             if data is None:
@@ -704,10 +824,9 @@ class CodexPatches:
             opener = open
             opener_kwargs = {}
             suffix = ""
+            compressor_kwargs = {}
 
             if compression_mode in {"gzip", "gz"}:
-                import gzip
-
                 suffix = ".gz"
                 opener = gzip.open
                 compression_label = "gzip"
@@ -729,6 +848,13 @@ class CodexPatches:
                 compression_label = "lzma"
                 if compression_level is not None:
                     opener_kwargs["preset"] = compression_level
+            elif compression_mode in {"zstd", "zstandard", "zst"}:
+                suffix = ".zst"
+                compression_label = "zstd"
+                if compression_level is not None:
+                    compressor_kwargs["level"] = compression_level
+                if seg_threads is not None:
+                    compressor_kwargs["threads"] = seg_threads
             elif compression_mode not in {"none", "", None}:
                 self.logger.warning(
                     "Unsupported segmentation_pickle_compression '%s'; defaulting to no compression",
@@ -740,8 +866,23 @@ class CodexPatches:
             target_path = file_path + suffix
             self.logger.info(f"Saving to {target_path}...")
 
-            with opener(target_path, "wb", **opener_kwargs) as f:
-                pickle.dump(data, f, protocol=4)
+            if compression_label == "zstd":
+                if "threads" in compressor_kwargs:
+                    self.logger.info(
+                        "Using Zstandard compression with %d thread(s).",
+                        compressor_kwargs["threads"],
+                    )
+                else:
+                    self.logger.info(
+                        "Using Zstandard compression with automatic threading."
+                    )
+                compressor = zstd.ZstdCompressor(**compressor_kwargs)
+                with open(target_path, "wb") as raw_file:
+                    with compressor.stream_writer(raw_file) as stream:
+                        pickle.dump(data, stream, protocol=4)
+            else:
+                with opener(target_path, "wb", **opener_kwargs) as f:
+                    pickle.dump(data, f, protocol=4)
 
             if suffix:
                 self.logger.info(
@@ -1063,7 +1204,10 @@ class CodexPatches:
             ("nucleus_matched_boundary", "nucleus_matched_boundary"),
         ]
 
-        image_shape = self.codex_image.extended_extracted_channel_image.shape[:2]
+        if self.extended_image_shape is not None:
+            image_shape = self.extended_image_shape[:2]
+        else:
+            image_shape = self.codex_image.extended_extracted_channel_image.shape[:2]
 
         if len(repaired_results) != len(informative_indices):
             self.logger.warning(

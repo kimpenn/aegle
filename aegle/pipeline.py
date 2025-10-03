@@ -390,7 +390,7 @@ def run_pipeline(config, args):
     # Step 2: Initialize CodexPatches object and generate patches
     logging.info("----- Initializing CodexPatches object and generating patches.")
     codex_patches = CodexPatches(codex_image, config, args)
-    codex_patches.save_patches(config["visualization"]["save_all_channel_patches"])
+    codex_patches.save_patches()
     codex_patches.save_metadata()
     logging.info("Patches generated and metadata saved successfully.")
 
@@ -451,6 +451,16 @@ def run_pipeline(config, args):
         metrics_path = os.path.join(args.out_dir, "seg_evaluation_metrics.pkl.gz")
         with gzip.open(metrics_path, "wb") as file_handle:
             pickle.dump(codex_patches.seg_evaluation_metrics, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        logging.info("The calculation of evaluation metrics is skipped (evaluation.compute_metrics is False).")
+        for metrics_name in ("seg_evaluation_metrics.pkl.gz", "seg_evaluation_metrics.pkl"):
+            metrics_path = os.path.join(args.out_dir, metrics_name)
+            if os.path.exists(metrics_path):
+                try:
+                    os.remove(metrics_path)
+                    logging.info(f"Removed stale segmentation metrics file: {metrics_path}")
+                except OSError as exc:
+                    logging.warning(f"Failed to remove stale metrics file {metrics_path}: {exc}")
 
     # ---------------------------------
     # (D) Cell Profiling
@@ -1125,6 +1135,7 @@ def run_pipeline(config, args):
             logging.warning(f"Failed to generate report: {e}")
             # Don't fail the pipeline if report generation fails
     
+    codex_patches.finalize_all_channel_cache()
     logging.info("Pipeline run completed.")
 
 

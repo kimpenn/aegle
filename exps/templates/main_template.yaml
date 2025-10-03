@@ -51,8 +51,14 @@ visualization:
   # Whether to save RGB visualizations of all patches
   visualize_patches: True
 
-  # Whether to save the raw multi-channel patches to disk
+  # Whether to keep a temporary compressed cache of the full multi-channel patches for reuse
+  cache_all_channel_patches: True
+
+  # Whether to save the raw multi-channel patches to disk at the end of the run
   save_all_channel_patches: False
+
+  # Number of threads to use when compressing all-channel patches (0=auto, -1=all cores)
+  all_channel_compression_threads: 0
 
   # Whether to visualize and save the segmentation mask overlay (after segmentation)
   visualize_segmentation: True
@@ -82,8 +88,9 @@ segmentation:
   
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
   save_segmentation_pickle: True
-  segmentation_pickle_compression: gzip      # options: none|gzip|bz2|lzma
+  segmentation_pickle_compression: zstd      # options: none|gzip|bz2|lzma|zstd
   segmentation_pickle_compression_level: 5   # optional, honours backend limits
+  segmentation_pickle_compression_threads: 0   # 0=auto, -1=all cores
   # If True, run segmentation analysis
   # Calculate metrics based on the segmentation results to describe the data quality
   segmentation_analysis: False

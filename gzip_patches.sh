@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # gzip_patches.sh
-# 压缩一组 all_channel_patches.npy 文件为 .npy.gz，覆盖原文件
+# 压缩一组 all_channel_patches.npy 文件为 .npy.zst (legacy script, kept for reference)，覆盖原文件
 
 set -euo pipefail
 
