@@ -1,5 +1,7 @@
 # Top-level configuration for CODEX pipeline
 exp_id: default
+sample_id: default
+
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------

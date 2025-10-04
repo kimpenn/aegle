@@ -1,5 +1,7 @@
 # Top-level configuration for CODEX pipeline
 exp_id: D14_3
+sample_id: 14-76
+
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 # Top-level configuration for CODEX pipeline
 exp_id: D10_0_2
+sample_id: 10RTAMP7
+
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------

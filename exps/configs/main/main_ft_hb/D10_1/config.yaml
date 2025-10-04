@@ -1,5 +1,7 @@
 # Top-level configuration for CODEX pipeline
 exp_id: D10_1
+sample_id: 10RTF5
+
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
@@ -123,7 +125,7 @@ testing:
 # (H) Evaluation Metrics
 # -----------------------------------------------------------------------------
 evaluation:
-  compute_metrics: true
+  compute_metrics: false
 report:
   generate_report: true
   report_format: html

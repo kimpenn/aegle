@@ -60,10 +60,12 @@ def run_cell_profiling(codex_patches, config, args):
     # Initialize counters for summary statistics
     total_cells = 0
     processed = 0
+    global_cell_offset = 0  # Tracks cumulative global cell IDs when masks are merged
 
     # Initialize lists for merging results (used for full_image, halves, quarters modes)
     all_exp_dfs = []
     all_metadata_dfs = []
+    all_overview_dfs = []
     should_merge = split_mode in ["full_image", "halves", "quarters"]
 
     # Process only informative patches
@@ -77,6 +79,8 @@ def run_cell_profiling(codex_patches, config, args):
         if nucleus_mask is None or cell_mask is None:
             logger.warning("Skipping patch %s due to missing matched masks", patch_idx)
             continue
+
+        patch_max_label = int(cell_mask.max()) if cell_mask is not None else 0
 
         # Get the full multi-channel patch from all channels (or extracted channels)
         patch_img = codex_patches.get_all_channel_patch(patch_idx)
@@ -98,9 +102,26 @@ def run_cell_profiling(codex_patches, config, args):
         
         # Add patch information to track origin of cells
         if len(exp_df) > 0:  # Only add columns if there are cells
+            if patch_max_label > 0:
+                if "label" in metadata_df.columns:
+                    local_ids = pd.to_numeric(metadata_df["label"], errors="coerce")
+                    local_ids.index = metadata_df.index
+                else:
+                    local_ids = pd.Series(
+                        metadata_df.index.to_numpy(),
+                        index=metadata_df.index,
+                        dtype=np.int64,
+                    )
+
+                local_ids = local_ids.fillna(0).astype(np.int64)
+                mask_ids = (local_ids + global_cell_offset).astype(np.int64)
+
+                metadata_df.insert(0, "cell_mask_id", mask_ids.to_numpy())
+                exp_df.insert(0, "cell_mask_id", mask_ids.reindex(exp_df.index).to_numpy())
+
             exp_df["patch_id"] = patch_idx
             metadata_df["patch_id"] = patch_idx
-            
+
             # Create unique cell IDs across patches
             # Check if cell_id column exists, if not create it from index
             if "cell_id" in exp_df.columns:
@@ -143,6 +164,23 @@ def run_cell_profiling(codex_patches, config, args):
                 if "centroid_y" in metadata_df.columns:
                     metadata_df["patch_centroid_y"] = metadata_df["centroid_y"].copy()
                     metadata_df["centroid_y"] = metadata_df["centroid_y"] + patch_y_start
+
+            overview_df = exp_df.copy()
+            for col in ["y", "x", "area"]:
+                if col in metadata_df.columns:
+                    overview_df[col] = metadata_df[col]
+
+            preferred_order = ["cell_mask_id", "y", "x", "area"]
+            ordered_columns = [
+                col
+                for col in preferred_order
+                if col in overview_df.columns
+            ] + [
+                col
+                for col in overview_df.columns
+                if col not in preferred_order
+            ]
+            overview_df = overview_df[ordered_columns]
         
         # Update counter for detected cells
         total_cells += exp_df.shape[0]
@@ -154,7 +192,10 @@ def run_cell_profiling(codex_patches, config, args):
             del patch_img
             import gc
             gc.collect()
-        
+
+        if patch_max_label > 0:
+            global_cell_offset += patch_max_label
+
         # Log progress periodically
         percent_complete = (processed / total_patches) * 100
         if i % log_frequency == 0 or i == total_patches - 1:
@@ -163,22 +204,27 @@ def run_cell_profiling(codex_patches, config, args):
                 f"Patch {patch_idx}: {exp_df.shape[0]} cells profiled"
             )
 
-        if should_merge:
-            # Collect results for later merging
-            if len(exp_df) > 0:  # Only add non-empty DataFrames
-                all_exp_dfs.append(exp_df)
-                all_metadata_dfs.append(metadata_df)
-        else:
-            # Save individual patch results (patches mode)
-            exp_file = os.path.join(
-                profiling_out_dir, f"patch-{patch_idx}-cell_by_marker.csv"
-            )
-            meta_file = os.path.join(
-                profiling_out_dir, f"patch-{patch_idx}-cell_metadata.csv"
-            )
+            if should_merge:
+                # Collect results for later merging
+                if len(exp_df) > 0:  # Only add non-empty DataFrames
+                    all_exp_dfs.append(exp_df)
+                    all_metadata_dfs.append(metadata_df)
+                    all_overview_dfs.append(overview_df)
+            else:
+                # Save individual patch results (patches mode)
+                exp_file = os.path.join(
+                    profiling_out_dir, f"patch-{patch_idx}-cell_by_marker.csv"
+                )
+                meta_file = os.path.join(
+                    profiling_out_dir, f"patch-{patch_idx}-cell_metadata.csv"
+                )
+                overview_file = os.path.join(
+                    profiling_out_dir, f"patch-{patch_idx}-cell_overview.csv"
+                )
 
-            exp_df.to_csv(exp_file, index=False)
-            metadata_df.to_csv(meta_file, index=False)
+                exp_df.to_csv(exp_file, index=False)
+                metadata_df.to_csv(meta_file, index=False)
+                overview_df.to_csv(overview_file, index=False)
 
     # Handle merging for full_image, halves, quarters modes
     if should_merge and all_exp_dfs:
@@ -187,6 +233,7 @@ def run_cell_profiling(codex_patches, config, args):
         # Merge all DataFrames
         merged_exp_df = pd.concat(all_exp_dfs, ignore_index=True)
         merged_metadata_df = pd.concat(all_metadata_dfs, ignore_index=True)
+        merged_overview_df = pd.concat(all_overview_dfs, ignore_index=True)
         
         # Save merged results
         merged_exp_file = os.path.join(profiling_out_dir, "cell_by_marker.csv")
@@ -194,6 +241,9 @@ def run_cell_profiling(codex_patches, config, args):
         
         merged_exp_df.to_csv(merged_exp_file, index=False)
         merged_metadata_df.to_csv(merged_meta_file, index=False)
+        merged_overview_df.to_csv(
+            os.path.join(profiling_out_dir, "cell_overview.csv"), index=False
+        )
         
         logger.info(f"Saved merged results: {merged_exp_df.shape[0]} cells total")
         logger.info(f"  - {merged_exp_file}")

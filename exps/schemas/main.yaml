@@ -13,7 +13,12 @@ fields:
     required: true
     regex: '^[A-Za-z0-9._-]+$'
     description: Unique identifier for the experiment.
-
+  
+  - key: sample_id
+    type: str
+    required: true
+    description: Unique identifier for the sample.
+  
   - key: data::file_name
     type: path
     required: true
