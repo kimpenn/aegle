@@ -27,8 +27,10 @@ def plot_marker_distributions(
         output_dir: Directory to save plots (if None, plots are not saved)
         plot_type: Type of plots to create ("violin", "box", or "both")
     """
-    # Ensure all values are numeric and drop problematic rows
-    df_numeric = df.apply(pd.to_numeric, errors="coerce").dropna()
+    # Ensure all values are numeric and drop non-marker identifier columns
+    df_numeric = df.apply(pd.to_numeric, errors="coerce")
+    df_numeric = df_numeric.dropna(axis=1, how="all")  # remove columns that failed conversion entirely
+    df_numeric = df_numeric.dropna(axis=0, how="any")
 
     # Apply log transformation if requested
     if log_transform:

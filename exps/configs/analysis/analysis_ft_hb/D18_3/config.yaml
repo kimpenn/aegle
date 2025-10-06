@@ -1,9 +1,9 @@
 # /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/templates/analysis_template.yaml
-exp_id: D10_0
+exp_id: D18_3
 
 analysis:
   # Path relative to DATA_DIR pointing at the main pipeline outputs for this experiment
-  data_dir: D10_0
+  data_dir: D18_3
 
   # Subdirectory containing cell profiling outputs
   cell_profiling_dir: cell_profiling
@@ -27,19 +27,20 @@ analysis:
   norm_method: rank_fraction
 
   # Optional overrides for analysis output structure
-  output_subdir: null
+  output_subdir: NULL
   plots_subdir: plots
   de_subdir: differential_expression
 
   # Optional LLM-assisted cluster annotation
-  annotate_cell_types: false
-  llm_prior_path: null  # Absolute path to prior knowledge JSON
+  annotate_cell_types: true
+  llm_prior_path: 
+    /workspaces/codex-analysis/data/FallopianTube/cell_type_markers.json # Absolute path to prior knowledge JSON
   llm_model: gpt-4o
   llm_temperature: 0.1
   llm_max_tokens: 4000
-  llm_system_prompt: null
-  llm_output_file: null
-  llm_summary_system_prompt: null
-  llm_summary_output_file: null
+  llm_system_prompt: NULL
+  llm_output_file: NULL
+  llm_summary_system_prompt: NULL
+  llm_summary_output_file: NULL
   summarize_annotation: true
   generate_pipeline_report: true

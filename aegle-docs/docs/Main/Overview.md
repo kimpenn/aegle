@@ -158,7 +158,7 @@ This module performs cell-level profiling on each patch, generating a cell-by-ma
 
 > Note: Currently, the `nucleus_matched_mask` is as the cell identification mask. We should extend this step to generate cell profiling based on matched cell mask and also the unmatched cell mask (the direct output from the segmentation model).
 
-More details see [Cell Profiling Details](CellProfilingDetails.md).
+<!-- More details see [Cell Profiling Details](CellProfilingDetails.md). -->
 
 This module has no configuration parameters in the config file yet.
 
@@ -177,7 +177,7 @@ This module performs analysis on segmentation results. We are exploring to use t
 - **Cell density metrics**: Global and local density measurements
 - **Intensity analysis**: Channel-wise intensity bias and distribution visualization
 
-For detailed metrics description, see [Mask Analysis Details](SegmentationAnalysis.md).
+<!-- For detailed metrics description, see [Mask Analysis Details](SegmentationAnalysis.md). -->
 
 **Configuration**:
 ```yaml

@@ -30,6 +30,21 @@ exps/
      ./run_config_generator.sh
    ```
    Convenience wrappers such as `exps/run_main_config_generator.sh` and `exps/run_preprocess_config_generator.sh` already set these values for common scenarios.
+
+   For the **analysis** stage we follow the same pattern. Production FT assets live at
+   `exps/csvs/analysis/main_ft_hb.csv`, `exps/templates/analysis_template.yaml`, and
+   `exps/schemas/analysis.yaml`. Invoke the helper with:
+
+   ```bash
+   ANALYSIS_STEP=analysis \
+   EXPERIMENT_SET=analysis_ft_hb \
+   CSV_PATH=/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/csvs/analysis/main_ft_hb.csv \
+   OUTPUT_DIR=/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/configs/analysis/analysis_ft_hb \
+     ./run_config_generator.sh
+   ```
+
+   Convenience wrapper `exps/run_analysis_config_generator.sh` mirrors the preprocess
+   and main helpers for day-to-day use.
 3. **Consume generated configs** from `exps/configs/<analysis_step>/<experiment_set>/`.
 
 The helper script is a thin wrapper around `config_generator.py`. You can also invoke the Python module directly for ad-hoc runs:

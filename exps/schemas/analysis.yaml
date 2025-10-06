@@ -1,0 +1,172 @@
+version: 1
+schema: analysis
+strict_columns: true
+allow_missing_optionals: true
+
+defaults:
+  analysis::cell_profiling_dir: cell_profiling
+  analysis::metadata_file: cell_metadata.csv
+  analysis::expression_file: cell_by_marker.csv
+  analysis::segmentation_file: matched_seg_res_batch.pickle.zst
+  analysis::segmentation_format: pickle.zst
+  analysis::plots_subdir: plots
+  analysis::de_subdir: differential_expression
+  analysis::annotate_cell_types: false
+  analysis::llm_model: gpt-4o
+  analysis::llm_temperature: 0.1
+  analysis::llm_max_tokens: 4000
+
+fields:
+  - key: exp_id
+    type: str
+    required: true
+    regex: '^[A-Za-z0-9._-]+$'
+    description: Unique identifier for the analysis experiment.
+
+  - key: analysis::data_dir
+    type: str
+    required: true
+    allow_null: false
+    description: Experiment-relative path under DATA_DIR containing main outputs.
+
+  - key: analysis::cell_profiling_dir
+    type: str
+    required: false
+    description: Subdirectory holding cell profiling CSVs within the experiment folder.
+
+  - key: analysis::metadata_file
+    type: str
+    required: false
+    description: Cell metadata CSV filename inside the cell profiling directory.
+
+  - key: analysis::expression_file
+    type: str
+    required: false
+    description: Expression matrix CSV filename inside the cell profiling directory.
+
+  - key: analysis::segmentation_file
+    type: str
+    required: false
+    allow_null: true
+    description: Segmentation artifact filename in the experiment folder (optional).
+
+  - key: analysis::segmentation_format
+    type: str
+    required: false
+    choices:
+      - pickle
+      - pickle.gz
+      - pickle.zst
+      - none
+    description: Serialization/compression format for the segmentation artifact.
+
+  - key: analysis::patch_index
+    type: int
+    required: false
+    default: 0
+    min: 0
+    description: Patch index to load for patch-mode experiments.
+
+  - key: analysis::skip_viz
+    type: bool
+    required: false
+    default: false
+    description: Skip visualization-heavy steps when true.
+
+  - key: analysis::clustering_resolution
+    type: float
+    required: false
+    default: 0.2
+    min: 0.0
+    description: Leiden clustering resolution.
+
+  - key: analysis::norm_method
+    type: str
+    required: false
+    default: rank_fraction
+    choices:
+      - log1p
+      - zscore_log
+      - clr
+      - double_z
+      - rank_fraction
+      - rank_gaussian
+      - none
+    description: Expression normalization method applied before clustering.
+
+  - key: analysis::output_subdir
+    type: str
+    required: false
+    allow_null: true
+    description: Optional override for the analysis output subdirectory name.
+
+  - key: analysis::plots_subdir
+    type: str
+    required: false
+    description: Relative path for plots inside the analysis output directory.
+
+  - key: analysis::de_subdir
+    type: str
+    required: false
+    description: Relative path for differential expression outputs.
+
+  - key: analysis::annotate_cell_types
+    type: bool
+    required: false
+    description: Enable optional LLM-assisted cluster annotation step.
+
+  - key: analysis::summarize_annotation
+    type: bool
+    required: false
+    description: Generate an LLM summary after writing detailed annotations.
+
+  - key: analysis::llm_prior_path
+    type: str
+    required: false
+    allow_null: true
+    description: JSON file with prior knowledge passed to the LLM annotator.
+
+  - key: analysis::llm_model
+    type: str
+    required: false
+    description: LLM model identifier (e.g. gpt-4o).
+
+  - key: analysis::llm_temperature
+    type: float
+    required: false
+    description: Sampling temperature used for the LLM annotator.
+
+  - key: analysis::llm_max_tokens
+    type: int
+    required: false
+    description: Max tokens permitted in the LLM response.
+
+  - key: analysis::llm_system_prompt
+    type: str
+    required: false
+    allow_null: true
+    description: Optional override for the system prompt injected into the LLM request.
+
+  - key: analysis::llm_output_file
+    type: str
+    required: false
+    allow_null: true
+    description: Optional override for the annotation output file name.
+
+  - key: analysis::llm_summary_system_prompt
+    type: str
+    required: false
+    allow_null: true
+    description: Optional override for the system prompt used when generating summaries.
+
+  - key: analysis::llm_summary_output_file
+    type: str
+    required: false
+    allow_null: true
+    description: Optional override for the summary output file name.
+
+  - key: analysis::generate_pipeline_report
+    type: bool
+    required: false
+    default: true
+    description: Copy the main pipeline HTML report and append analysis highlights.

@@ -43,16 +43,15 @@ def one_vs_rest_wilcoxon(
     
     if not df.index.equals(cluster_series.index):
         logging.warning(
-            "Index mismatch detected between df and cluster_series. Reindexing cluster_series."
+            "Index mismatch detected between df and cluster_series. Aligning indices by position."
         )
         try:
-            cluster_series.index = cluster_series.index.astype(
-                int
-            )  # Convert index to integer
-        except ValueError as e:
-            logging.error(f"Error converting cluster_series index to int: {e}")
-
-        cluster_series = cluster_series.reindex(df.index)
+            # Preserve the categorical dtype while reassigning the index to match df
+            cluster_series = cluster_series.reset_index(drop=True)
+            cluster_series.index = df.index
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logging.error("Failed to align cluster_series index: %s", exc)
+            raise
 
     logging.info(f"updated cluster_series: {cluster_series}")
 
@@ -62,10 +61,8 @@ def one_vs_rest_wilcoxon(
         log1p_df = log1p_df.reindex(df.index)
 
     features = df.columns
-    unique_clusters = sorted(cluster_series.unique())
-    logging.info(f"Unique clusters: {unique_clusters}")
 
-    # Check for NaN values in cluster_series
+    # Drop NaNs before enumerating clusters to avoid float/string sorting conflicts
     if cluster_series.isna().any():
         logging.warning("NaN values detected in cluster_series. These will be ignored.")
         cluster_series = cluster_series.dropna()
