@@ -167,9 +167,15 @@ def run_cell_profiling(codex_patches, config, args):
 
             overview_df = exp_df.copy()
             overview_df = overview_df.drop(columns=["patch_id", "global_cell_id"], errors="ignore")
-            for col in ["y", "x", "area"]:
+            for col in ["y", "x"]:
                 if col in metadata_df.columns:
                     overview_df[col] = metadata_df[col]
+
+            if "cell_area" in metadata_df.columns:
+                overview_df["area"] = metadata_df["cell_area"]
+            elif "area" in metadata_df.columns:
+                logger.warning("Using area column from metadata_df instead of cell_area")
+                overview_df["area"] = metadata_df["area"]
 
             preferred_order = ["cell_mask_id", "y", "x", "area"]
             ordered_columns = [
