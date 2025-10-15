@@ -182,7 +182,9 @@ def run_cell_profiling(codex_patches, config, args):
                 if col not in preferred_order
             ]
             overview_df = overview_df[ordered_columns]
-        
+
+        metadata_export = metadata_df.drop(columns=["area"], errors="ignore")
+
         # Update counter for detected cells
         total_cells += exp_df.shape[0]
         processed += 1
@@ -209,7 +211,7 @@ def run_cell_profiling(codex_patches, config, args):
                 # Collect results for later merging
                 if len(exp_df) > 0:  # Only add non-empty DataFrames
                     all_exp_dfs.append(exp_df)
-                    all_metadata_dfs.append(metadata_df)
+                    all_metadata_dfs.append(metadata_export)
                     all_overview_dfs.append(overview_df)
             else:
                 # Save individual patch results (patches mode)
@@ -224,7 +226,7 @@ def run_cell_profiling(codex_patches, config, args):
                 )
 
                 exp_df.to_csv(exp_file, index=False)
-                metadata_df.to_csv(meta_file, index=False)
+                metadata_export.to_csv(meta_file, index=False)
                 overview_df.to_csv(overview_file, index=False)
 
     # Handle merging for full_image, halves, quarters modes
