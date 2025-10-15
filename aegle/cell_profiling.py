@@ -166,6 +166,7 @@ def run_cell_profiling(codex_patches, config, args):
                     metadata_df["centroid_y"] = metadata_df["centroid_y"] + patch_y_start
 
             overview_df = exp_df.copy()
+            overview_df = overview_df.drop(columns=["patch_id", "global_cell_id"], errors="ignore")
             for col in ["y", "x", "area"]:
                 if col in metadata_df.columns:
                     overview_df[col] = metadata_df[col]
