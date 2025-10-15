@@ -66,6 +66,7 @@ def run_cell_profiling(codex_patches, config, args):
     all_exp_dfs = []
     all_metadata_dfs = []
     all_overview_dfs = []
+    all_nucleus_overview_dfs = []
     should_merge = split_mode in ["full_image", "halves", "quarters"]
 
     # Process only informative patches
@@ -177,6 +178,38 @@ def run_cell_profiling(codex_patches, config, args):
                 logger.warning("Using area column from metadata_df instead of cell_area")
                 overview_df["area"] = metadata_df["area"]
 
+            nucleus_overview_df = exp_df.copy()
+            nucleus_overview_df = nucleus_overview_df.drop(
+                columns=["patch_id", "global_cell_id"],
+                errors="ignore",
+            )
+            for col in ["y", "x"]:
+                if col in metadata_df.columns:
+                    nucleus_overview_df[col] = metadata_df[col]
+
+            if "nucleus_area" in metadata_df.columns:
+                nucleus_overview_df["area"] = metadata_df["nucleus_area"]
+            elif "area" in metadata_df.columns:
+                logger.warning("Using area column from metadata_df instead of nucleus_area")
+                nucleus_overview_df["area"] = metadata_df["area"]
+
+            marker_columns = [
+                col
+                for col in nucleus_overview_df.columns
+                if col not in {"cell_mask_id", "y", "x", "area"}
+            ]
+
+            for marker in marker_columns:
+                nucleus_col = f"{marker}_nucleus_mean"
+                if nucleus_col in metadata_df.columns:
+                    nucleus_overview_df[marker] = metadata_df[nucleus_col]
+                else:
+                    logger.debug(
+                        "Missing nucleus intensity column %s for marker %s",
+                        nucleus_col,
+                        marker,
+                    )
+
             preferred_order = ["cell_mask_id", "y", "x", "area"]
             ordered_columns = [
                 col
@@ -188,6 +221,8 @@ def run_cell_profiling(codex_patches, config, args):
                 if col not in preferred_order
             ]
             overview_df = overview_df[ordered_columns]
+
+            nucleus_overview_df = nucleus_overview_df[ordered_columns]
 
         metadata_export = metadata_df.drop(columns=["area"], errors="ignore")
 
@@ -219,6 +254,7 @@ def run_cell_profiling(codex_patches, config, args):
                     all_exp_dfs.append(exp_df)
                     all_metadata_dfs.append(metadata_export)
                     all_overview_dfs.append(overview_df)
+                    all_nucleus_overview_dfs.append(nucleus_overview_df)
             else:
                 # Save individual patch results (patches mode)
                 exp_file = os.path.join(
@@ -230,10 +266,14 @@ def run_cell_profiling(codex_patches, config, args):
                 overview_file = os.path.join(
                     profiling_out_dir, f"patch-{patch_idx}-cell_overview.csv"
                 )
+                nucleus_overview_file = os.path.join(
+                    profiling_out_dir, f"patch-{patch_idx}-nucleus_overview.csv"
+                )
 
                 exp_df.to_csv(exp_file, index=False)
                 metadata_export.to_csv(meta_file, index=False)
                 overview_df.to_csv(overview_file, index=False)
+                nucleus_overview_df.to_csv(nucleus_overview_file, index=False)
 
     # Handle merging for full_image, halves, quarters modes
     if should_merge and all_exp_dfs:
@@ -243,6 +283,9 @@ def run_cell_profiling(codex_patches, config, args):
         merged_exp_df = pd.concat(all_exp_dfs, ignore_index=True)
         merged_metadata_df = pd.concat(all_metadata_dfs, ignore_index=True)
         merged_overview_df = pd.concat(all_overview_dfs, ignore_index=True)
+        merged_nucleus_overview_df = pd.concat(
+            all_nucleus_overview_dfs, ignore_index=True
+        )
         
         # Save merged results
         merged_exp_file = os.path.join(profiling_out_dir, "cell_by_marker.csv")
@@ -253,10 +296,17 @@ def run_cell_profiling(codex_patches, config, args):
         merged_overview_df.to_csv(
             os.path.join(profiling_out_dir, "cell_overview.csv"), index=False
         )
+        merged_nucleus_overview_df.to_csv(
+            os.path.join(profiling_out_dir, "nucleus_overview.csv"), index=False
+        )
         
         logger.info(f"Saved merged results: {merged_exp_df.shape[0]} cells total")
         logger.info(f"  - {merged_exp_file}")
         logger.info(f"  - {merged_meta_file}")
+        logger.info(
+            "  - %s",
+            os.path.join(profiling_out_dir, "nucleus_overview.csv"),
+        )
     elif should_merge and not all_exp_dfs:
         logger.warning("No cells found in any patches - no output files generated.")
 
