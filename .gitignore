@@ -1,3 +1,5 @@
+scratch/
+scripts/git_release.sh
 logs/
 aegle/segmentation_analysis/test_output
 aegle/segmentation_analysis/test_output_bk

@@ -645,7 +645,7 @@ def run_analysis(config, args):
                         model=getattr(args, "llm_model", "gpt-4o"),
                         system_prompt=getattr(args, "llm_system_prompt", None) or DEFAULT_SYSTEM_PROMPT,
                         temperature=float(getattr(args, "llm_temperature", 0.1)),
-                        max_tokens=int(getattr(args, "llm_max_tokens", 4000)),
+                        max_completion_tokens=int(getattr(args, "llm_max_tokens", 4000)),
                     )
                 except Exception as exc:
                     logging.error("LLM annotation failed: %s", exc)
@@ -676,7 +676,7 @@ def run_analysis(config, args):
                                     system_prompt=getattr(args, "llm_summary_system_prompt", None)
                                     or DEFAULT_SUMMARY_SYSTEM_PROMPT,
                                     temperature=float(getattr(args, "llm_temperature", 0.1)),
-                                    max_tokens=int(getattr(args, "llm_max_tokens", 4000)),
+                                    max_completion_tokens=int(getattr(args, "llm_max_tokens", 4000)),
                                 )
                             except Exception as exc:
                                 logging.error("LLM annotation summary failed: %s", exc)

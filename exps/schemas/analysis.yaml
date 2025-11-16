@@ -12,8 +12,8 @@ defaults:
   analysis::plots_subdir: plots
   analysis::de_subdir: differential_expression
   analysis::annotate_cell_types: false
-  analysis::llm_model: gpt-4o
-  analysis::llm_temperature: 0.1
+  analysis::llm_model: gpt-5-2025-08-07
+  analysis::llm_temperature: 1
   analysis::llm_max_tokens: 4000
 
 fields:

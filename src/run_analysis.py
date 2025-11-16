@@ -176,7 +176,7 @@ def main():
 
     # Load configuration from the YAML file
     config = load_config(args.config_file)
-
+    logging.info(f"Config: {config}")
     _resolve_analysis_paths(config, args)
 
     # Run the analysis pipeline

@@ -34,8 +34,8 @@ analysis:
   # Optional LLM-assisted cluster annotation
   annotate_cell_types: false
   llm_prior_path: null  # Absolute path to prior knowledge JSON
-  llm_model: gpt-4o
-  llm_temperature: 0.1
+  llm_model: gpt-5-2025-08-07
+  llm_temperature: 1
   llm_max_tokens: 4000
   llm_system_prompt: null
   llm_output_file: null

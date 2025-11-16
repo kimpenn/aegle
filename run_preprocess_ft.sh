@@ -27,12 +27,12 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names (or ID's)
 declare -a EXPERIMENTS=(
-  "D10"
+  # "D10"
   "D11"
-  "D13"
-  "D14"
-  "D15"
-  "D16"
+  # "D13"
+  # "D14"
+  # "D15"
+  # "D16"
   "D17"
   "D18"
 )

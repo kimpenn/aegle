@@ -28,9 +28,10 @@ DEFAULT_SYSTEM_PROMPT = (
     "You are an expert in single-cell analysis and tissue biology. "
     "Provide detailed, accurate cell type annotations based on marker expression patterns."
 )
-DEFAULT_MODEL = "gpt-4o"
-DEFAULT_TEMPERATURE = 0.1
-DEFAULT_MAX_TOKENS = 4000
+# "gpt-4o" or "gpt-5-2025-08-07"
+DEFAULT_MODEL = "gpt-5-2025-08-07"
+DEFAULT_TEMPERATURE = 1
+DEFAULT_MAX_COMPLETION_TOKENS = 4000
 
 DEFAULT_SUMMARY_SYSTEM_PROMPT = (
     "You are an expert reviewer of Phenocycler/CODEX single-cell experiments. "
@@ -97,7 +98,7 @@ def query_llm(
     *,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     temperature: float = DEFAULT_TEMPERATURE,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
 ) -> str:
     """Query the LLM with the annotation prompt."""
 
@@ -115,10 +116,29 @@ def query_llm(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=max_tokens,
-            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            temperature=temperature
         )
-        return response.choices[0].message.content or ""
+        choice = response.choices[0]
+        finish_reason = getattr(choice, "finish_reason", None)
+        message = choice.message
+        content = (message.content or "").strip()
+
+        # Surface refusal or empty-content cases for downstream debugging.
+        refusal_message = getattr(message, "refusal", None)
+        if refusal_message:
+            logging.warning(
+                "LLM refusal received (finish_reason=%s): %s",
+                finish_reason,
+                refusal_message.strip(),
+            )
+        elif not content:
+            logging.warning(
+                "LLM response contained no text content (finish_reason=%s).",
+                finish_reason,
+            )
+
+        return content
     except Exception as exc:  # pragma: no cover - caller decides how to handle failure
         logging.error("Error querying LLM: %s", exc)
         return ""
@@ -132,7 +152,7 @@ def annotate_clusters(
     model: str = DEFAULT_MODEL,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     temperature: float = DEFAULT_TEMPERATURE,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
 ) -> str:
     """Return LLM-generated annotations given prior knowledge and cluster summaries."""
 
@@ -152,7 +172,7 @@ def annotate_clusters(
         model=model,
         system_prompt=system_prompt,
         temperature=temperature,
-        max_tokens=max_tokens,
+        max_completion_tokens=max_completion_tokens,
     )
 
 
@@ -197,7 +217,7 @@ def summarize_annotation(
     model: str = DEFAULT_MODEL,
     system_prompt: str = DEFAULT_SUMMARY_SYSTEM_PROMPT,
     temperature: float = DEFAULT_TEMPERATURE,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
 ) -> str:
     """Return a high-level summary describing biological signal interpretation."""
 
@@ -215,7 +235,7 @@ def summarize_annotation(
         model=model,
         system_prompt=system_prompt,
         temperature=temperature,
-        max_tokens=max_tokens,
+        max_completion_tokens=max_completion_tokens,
     )
 
 
@@ -236,7 +256,11 @@ def _cli() -> None:  # pragma: no cover - CLI entry point
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help="OpenAI model to use")
     parser.add_argument("--system-prompt", type=str, default=DEFAULT_SYSTEM_PROMPT, help="Custom system prompt")
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help="Sampling temperature")
-    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Response token limit")
+    parser.add_argument("--max-completion-tokens", type=int,
+                        default=DEFAULT_MAX_COMPLETION_TOKENS,
+                        help="Response token cap for Chat Completions (GPT-5).")
+    parser.add_argument("--max-tokens", type=int, dest="max_completion_tokens",
+                        help="[DEPRECATED] Alias of --max-completion-tokens for GPT-4 era.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -253,7 +277,7 @@ def _cli() -> None:  # pragma: no cover - CLI entry point
             model=args.model,
             system_prompt=args.system_prompt,
             temperature=args.temperature,
-            max_tokens=args.max_tokens,
+            max_completion_tokens=args.max_completion_tokens,
         )
     except Exception as exc:
         logging.error("Annotation failed: %s", exc)

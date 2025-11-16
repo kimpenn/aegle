@@ -69,6 +69,7 @@ def main() -> None:
 
     config_dir = config_path.parent
     config_data = load_config(config_path)
+    logging.info(f"Config: {config_data}")
     analysis_cfg = config_data.get("analysis", {}) or {}
 
     output_dir = Path(args.analysis_out_dir).resolve()
@@ -99,8 +100,8 @@ def main() -> None:
     if not prior_data:
         raise SystemExit(f"Prior knowledge JSON empty or invalid: {prior_path}")
 
-    model = args.model or analysis_cfg.get("llm_model", "gpt-4o")
-    temperature = args.temperature if args.temperature is not None else float(analysis_cfg.get("llm_temperature", 0.1))
+    model = args.model or analysis_cfg.get("llm_model", "gpt-5-2025-08-07")
+    temperature = args.temperature if args.temperature is not None else float(analysis_cfg.get("llm_temperature", 1))
     max_tokens = args.max_tokens if args.max_tokens is not None else int(analysis_cfg.get("llm_max_tokens", 4000))
     system_prompt = (
         args.system_prompt
@@ -118,7 +119,7 @@ def main() -> None:
         model=model,
         system_prompt=system_prompt,
         temperature=temperature,
-        max_tokens=max_tokens,
+        max_completion_tokens=max_tokens,
     )
 
     if not annotation_text:
@@ -144,7 +145,7 @@ def main() -> None:
                 model=model,
                 system_prompt=summary_system_prompt,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_completion_tokens=max_tokens,
             )
         except Exception as exc:
             logging.error("LLM annotation summary failed: %s", exc)
