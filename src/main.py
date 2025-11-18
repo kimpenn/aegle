@@ -101,6 +101,13 @@ def parse_args():
         default="INFO",
         help="Set the logging level.",
     )
+    parser.add_argument(
+        "--resume_stage",
+        type=str,
+        choices=["cell_profiling"],
+        default=None,
+        help="Resume the pipeline from a downstream stage (e.g., cell_profiling).",
+    )
     return parser.parse_args()
 
 

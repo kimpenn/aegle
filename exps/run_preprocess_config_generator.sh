@@ -5,7 +5,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 ANALYSIS_STEP="preprocess"
 # preprocess_ft_hb, preprocess_ovary_hb
-EXPERIMENT_SET="preprocess_ovary_hb"
+EXPERIMENT_SET="preprocess_FHPR_PRE"
 
 CSV_PATH="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/csvs/${EXPERIMENT_SET}.csv"
 OUTPUT_DIR="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/configs/${ANALYSIS_STEP}/${EXPERIMENT_SET}"

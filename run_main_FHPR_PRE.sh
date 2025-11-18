@@ -1,7 +1,7 @@
 #!/bin/bash
 # nohup bash /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/run_main_ovary.sh > run_main_ovary.log 2>&1 &
 # Define the experiment set name
-EXP_SET_NAME="main_ovary_hb"  
+EXP_SET_NAME="main_FHPR_PRE"  
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -23,8 +23,9 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
-  # "D17_0"
-  "D18_0"
+  "FHPR_PRE_scan1_1"
+  "FHPR_PRE_scan1_2"
+  "FHPR_PRE_scan1_3"
 )
 
 # Count total experiments

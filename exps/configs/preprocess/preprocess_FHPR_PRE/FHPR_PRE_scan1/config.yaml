@@ -1,0 +1,15 @@
+exp_id: FHPR_PRE_scan1
+data:
+  file_name: 
+    /workspaces/codex-analysis/data/Ovary/FHPR_PRE/Scan1/FHPR_PRE_Scan1.er.qptiff
+
+bftools:
+  showinf_path: /workspaces/codex-analysis/bftools/showinf
+tissue_extraction:
+  n_tissue: -1
+  downscale_factor: 64
+  min_area: -1
+  visualize: true
+  output_dir: /workspaces/codex-analysis/data/Ovary/FHPR_PRE/Scan1/processed_da
+  manual_mask_json: 
+    /workspaces/codex-analysis/data/Ovary/FHPR_PRE/Scan1/processed_da

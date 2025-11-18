@@ -354,6 +354,18 @@ def run_pipeline(config, args):
     shutil.copy(args.config_file, copied_config_path)
 
     cell_metadata_df: Optional[pd.DataFrame] = None
+    resume_stage = getattr(args, "resume_stage", None)
+    if resume_stage:
+        logging.info("Resume mode detected. Stage: %s", resume_stage)
+    if resume_stage == "cell_profiling":
+        logging.info(
+            "Skipping image loading and segmentation; resuming cell profiling using existing outputs in %s",
+            args.out_dir,
+        )
+        codex_patches = CodexPatches.load_from_outputs(config, args)
+        run_cell_profiling(codex_patches, config, args)
+        logging.info("Cell profiling completed (resume mode).")
+        return
 
     # ---------------------------------
     # (A) Load Image and Antibodies Data
@@ -443,6 +455,10 @@ def run_pipeline(config, args):
     # ---------------------------------
     logging.info("Running cell segmentation.")
     run_cell_segmentation(codex_patches, config, args)
+    try:
+        codex_patches.write_segmentation_manifest()
+    except Exception as exc:
+        logging.warning(f"Failed to write segmentation manifest: {exc}")
 
     if config["evaluation"]["compute_metrics"]:
         # TODO: if the number of cells are too large we should skip the evaluation

@@ -5,6 +5,8 @@ import sys
 import logging
 import gc
 import gzip
+import json
+from datetime import datetime
 import zstandard as zstd
 import numpy as np
 import pandas as pd
@@ -68,6 +70,127 @@ class CodexPatches:
         self.generate_patches()
         self.update_patch_metadata()
         self.qc_patch_metadata()
+
+    @classmethod
+    def load_from_outputs(cls, config, args):
+        """
+        Rehydrate a CodexPatches instance from existing outputs so downstream
+        stages (e.g., cell profiling) can resume without rerunning segmentation.
+        """
+        instance = cls.__new__(cls)
+        instance.config = config
+        instance.args = args
+        instance.logger = logging.getLogger(__name__)
+        instance.codex_image = None
+        instance.valid_patches = None
+        instance.noisy_extracted_channel_patches = None
+        instance.extended_image_shape = None
+        instance.patch_files = []
+        instance.cache_all_channel_patches = True
+        instance.save_all_channel_patches_flag = True
+        instance.all_channel_compression_threads = 0
+
+        instance.antibody_df = cls._load_antibody_dataframe(config, args)
+        instance.patches_metadata = cls._load_patches_metadata(args.out_dir)
+
+        matched_path = cls._resolve_artifact_path(
+            args.out_dir,
+            ["matched_seg_res_batch.pickle.zst", "matched_seg_res_batch.pickle"],
+        )
+        original_path = cls._resolve_artifact_path(
+            args.out_dir,
+            ["original_seg_res_batch.pickle.zst", "original_seg_res_batch.pickle"],
+            required=False,
+        )
+        instance.repaired_seg_res_batch = cls._load_pickle_artifact(matched_path)
+        instance.original_seg_res_batch = (
+            cls._load_pickle_artifact(original_path) if original_path else None
+        )
+
+        all_channel_path = cls._resolve_artifact_path(
+            args.out_dir,
+            ["all_channel_patches.npy.zst", "all_channel_patches.npy"],
+        )
+        extracted_path = cls._resolve_artifact_path(
+            args.out_dir,
+            ["extracted_channel_patches.npy.zst", "extracted_channel_patches.npy"],
+            required=False,
+        )
+
+        instance.all_channel_patches_path = all_channel_path
+        instance.extracted_channel_patches_path = extracted_path
+        instance.all_channel_patches = None
+        instance.extracted_channel_patches = None
+
+        instance.segmentation_manifest = cls._load_segmentation_manifest(args.out_dir)
+
+        instance.logger.info(
+            "Loaded CodexPatches state from existing outputs at %s", args.out_dir
+        )
+        return instance
+
+    @staticmethod
+    def _resolve_artifact_path(out_dir: str, candidates, required: bool = True) -> Optional[str]:
+        for name in candidates:
+            path = os.path.join(out_dir, name)
+            if os.path.exists(path):
+                return path
+        if required:
+            raise FileNotFoundError(
+                f"Could not find any of the artifacts {candidates} in {out_dir}"
+            )
+        return None
+
+    @staticmethod
+    def _load_antibody_dataframe(config, args) -> pd.DataFrame:
+        data_cfg = config.get("data", {})
+        antibodies_file = data_cfg.get("antibodies_file", "")
+        if not antibodies_file:
+            raise ValueError("Configuration missing data.antibodies_file for resume mode.")
+        if os.path.isabs(antibodies_file):
+            antibodies_path = antibodies_file
+        else:
+            base_dir = getattr(args, "data_dir", "")
+            antibodies_path = os.path.join(base_dir, antibodies_file)
+        if not os.path.exists(antibodies_path):
+            raise FileNotFoundError(f"Antibodies file not found at {antibodies_path}")
+        return pd.read_csv(antibodies_path, sep="\t")
+
+    @staticmethod
+    def _load_patches_metadata(out_dir: str) -> pd.DataFrame:
+        metadata_path = os.path.join(out_dir, "patches_metadata.csv")
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(
+                f"patches_metadata.csv not found in {out_dir}. Cannot resume."
+            )
+        return pd.read_csv(metadata_path)
+
+    @staticmethod
+    def _load_pickle_artifact(path: str):
+        if not os.path.exists(path):
+            raise FileNotFoundError(path)
+        if path.endswith(".zst"):
+            dctx = zstd.ZstdDecompressor()
+            with open(path, "rb") as raw:
+                with dctx.stream_reader(raw) as reader:
+                    return pickle.load(reader)
+        else:
+            with open(path, "rb") as fh:
+                return pickle.load(fh)
+
+    @staticmethod
+    def _load_segmentation_manifest(out_dir: str) -> Optional[Dict]:
+        manifest_path = os.path.join(out_dir, "segmentation_manifest.json")
+        if not os.path.exists(manifest_path):
+            return None
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Failed to read segmentation_manifest.json from %s", manifest_path
+            )
+            return None
 
     def get_patches(self):
         if self.noisy_extracted_channel_patches is not None:
@@ -896,6 +1019,73 @@ class CodexPatches:
 
         # Inspect and save `original_seg_res_batch`
         inspect_and_save(self.original_seg_res_batch, "original_seg_res_batch.pickle")
+
+    def write_segmentation_manifest(self):
+        """Persist a manifest that records segmentation artifacts for resume workflows."""
+        artifacts = {
+            "matched_seg_res_batch": self._describe_first_existing(
+                ["matched_seg_res_batch.pickle.zst", "matched_seg_res_batch.pickle"]
+            ),
+            "original_seg_res_batch": self._describe_first_existing(
+                ["original_seg_res_batch.pickle.zst", "original_seg_res_batch.pickle"]
+            ),
+            "patches_metadata": self._describe_artifact("patches_metadata.csv"),
+            "all_channel_patches": self._describe_first_existing(
+                ["all_channel_patches.npy.zst", "all_channel_patches.npy"]
+            ),
+            "extracted_channel_patches": self._describe_first_existing(
+                ["extracted_channel_patches.npy.zst", "extracted_channel_patches.npy"]
+            ),
+        }
+
+        image_shape = None
+        if getattr(self, "codex_image", None) is not None:
+            extended = getattr(self.codex_image, "extended_extracted_channel_image", None)
+            if extended is not None:
+                image_shape = list(extended.shape)
+        manifest = {
+            "exp_id": self.config.get("exp_id"),
+            "sample_id": self.config.get("sample_id"),
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "split_mode": self.config.get("patching", {}).get("split_mode"),
+            "image_shape": image_shape,
+            "antibodies": self.antibody_df["antibody_name"].tolist()
+            if self.antibody_df is not None
+            else [],
+            "artifacts": artifacts,
+        }
+
+        manifest_path = os.path.join(self.args.out_dir, "segmentation_manifest.json")
+        with open(manifest_path, "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh, indent=2)
+        self.logger.info("Saved segmentation manifest to %s", manifest_path)
+
+    def _describe_first_existing(self, candidates):
+        for name in candidates:
+            info = self._describe_artifact(name)
+            if info["exists"]:
+                return info
+        return self._describe_artifact(candidates[0])
+
+    def _describe_artifact(self, relative_path: Optional[str]) -> Dict[str, Optional[str]]:
+        if relative_path is None:
+            return {"path": None, "exists": False}
+        if os.path.isabs(relative_path):
+            path = relative_path
+            rel = (
+                os.path.relpath(path, self.args.out_dir)
+                if path.startswith(self.args.out_dir)
+                else path
+            )
+        else:
+            path = os.path.join(self.args.out_dir, relative_path)
+            rel = relative_path
+        info: Dict[str, Optional[str]] = {"path": rel, "exists": os.path.exists(path)}
+        if info["exists"]:
+            stat = os.stat(path)
+            info["size_bytes"] = stat.st_size
+            info["modified_at"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+        return info
 
     def export_segmentation_masks(self, config, args):
         if self.repaired_seg_res_batch is None:
