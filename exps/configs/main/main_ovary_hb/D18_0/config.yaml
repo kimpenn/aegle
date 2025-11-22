@@ -101,6 +101,26 @@ segmentation:
     calculate_global_density: false
     calculate_local_density: false
 
+# -----------------------------------------------------------------------------
+# (F.5) Cell Profiling Configuration
+# -----------------------------------------------------------------------------
+profiling:
+  features:
+    # Whether to compute Laplacian variance (expensive spatial texture measure)
+    compute_laplacian: false
+
+    # Whether to compute coefficient of variation
+    compute_cov: false
+
+    # Data type for channel processing (float32 reduces memory vs float64)
+    channel_dtype: float32
+
+    # GPU acceleration for bincount operations (requires CuPy)
+    use_gpu: true
+
+    # GPU batch size (number of channels to process at once on GPU)
+    # Set to 0 for automatic detection based on available VRAM
+    gpu_batch_size: 0
 
 # -----------------------------------------------------------------------------
 # (G) Testing Data Disruption (Optional) 

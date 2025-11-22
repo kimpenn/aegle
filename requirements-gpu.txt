@@ -1,0 +1,51 @@
+# GPU Dependencies for Aegle Pipeline
+# =====================================
+#
+# This file contains optional GPU dependencies for accelerated cell profiling.
+# GPU acceleration provides 10-20x speedup for large samples (>1M cells).
+#
+# INSTALLATION INSTRUCTIONS:
+# --------------------------
+#
+# 1. Check your CUDA version:
+#    nvidia-smi
+#    (Look for "CUDA Version" in the output)
+#
+# 2. Install the appropriate CuPy version:
+#
+#    For CUDA 11.x (11.2 - 11.8):
+#    pip install cupy-cuda11x>=12.0.0
+#
+#    For CUDA 12.x:
+#    pip install cupy-cuda12x>=13.0.0
+#
+# 3. Verify installation:
+#    python -c "import cupy as cp; print(f'CuPy version: {cp.__version__}'); print(f'CUDA available: {cp.cuda.is_available()}'); print(f'GPU count: {cp.cuda.runtime.getDeviceCount()}')"
+#
+# 4. Enable GPU in your config:
+#    profiling:
+#      features:
+#        use_gpu: true
+#        gpu_batch_size: 0  # Auto-detect
+#
+# TROUBLESHOOTING:
+# ----------------
+# - If you get "CUDA_ERROR_NO_DEVICE": Check that GPU is available in your environment
+# - If you get OOM errors: Reduce gpu_batch_size in config (try 5 or 10)
+# - The pipeline will automatically fall back to CPU if GPU is unavailable
+#
+# DEPENDENCIES (installed separately):
+# ------------------------------------
+
+# CuPy - GPU-accelerated NumPy (choose one based on your CUDA version)
+# cupy-cuda11x>=12.0.0  # For CUDA 11.2 - 11.8
+cupy-cuda12x>=12.0.0  # For CUDA 12.x/13.x (RECOMMENDED for this system)
+
+# Optional: cupyx for additional GPU-accelerated scipy functions
+# (Already included with CuPy)
+
+# CURRENT SYSTEM STATUS:
+# ----------------------
+# ✅ CuPy 12.3.0 is already installed and working!
+# ✅ 2x Quadro RTX 8000 GPUs detected (49GB VRAM each)
+# ✅ CUDA 13.0 runtime available

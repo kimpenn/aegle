@@ -124,3 +124,27 @@ testing:
 # -----------------------------------------------------------------------------
 evaluation:
   compute_metrics: False
+
+# -----------------------------------------------------------------------------
+# (I) Profiling Feature Flags
+# -----------------------------------------------------------------------------
+profiling:
+  features:
+    # Compute per-channel Laplacian variance (expensive); disable to speed up profiling.
+    compute_laplacian: False
+
+    # Compute per-channel coefficient of variation; disable to save time.
+    compute_cov: False
+
+    # Dtype for per-channel intensity calculations; float32 reduces memory/compute.
+    channel_dtype: float32
+
+    # GPU acceleration for bincount operations (requires CuPy and CUDA-compatible GPU)
+    # Provides 10-20x speedup for large samples (>1M cells)
+    # Automatically falls back to CPU if GPU unavailable
+    use_gpu: True
+
+    # GPU batch size (number of channels to process at once on GPU)
+    # Set to 0 for automatic detection based on available VRAM
+    # Larger batches are faster but require more GPU memory
+    gpu_batch_size: 0

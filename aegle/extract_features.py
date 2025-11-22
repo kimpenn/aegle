@@ -18,9 +18,20 @@ def extract_features_v2_optimized(
     channels_to_quantify,
     *,
     cell_masks=None,
+    compute_laplacian=False,
+    compute_cov=False,
+    channel_dtype=np.float32,
 ):
     """Compute marker intensities and morphology statistics for matched cells."""
     logger = logging.getLogger(__name__)
+    # Log optimization flags
+    logger.info(
+        "Feature extraction optimization flags: "
+        f"compute_laplacian={compute_laplacian}, compute_cov={compute_cov}, "
+        f"channel_dtype={channel_dtype}"
+    )
+
+    channel_dtype = np.dtype(channel_dtype or np.float32)
 
     nucleus_masks = np.asarray(nucleus_masks).squeeze()
     if cell_masks is None:
@@ -64,10 +75,12 @@ def extract_features_v2_optimized(
     else:
         logger.info("Channels: %s", channels_to_quantify)
 
+    logger.info("Extracting nucleus morphology metrics...")
+    logger.into("[1]: np where to get nucleus_filterimg")
     nucleus_filterimg = np.where(
         np.isin(nucleus_masks, nucleus_ids), nucleus_masks, 0
     ).astype(np.int32)
-
+    logger.info("[2]: regionprops_table to get nucleus_props")
     # Extract nucleus morphology metrics (kept for backward compatibility)
     nucleus_props = regionprops_table(
         nucleus_filterimg,
@@ -101,10 +114,12 @@ def extract_features_v2_optimized(
         if legacy_name in props_df.columns:
             props_df[alias] = props_df[legacy_name]
 
+    logger.info("[3]: np where to get cell_filterimg")
     cell_filterimg = np.where(
         np.isin(cell_masks, nucleus_ids), cell_masks, 0
     ).astype(np.int32)
-
+    
+    logger.info("[4]: regionprops_table to get cell_props")
     cell_props = regionprops_table(
         cell_filterimg,
         properties=(
@@ -158,70 +173,57 @@ def extract_features_v2_optimized(
     # Pre-allocate arrays for computed features
     n_nuclei = len(nucleus_ids)
     n_channels = len(channels_to_quantify)
-    wholecell_means = np.empty((n_nuclei, n_channels))
+    wholecell_means = np.empty((n_nuclei, n_channels), dtype=channel_dtype)
     nucleus_means = np.empty_like(wholecell_means)
     cytoplasm_means = np.full_like(wholecell_means, np.nan)
-    cov_values = np.empty_like(wholecell_means)
-    laplacian_variances = np.empty_like(wholecell_means)
+    cov_values = None if not compute_cov else np.empty_like(wholecell_means)
+    laplacian_variances = (
+        None if not compute_laplacian else np.empty_like(wholecell_means)
+    )
 
-    # *** KEY OPTIMIZATION 2: Process in smaller batches to reduce memory pressure ***
-    # Determine batch size based on image dimensions - adjust as needed
-    # For very large images, processing a subset of channels at once can help
-    batch_size = max(1, n_channels // 4)  # Process 1/4 of channels at a time
+    # Process all channels sequentially
+    # Note: GPU version will handle batching internally based on VRAM
+    for idx, chan in enumerate(channels_to_quantify):
+        logger.debug("Processing channel %s (%d/%d)", chan, idx + 1, n_channels)
 
-    for batch_idx in range(0, n_channels, batch_size):
-        batch_end = min(batch_idx + batch_size, n_channels)
-        batch_channels = channels_to_quantify[batch_idx:batch_end]
+        chan_data = np.asarray(image_dict[chan], dtype=channel_dtype, order="C")
 
-        logger.debug(
-            "Processing channel batch %d/%d (channels %d-%d)",
-            batch_idx // batch_size + 1,
-            (n_channels + batch_size - 1) // batch_size,
-            batch_idx + 1,
-            batch_end,
+        cell_sum_per_label = np.bincount(
+            cell_labels_matrix.ravel(),
+            weights=chan_data.ravel(),
+            minlength=max_label + 1,
+        )[nucleus_ids]
+        wholecell_means[:, idx] = np.divide(
+            cell_sum_per_label,
+            cell_count_per_label,
+            out=np.zeros_like(cell_sum_per_label, dtype=channel_dtype),
+            where=cell_count_per_label > 0,
         )
 
-        for rel_idx, chan in enumerate(batch_channels):
-            idx = batch_idx + rel_idx
-            logger.debug("Processing channel %s (%d/%d)", chan, idx + 1, n_channels)
+        nucleus_sum_per_label = np.bincount(
+            nucleus_labels_matrix.ravel(),
+            weights=chan_data.ravel(),
+            minlength=max_label + 1,
+        )[nucleus_ids]
+        nucleus_means[:, idx] = np.divide(
+            nucleus_sum_per_label,
+            nucleus_count_per_label,
+            out=np.zeros_like(nucleus_sum_per_label, dtype=channel_dtype),
+            where=nucleus_count_per_label > 0,
+        )
 
-            chan_data = image_dict[chan]
+        cytoplasm_counts = cell_count_per_label - nucleus_count_per_label
+        valid_cytoplasm = cytoplasm_counts > 0
+        cytoplasm_sums = cell_sum_per_label - nucleus_sum_per_label
+        cytoplasm_channel_means = np.full_like(cytoplasm_sums, np.nan)
+        cytoplasm_channel_means[valid_cytoplasm] = (
+            cytoplasm_sums[valid_cytoplasm]
+            / cytoplasm_counts[valid_cytoplasm]
+        )
+        cytoplasm_means[:, idx] = cytoplasm_channel_means
 
-            cell_sum_per_label = np.bincount(
-                cell_labels_matrix.ravel(),
-                weights=chan_data.ravel(),
-                minlength=max_label + 1,
-            )[nucleus_ids]
-            wholecell_means[:, idx] = np.divide(
-                cell_sum_per_label,
-                cell_count_per_label,
-                out=np.zeros_like(cell_sum_per_label),
-                where=cell_count_per_label > 0,
-            )
-
-            nucleus_sum_per_label = np.bincount(
-                nucleus_labels_matrix.ravel(),
-                weights=chan_data.ravel(),
-                minlength=max_label + 1,
-            )[nucleus_ids]
-            nucleus_means[:, idx] = np.divide(
-                nucleus_sum_per_label,
-                nucleus_count_per_label,
-                out=np.zeros_like(nucleus_sum_per_label),
-                where=nucleus_count_per_label > 0,
-            )
-
-            cytoplasm_counts = cell_count_per_label - nucleus_count_per_label
-            valid_cytoplasm = cytoplasm_counts > 0
-            cytoplasm_sums = cell_sum_per_label - nucleus_sum_per_label
-            cytoplasm_channel_means = np.full_like(cytoplasm_sums, np.nan)
-            cytoplasm_channel_means[valid_cytoplasm] = (
-                cytoplasm_sums[valid_cytoplasm]
-                / cytoplasm_counts[valid_cytoplasm]
-            )
-            cytoplasm_means[:, idx] = cytoplasm_channel_means
-
-            # Compute Coefficient of Variation (CoV)
+        # Compute Coefficient of Variation (CoV) - only if requested
+        if compute_cov:
             sum_sq_per_label = np.bincount(
                 cell_labels_matrix.ravel(),
                 weights=(chan_data**2).ravel(),
@@ -239,7 +241,7 @@ def extract_features_v2_optimized(
             )
             cov_values[:, idx] = std_dev_per_label / (wholecell_means[:, idx] + 1e-8)
 
-            # *** OPTIMIZATION 4: Optimize Laplacian calculation ***
+        if compute_laplacian:
             laplacian_img = np.abs(laplace(chan_data))
             laplacian_sum_per_label = np.bincount(
                 cell_labels_matrix.ravel(),
@@ -249,7 +251,7 @@ def extract_features_v2_optimized(
             laplacian_variances[:, idx] = np.divide(
                 laplacian_sum_per_label,
                 cell_count_per_label,
-                out=np.zeros_like(laplacian_sum_per_label),
+                out=np.zeros_like(laplacian_sum_per_label, dtype=channel_dtype),
                 where=cell_count_per_label > 0,
             )
 
@@ -260,16 +262,24 @@ def extract_features_v2_optimized(
         wholecell_means, index=nucleus_ids, columns=unique_channels
     )
 
-    cov_df = pd.DataFrame(
-        cov_values,
-        index=nucleus_ids,
-        columns=[f"{c}_cov" for c in unique_channels],
+    cov_df = (
+        None
+        if cov_values is None
+        else pd.DataFrame(
+            cov_values,
+            index=nucleus_ids,
+            columns=[f"{c}_cov" for c in unique_channels],
+        )
     )
 
-    lap_var_df = pd.DataFrame(
-        laplacian_variances,
-        index=nucleus_ids,
-        columns=[f"{c}_laplacian_var" for c in unique_channels],
+    lap_var_df = (
+        None
+        if laplacian_variances is None
+        else pd.DataFrame(
+            laplacian_variances,
+            index=nucleus_ids,
+            columns=[f"{c}_laplacian_var" for c in unique_channels],
+        )
     )
 
     nucleus_intensity_df = pd.DataFrame(
@@ -284,27 +294,39 @@ def extract_features_v2_optimized(
         columns=[f"{c}_cytoplasm_mean" for c in unique_channels],
     )
 
-    # Compute antibody entropy per cell
-    def compute_cell_entropy(row):
-        if np.sum(row) == 0:
-            return 0
-        probs = row / np.sum(row)
-        return entropy(probs, base=2)
+    # Compute antibody entropy per cell (vectorized)
+    logger.debug("Computing cell entropy (vectorized)...")
+    marker_array = markers.values  # (n_cells, n_channels)
+    row_sums = marker_array.sum(axis=1, keepdims=True)  # (n_cells, 1)
+    valid_mask = (row_sums > 0).ravel()
 
-    cell_entropy_df = pd.DataFrame(
-        markers.apply(compute_cell_entropy, axis=1), columns=["cell_entropy"]
-    )
+    # Initialize entropy array
+    cell_entropy = np.zeros(len(marker_array))
+
+    if valid_mask.any():
+        # Compute probabilities only for valid cells
+        probs = np.zeros_like(marker_array)
+        probs[valid_mask] = marker_array[valid_mask] / row_sums[valid_mask]
+
+        # Vectorized entropy: -sum(p * log2(p))
+        # Use np.where to handle log(0) = 0 case
+        log_probs = np.where(probs > 0, np.log2(probs), 0)
+        cell_entropy[valid_mask] = -(probs[valid_mask] * log_probs[valid_mask]).sum(axis=1)
+
+    cell_entropy_df = pd.DataFrame(cell_entropy, index=markers.index, columns=["cell_entropy"])
+    logger.debug(f"Cell entropy computed for {valid_mask.sum()}/{len(marker_array)} cells")
 
     # Merge all metadata
-    props_df = props_df.join(
-        [
-            cov_df,
-            lap_var_df,
-            cell_entropy_df,
-            nucleus_intensity_df,
-            cytoplasm_intensity_df,
-        ]
-    )
+    dfs_to_join = [
+        cov_df,
+        lap_var_df,
+        cell_entropy_df,
+        nucleus_intensity_df,
+        cytoplasm_intensity_df,
+    ]
+    dfs_to_join = [df for df in dfs_to_join if df is not None]
+    if dfs_to_join:
+        props_df = props_df.join(dfs_to_join)
     props_df.rename(columns={"centroid-0": "y", "centroid-1": "x"}, inplace=True)
 
     return markers, props_df
@@ -316,9 +338,17 @@ def extract_features_v2(
     channels_to_quantify,
     *,
     cell_masks=None,
+    compute_laplacian=False,
+    compute_cov=False,
+    channel_dtype=np.float32,
 ):
     """Backward-compatible wrapper around the optimized feature extractor."""
     return extract_features_v2_optimized(
-        image_dict, nucleus_masks, channels_to_quantify, cell_masks=cell_masks
+        image_dict,
+        nucleus_masks,
+        channels_to_quantify,
+        cell_masks=cell_masks,
+        compute_laplacian=compute_laplacian,
+        compute_cov=compute_cov,
+        channel_dtype=channel_dtype,
     )
-

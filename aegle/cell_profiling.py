@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 
 from aegle.extract_features import extract_features_v2_optimized
+from aegle.extract_features_gpu import extract_features_v2_gpu
+from aegle.gpu_utils import is_cupy_available
 
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
@@ -36,6 +38,29 @@ def run_cell_profiling(codex_patches, config, args):
     split_mode = patching_config.get("split_mode", "patches")
     logger.info(f"Split mode: {split_mode}")
 
+    profiling_config = config.get("profiling", {})
+    features_config = profiling_config.get("features", {})
+    compute_laplacian = features_config.get("compute_laplacian", False)
+    compute_cov = features_config.get("compute_cov", False)
+    channel_dtype = features_config.get("channel_dtype", np.float32)
+
+    # GPU configuration
+    use_gpu = features_config.get("use_gpu", False)
+    gpu_batch_size = features_config.get("gpu_batch_size", 0)
+    gpu_available = is_cupy_available()
+
+    if use_gpu and not gpu_available:
+        logger.warning("GPU requested but not available, using CPU version")
+        use_gpu = False
+
+    logger.info(
+        "Profiling features: compute_laplacian=%s, compute_cov=%s, channel_dtype=%s, use_gpu=%s",
+        compute_laplacian,
+        compute_cov,
+        channel_dtype,
+        use_gpu,
+    )
+
     # Get patches metadata and select only informative patches
     patches_metadata_df = codex_patches.get_patches_metadata()
     logger.info(f"Patches metadata: {patches_metadata_df}")
@@ -61,6 +86,17 @@ def run_cell_profiling(codex_patches, config, args):
     total_cells = 0
     processed = 0
     global_cell_offset = 0  # Tracks cumulative global cell IDs when masks are merged
+
+    # Pre-compute expected cells for progress logging
+    total_expected_cells = 0
+    for seg_result in codex_patches.repaired_seg_res_batch:
+        cell_mask = seg_result.get("cell_matched_mask")
+        if cell_mask is None:
+            continue
+        labels = np.unique(cell_mask)
+        total_expected_cells += (labels != 0).sum()
+
+    next_progress_fraction = 0.05
 
     # Initialize lists for merging results (used for full_image, halves, quarters modes)
     all_exp_dfs = []
@@ -97,9 +133,31 @@ def run_cell_profiling(codex_patches, config, args):
             image_dict[ab] = patch_img[:, :, channel_idx]
 
         # Extract features (exp_df: cell-by-marker, metadata_df: cell metadata)
-        exp_df, metadata_df = extract_features_v2_optimized(
-            image_dict, nucleus_mask, antibodies, cell_masks=cell_mask
-        )
+        if use_gpu:
+            exp_df, metadata_df = extract_features_v2_gpu(
+                image_dict,
+                nucleus_mask,
+                antibodies,
+                cell_masks=cell_mask,
+                compute_laplacian=compute_laplacian,
+                compute_cov=compute_cov,
+                channel_dtype=channel_dtype,
+                gpu_batch_size=gpu_batch_size,
+            )
+        else:
+            exp_df, metadata_df = extract_features_v2_optimized(
+                image_dict,
+                nucleus_mask,
+                antibodies,
+                cell_masks=cell_mask,
+                compute_laplacian=compute_laplacian,
+                compute_cov=compute_cov,
+                channel_dtype=channel_dtype,
+            )
+        logger.info(f"Extracted features for patch {patch_idx} with shape: {exp_df.shape}")
+        logger.info(f"Metadata for patch {patch_idx} with shape: {metadata_df.shape}")
+        logger.info(f"Exp DataFrame: {exp_df.head()}")
+        logger.info(f"Metadata DataFrame: {metadata_df.head()}")
         
         # Add patch information to track origin of cells
         if len(exp_df) > 0:  # Only add columns if there are cells
@@ -229,6 +287,17 @@ def run_cell_profiling(codex_patches, config, args):
         # Update counter for detected cells
         total_cells += exp_df.shape[0]
         processed += 1
+
+        # Progress logging by cells profiled (every 5% of expected total)
+        if total_expected_cells > 0:
+            while total_cells >= next_progress_fraction * total_expected_cells and next_progress_fraction <= 1.0:
+                logger.info(
+                    "Cell profiling progress: %.0f%% (%d/%d cells)",
+                    next_progress_fraction * 100,
+                    total_cells,
+                    total_expected_cells,
+                )
+                next_progress_fraction += 0.05
         
         # Memory cleanup for disk-based patches
         if codex_patches.is_using_disk_based_patches():
