@@ -54,6 +54,7 @@ class CodexPatches:
         self.patches_metadata = None
         self.all_channel_patches_path = None
         self.extracted_channel_patches_path = None
+        self.all_channel_memmap_path = None
         self.extended_image_shape = None
 
         self.valid_patches = None
@@ -119,6 +120,7 @@ class CodexPatches:
 
         instance.all_channel_patches_path = all_channel_path
         instance.extracted_channel_patches_path = extracted_path
+        instance.all_channel_memmap_path = None
         instance.all_channel_patches = None
         instance.extracted_channel_patches = None
 
@@ -721,11 +723,43 @@ class CodexPatches:
         if not self.all_channel_patches_path or not os.path.exists(self.all_channel_patches_path):
             raise ValueError("All-channel patches are not available in memory or on disk")
 
+        memmap_path = self._prepare_all_channel_memmap()
         self.logger.info(
-            f"Loading all_channel_patches from {self.all_channel_patches_path} to satisfy request."
+            f"Loading all_channel_patches via memmap from {memmap_path} to satisfy request."
         )
-        self.all_channel_patches = self._read_array_zstd(self.all_channel_patches_path)
+        self.all_channel_patches = np.load(memmap_path, mmap_mode="r", allow_pickle=False)
         return self.all_channel_patches
+
+    def _prepare_all_channel_memmap(self) -> str:
+        """
+        Decompress the all-channel patches to a reusable .npy on disk and return its path.
+        Using mmap avoids holding the full tensor in RAM.
+        """
+        if self.all_channel_memmap_path and os.path.exists(self.all_channel_memmap_path):
+            return self.all_channel_memmap_path
+
+        if not self.all_channel_patches_path or not os.path.exists(self.all_channel_patches_path):
+            raise ValueError("All-channel patches are not available to memmap")
+
+        if self.all_channel_patches_path.endswith(".zst"):
+            memmap_path = os.path.join(self.args.out_dir, "all_channel_patches.memmap.npy")
+            if not os.path.exists(memmap_path):
+                self.logger.info(
+                    "Decompressing %s to memmap at %s for memory-efficient loading.",
+                    os.path.basename(self.all_channel_patches_path),
+                    memmap_path,
+                )
+                dctx = zstd.ZstdDecompressor()
+                os.makedirs(os.path.dirname(memmap_path), exist_ok=True)
+                with open(self.all_channel_patches_path, "rb") as raw, open(memmap_path, "wb") as dst:
+                    dctx.copy_stream(raw, dst)
+            else:
+                self.logger.info("Reusing existing memmap file at %s", memmap_path)
+        else:
+            memmap_path = self.all_channel_patches_path
+
+        self.all_channel_memmap_path = memmap_path
+        return memmap_path
 
     def _write_array_zstd(self, array: np.ndarray, path: str, threads: int = 0) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
