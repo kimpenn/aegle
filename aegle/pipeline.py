@@ -357,6 +357,8 @@ def run_pipeline(config, args):
     resume_stage = getattr(args, "resume_stage", None)
     if resume_stage:
         logging.info("Resume mode detected. Stage: %s", resume_stage)
+
+    # Handle resume mode - load existing data and run requested stage
     if resume_stage == "cell_profiling":
         logging.info(
             "Skipping image loading and segmentation; resuming cell profiling using existing outputs in %s",
@@ -365,126 +367,127 @@ def run_pipeline(config, args):
         codex_patches = CodexPatches.load_from_outputs(config, args)
         run_cell_profiling(codex_patches, config, args)
         logging.info("Cell profiling completed (resume mode).")
-        return
-
-    # ---------------------------------
-    # (A) Load Image and Antibodies Data
-    # ---------------------------------
-    # Step 1: Initialize CodexImage object
-    # - Read and Codex image as well the dataframe about antibodies
-    logging.info("----- Initializing CodexImage object.")
-    codex_image = CodexImage(config, args)
-    logging.info("CodexImage object initialized successfully.")
-    if config["data"]["generate_channel_stats"]:
-        logging.info("----- Generating channel statistics.")
-        codex_image.calculate_channel_statistics()
-        logging.info("Channel statistics generated successfully.")
-
-    # Step 2: Extract target channels from the image based on configuration
-    logging.info("----- Extracting target channels from the image.")
-    codex_image.extract_target_channels()
-    logging.info("Target channels extracted successfully.")
-
-    # ---------------------------------
-    # (B) Patched Image Preprocessing
-    # ---------------------------------
-    # Step 1: Extend the image for full patch coverage
-    logging.info("----- Extending image for full patch coverage.")
-    codex_image.extend_image()
-    logging.info("Image extension completed successfully.")
-
-    # Whole-sample visualization is handled in the preprocess overview module.
-    if config.get("visualization", {}).get("visualize_whole_sample", False):
-        logging.info(
-            "Skipping whole-sample visualization in main pipeline; overview is generated during preprocess."
-        )
-
-    # Step 2: Initialize CodexPatches object and generate patches
-    logging.info("----- Initializing CodexPatches object and generating patches.")
-    codex_patches = CodexPatches(codex_image, config, args)
-    codex_patches.save_patches()
-    codex_patches.save_metadata()
-    logging.info("Patches generated and metadata saved successfully.")
-
-    # Optional: Add disruptions to patches for testing
-    # Extract distruption type and level from config
-    disruption_config = config.get("testing", {}).get("data_disruption", {})
-    logging.info(f"Disruption config: {disruption_config}")
-    has_disruptions = False
-    if disruption_config and disruption_config.get("type", None) is not None:
-        disruption_type = disruption_config.get("type", None)
-        disruption_level = disruption_config.get("level", 1)
-        logging.info(
-            f"Adding disruptions {disruption_type} at level {disruption_level} to patches for testing."
-        )
-        codex_patches.add_disruptions(disruption_type, disruption_level)
-        logging.info("Disruptions added to patches.")
-        has_disruptions = True
-        if disruption_config.get("save_disrupted_patches", False):
-            logging.info("Saving disrupted patches.")
-            codex_patches.save_disrupted_patches()
-            logging.info("Disrupted patches saved.")
-
-    # Optional: Visualize patches
-    # Priority: if disruptions exist and visualize_patches is True, visualize disrupted patches
-    # Otherwise, visualize original patches
-    if config.get("visualization", {}).get("visualize_patches", False):
-        if has_disruptions and disruption_config.get("visualize_disrupted", True):
-            logging.info("Visualizing disrupted patches.")
-            save_patches_rgb(
-                codex_patches.disrupted_extracted_channel_patches,
-                codex_patches.patches_metadata,
-                config,
-                args,
-                max_workers=config.get("visualization", {}).get("workers", None),
-            )
-            logging.info("Disrupted patch visualization completed.")
-        else:
-            logging.info("Visualizing original patches.")
-            save_patches_rgb(
-                codex_patches.extracted_channel_patches,
-                codex_patches.patches_metadata,
-                config,
-                args,
-                max_workers=config.get("visualization", {}).get("workers", None),
-            )
-            logging.info("Original patch visualization completed.")
-
-    # ---------------------------------
-    # (C) Cell Segmentation and auto evaluation
-    # ---------------------------------
-    logging.info("Running cell segmentation.")
-    run_cell_segmentation(codex_patches, config, args)
-    try:
-        codex_patches.write_segmentation_manifest()
-    except Exception as exc:
-        logging.warning(f"Failed to write segmentation manifest: {exc}")
-
-    if config["evaluation"]["compute_metrics"]:
-        # TODO: if the number of cells are too large we should skip the evaluation
-        run_seg_evaluation(codex_patches, config, args)
-        # save the seg_evaluation_metrics to a gzip-compressed pickle file
-        metrics_path = os.path.join(args.out_dir, "seg_evaluation_metrics.pkl.gz")
-        with gzip.open(metrics_path, "wb") as file_handle:
-            pickle.dump(codex_patches.seg_evaluation_metrics, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+        # Continue to post-profiling stages (visualization, analysis, report) instead of returning
     else:
-        logging.info("The calculation of evaluation metrics is skipped (evaluation.compute_metrics is False).")
-        for metrics_name in ("seg_evaluation_metrics.pkl.gz", "seg_evaluation_metrics.pkl"):
-            metrics_path = os.path.join(args.out_dir, metrics_name)
-            if os.path.exists(metrics_path):
-                try:
-                    os.remove(metrics_path)
-                    logging.info(f"Removed stale segmentation metrics file: {metrics_path}")
-                except OSError as exc:
-                    logging.warning(f"Failed to remove stale metrics file {metrics_path}: {exc}")
+        # ---------------------------------
+        # (A) Load Image and Antibodies Data
+        # ---------------------------------
+        # Step 1: Initialize CodexImage object
+        # - Read and Codex image as well the dataframe about antibodies
+        logging.info("----- Initializing CodexImage object.")
+        codex_image = CodexImage(config, args)
+        logging.info("CodexImage object initialized successfully.")
+        if config["data"]["generate_channel_stats"]:
+            logging.info("----- Generating channel statistics.")
+            codex_image.calculate_channel_statistics()
+            logging.info("Channel statistics generated successfully.")
 
-    # ---------------------------------
-    # (D) Cell Profiling
-    # ---------------------------------
-    logging.info("Running cell profiling.")
-    run_cell_profiling(codex_patches, config, args)
-    logging.info("Cell profiling completed.")
+        # Step 2: Extract target channels from the image based on configuration
+        logging.info("----- Extracting target channels from the image.")
+        codex_image.extract_target_channels()
+        logging.info("Target channels extracted successfully.")
 
+        # ---------------------------------
+        # (B) Patched Image Preprocessing
+        # ---------------------------------
+        # Step 1: Extend the image for full patch coverage
+        logging.info("----- Extending image for full patch coverage.")
+        codex_image.extend_image()
+        logging.info("Image extension completed successfully.")
+
+        # Whole-sample visualization is handled in the preprocess overview module.
+        if config.get("visualization", {}).get("visualize_whole_sample", False):
+            logging.info(
+                "Skipping whole-sample visualization in main pipeline; overview is generated during preprocess."
+            )
+
+        # Step 2: Initialize CodexPatches object and generate patches
+        logging.info("----- Initializing CodexPatches object and generating patches.")
+        codex_patches = CodexPatches(codex_image, config, args)
+        codex_patches.save_patches()
+        codex_patches.save_metadata()
+        logging.info("Patches generated and metadata saved successfully.")
+
+        # Optional: Add disruptions to patches for testing
+        # Extract distruption type and level from config
+        disruption_config = config.get("testing", {}).get("data_disruption", {})
+        logging.info(f"Disruption config: {disruption_config}")
+        has_disruptions = False
+        if disruption_config and disruption_config.get("type", None) is not None:
+            disruption_type = disruption_config.get("type", None)
+            disruption_level = disruption_config.get("level", 1)
+            logging.info(
+                f"Adding disruptions {disruption_type} at level {disruption_level} to patches for testing."
+            )
+            codex_patches.add_disruptions(disruption_type, disruption_level)
+            logging.info("Disruptions added to patches.")
+            has_disruptions = True
+            if disruption_config.get("save_disrupted_patches", False):
+                logging.info("Saving disrupted patches.")
+                codex_patches.save_disrupted_patches()
+                logging.info("Disrupted patches saved.")
+
+        # Optional: Visualize patches
+        # Priority: if disruptions exist and visualize_patches is True, visualize disrupted patches
+        # Otherwise, visualize original patches
+        if config.get("visualization", {}).get("visualize_patches", False):
+            if has_disruptions and disruption_config.get("visualize_disrupted", True):
+                logging.info("Visualizing disrupted patches.")
+                save_patches_rgb(
+                    codex_patches.disrupted_extracted_channel_patches,
+                    codex_patches.patches_metadata,
+                    config,
+                    args,
+                    max_workers=config.get("visualization", {}).get("workers", None),
+                )
+                logging.info("Disrupted patch visualization completed.")
+            else:
+                logging.info("Visualizing original patches.")
+                save_patches_rgb(
+                    codex_patches.extracted_channel_patches,
+                    codex_patches.patches_metadata,
+                    config,
+                    args,
+                    max_workers=config.get("visualization", {}).get("workers", None),
+                )
+                logging.info("Original patch visualization completed.")
+
+        # ---------------------------------
+        # (C) Cell Segmentation and auto evaluation
+        # ---------------------------------
+        logging.info("Running cell segmentation.")
+        run_cell_segmentation(codex_patches, config, args)
+        try:
+            codex_patches.write_segmentation_manifest()
+        except Exception as exc:
+            logging.warning(f"Failed to write segmentation manifest: {exc}")
+
+        if config["evaluation"]["compute_metrics"]:
+            # TODO: if the number of cells are too large we should skip the evaluation
+            run_seg_evaluation(codex_patches, config, args)
+            # save the seg_evaluation_metrics to a gzip-compressed pickle file
+            metrics_path = os.path.join(args.out_dir, "seg_evaluation_metrics.pkl.gz")
+            with gzip.open(metrics_path, "wb") as file_handle:
+                pickle.dump(codex_patches.seg_evaluation_metrics, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+        else:
+            logging.info("The calculation of evaluation metrics is skipped (evaluation.compute_metrics is False).")
+            for metrics_name in ("seg_evaluation_metrics.pkl.gz", "seg_evaluation_metrics.pkl"):
+                metrics_path = os.path.join(args.out_dir, metrics_name)
+                if os.path.exists(metrics_path):
+                    try:
+                        os.remove(metrics_path)
+                        logging.info(f"Removed stale segmentation metrics file: {metrics_path}")
+                    except OSError as exc:
+                        logging.warning(f"Failed to remove stale metrics file {metrics_path}: {exc}")
+
+        # ---------------------------------
+        # (D) Cell Profiling
+        # ---------------------------------
+        logging.info("Running cell profiling.")
+        run_cell_profiling(codex_patches, config, args)
+        logging.info("Cell profiling completed.")
+
+    # Post-profiling stages (run regardless of resume mode)
     profiling_out_dir = os.path.join(args.out_dir, "cell_profiling")
     try:
         cell_metadata_df = _load_cell_metadata_dataframe(profiling_out_dir)

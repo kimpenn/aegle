@@ -112,6 +112,9 @@ celerybeat-schedule
 # Rope project settings
 .ropeproject
 
+# Claude Code
+.claude/
+
 # mkdocs documentation
 /site
 

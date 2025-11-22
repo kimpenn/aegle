@@ -20,3 +20,6 @@ Follow the short imperative commit style already in `git log` (e.g., “Added nu
 
 ## Data & Configuration Tips
 Treat `exps/templates/*.yaml` as the canonical starting point, copying them into `exps/configs/<stage>/<cohort>/<scan>/config.yaml` when onboarding a new sample. Keep raw PhenoCycler deliveries in `data/` and ensure derived artifacts (`out/`, `debug/`, `logs/`) stay git-ignored—share reproducibility details via config diffs rather than uploading binary tiles. Scripts assume relative paths inside the repo root; when building new orchestrators, echo both `--data_dir` and `--out_dir` so automated agents can rediscover the run context. Verify that secrets (API tokens for optional LLM-assisted annotation in `src/run_analysis.py`) are provided through environment variables or `.env` files listed in `.gitignore`, never in tracked configs.
+
+## Runtime Defaults
+Most production runs use `patching.split_mode: full_image`; prefer optimizations that keep the single-patch path efficient and avoid per-patch chatter that adds little value in that mode.

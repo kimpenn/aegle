@@ -94,6 +94,41 @@ python src/run_analysis.py \
 bash scripts/run_analysis.sh
 ```
 
+## Development Guidelines
+
+### Git Commit Messages
+
+**IMPORTANT**: Keep commit messages **concise**.
+
+- **First line**: Short summary (50-72 characters max)
+- **Body** (optional): Brief explanation of what and why (not how)
+- **Keep it simple**: 1-3 sentences total is usually sufficient
+- **Don't**: Write multi-paragraph essays explaining every detail
+
+**Good examples:**
+```
+Add GPU acceleration for cell profiling
+
+Fix typo in extract_features.py logger call
+
+Update .gitignore to exclude .claude/ directory
+```
+
+**Bad example:**
+```
+Add GPU acceleration for cell profiling with 20-50x speedup
+
+Implemented GPU-accelerated feature extraction using CuPy to dramatically
+speed up cell profiling for large samples (>1M cells). The optimization
+reduces D18_0 processing time from hours (OOM) to 48 minutes.
+
+Phase 1: Configuration & Setup
+- Add profiling.features config section with GPU flags (use_gpu, gpu_batch_size)
+- Create aegle/gpu_utils.py with GPU detection and memory management
+...
+[12 more paragraphs]
+```
+
 ## Project Structure
 
 - `aegle/`: Core pipeline modules (image loading, patching, segmentation, profiling)

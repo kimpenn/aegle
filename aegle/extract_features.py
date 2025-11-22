@@ -76,7 +76,7 @@ def extract_features_v2_optimized(
         logger.info("Channels: %s", channels_to_quantify)
 
     logger.info("Extracting nucleus morphology metrics...")
-    logger.into("[1]: np where to get nucleus_filterimg")
+    logger.info("[1]: np where to get nucleus_filterimg")
     nucleus_filterimg = np.where(
         np.isin(nucleus_masks, nucleus_ids), nucleus_masks, 0
     ).astype(np.int32)
