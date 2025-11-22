@@ -14,6 +14,8 @@ src_path = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline"
 sys.path.append(src_path)
 
 from aegle_analysis.analysis_handler import run_analysis
+from aegle_analysis.analysis_annotator import DEFAULT_TISSUE_DESCRIPTOR
+from aegle_analysis.analysis_annotator import DEFAULT_MODEL as DEFAULT_LLM_MODEL
 
 
 def setup_logging():
@@ -128,7 +130,7 @@ def _resolve_analysis_paths(config: Dict[str, Any], args: argparse.Namespace) ->
     else:
         args.llm_prior_path = None
 
-    args.llm_model = analysis_cfg.get("llm_model", "gpt-4o")
+    args.llm_model = analysis_cfg.get("llm_model", DEFAULT_LLM_MODEL)
     args.llm_temperature = analysis_cfg.get("llm_temperature", 0.1)
     args.llm_max_tokens = int(analysis_cfg.get("llm_max_tokens", 4000))
     args.llm_system_prompt = analysis_cfg.get("llm_system_prompt")
@@ -139,6 +141,9 @@ def _resolve_analysis_paths(config: Dict[str, Any], args: argparse.Namespace) ->
     )
     args.llm_summary_system_prompt = analysis_cfg.get("llm_summary_system_prompt")
     args.llm_summary_output_file = analysis_cfg.get("llm_summary_output_file")
+    args.tissue_descriptor = analysis_cfg.get(
+        "tissue_descriptor", DEFAULT_TISSUE_DESCRIPTOR
+    )
     args.generate_pipeline_report = bool(
         analysis_cfg.get("generate_pipeline_report", True)
     )

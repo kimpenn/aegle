@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 try:  # Optional dependency – only needed when annotations are enabled
     from openai import OpenAI
@@ -28,8 +28,8 @@ DEFAULT_SYSTEM_PROMPT = (
     "You are an expert in single-cell analysis and tissue biology. "
     "Provide detailed, accurate cell type annotations based on marker expression patterns."
 )
-# "gpt-4o" or "gpt-5-2025-08-07"
-DEFAULT_MODEL = "gpt-5-2025-08-07"
+# "gpt-4o" or "gpt-5.1-2025-11-13"
+DEFAULT_MODEL = "gpt-5.1-2025-11-13"
 DEFAULT_TEMPERATURE = 1
 DEFAULT_MAX_COMPLETION_TOKENS = 4000
 
@@ -37,6 +37,10 @@ DEFAULT_SUMMARY_SYSTEM_PROMPT = (
     "You are an expert reviewer of Phenocycler/CODEX single-cell experiments. "
     "Provide concise, evidence-based conclusions about the biological signal present in the run."
 )
+
+DEFAULT_TISSUE_DESCRIPTOR = "fallopian tube"
+
+MAX_COMPLETION_TOKENS_CAP = 16000
 
 
 def load_json_file(filepath: str | Path) -> Dict[str, Any]:
@@ -51,15 +55,20 @@ def load_json_file(filepath: str | Path) -> Dict[str, Any]:
     return {}
 
 
-def create_prompt(prior_knowledge: Dict[str, Any], cluster_data: Dict[str, Any]) -> str:
+def create_prompt(
+    prior_knowledge: Dict[str, Any],
+    cluster_data: Dict[str, Any],
+    tissue_descriptor: Optional[str] = None,
+) -> str:
     """Create the LLM prompt describing prior knowledge and observed clusters."""
 
     n_clusters = len(cluster_data)
-    prompt = f"""You are an expert in single-cell analysis and histopathology. I have performed phenocycler scanning on fallopian tube tissue samples, followed by cell segmentation and clustering analysis. This resulted in {n_clusters} distinct cell clusters, each characterized by specific marker expression patterns.
+    tissue_text = tissue_descriptor or DEFAULT_TISSUE_DESCRIPTOR
+    prompt = f"""You are an expert in single-cell analysis and histopathology. I have performed Phenocycler scanning on {tissue_text} tissue samples, followed by cell segmentation and clustering analysis. This resulted in {n_clusters} distinct cell clusters, each characterized by specific marker expression patterns.
 
 **Task**: Annotate each cluster with the most likely cell type(s) based on the marker expression and provided prior knowledge.
 
-**Prior Knowledge - Expected Cell Types and Markers in Uterus Tissue**:
+**Prior Knowledge - Expected Cell Types and Markers in {tissue_text.title()} Tissue**:
 ```json
 {json.dumps(prior_knowledge, indent=2)}
 ```
@@ -91,6 +100,30 @@ Please analyse all {n_clusters} clusters systematically."""
     return prompt
 
 
+def _normalize_message_content(content: Any) -> str:
+    """Return textual content regardless of SDK response type."""
+
+    if content is None:
+        return ""
+
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        fragments: List[str] = []
+        for chunk in content:
+            text = None
+            if isinstance(chunk, dict):
+                text = chunk.get("text")
+            else:
+                text = getattr(chunk, "text", None)
+            if text:
+                fragments.append(str(text))
+        return "\n".join(fragments).strip()
+
+    return str(content).strip()
+
+
 def query_llm(
     prompt: str,
     api_key: str,
@@ -99,8 +132,9 @@ def query_llm(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     temperature: float = DEFAULT_TEMPERATURE,
     max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
+    retry_on_truncation: bool = True,
 ) -> str:
-    """Query the LLM with the annotation prompt."""
+    """Query the LLM with the annotation prompt, retrying once if the response is truncated."""
 
     if OpenAI is None:  # pragma: no cover - trigger informative error for missing dependency
         raise RuntimeError(
@@ -108,40 +142,66 @@ def query_llm(
         )
 
     client = OpenAI(api_key=api_key)
+    attempt_tokens = max_completion_tokens
+    max_attempts = 2 if retry_on_truncation else 1
 
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            max_completion_tokens=max_completion_tokens,
-            temperature=temperature
-        )
+    for attempt in range(max_attempts):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                max_completion_tokens=attempt_tokens,
+                temperature=temperature,
+            )
+        except Exception as exc:  # pragma: no cover - caller decides how to handle failure
+            logging.error("Error querying LLM: %s", exc)
+            return ""
+
         choice = response.choices[0]
         finish_reason = getattr(choice, "finish_reason", None)
         message = choice.message
-        content = (message.content or "").strip()
-
-        # Surface refusal or empty-content cases for downstream debugging.
+        content = _normalize_message_content(getattr(message, "content", None))
         refusal_message = getattr(message, "refusal", None)
+
         if refusal_message:
             logging.warning(
                 "LLM refusal received (finish_reason=%s): %s",
                 finish_reason,
                 refusal_message.strip(),
             )
-        elif not content:
-            logging.warning(
-                "LLM response contained no text content (finish_reason=%s).",
-                finish_reason,
-            )
 
-        return content
-    except Exception as exc:  # pragma: no cover - caller decides how to handle failure
-        logging.error("Error querying LLM: %s", exc)
+        if content:
+            return content
+
+        # If we hit the completion token ceiling before the assistant produced
+        # any text, retry once with a larger allowance (up to MAX_COMPLETION_TOKENS_CAP).
+        can_retry = (
+            retry_on_truncation
+            and finish_reason == "length"
+            and attempt == 0
+            and attempt_tokens < MAX_COMPLETION_TOKENS_CAP
+        )
+        if can_retry:
+            next_tokens = min(int(attempt_tokens * 1.5), MAX_COMPLETION_TOKENS_CAP)
+            logging.warning(
+                "LLM response truncated before producing text "
+                "(finish_reason=length, max_completion_tokens=%s). Retrying with %s tokens.",
+                attempt_tokens,
+                next_tokens,
+            )
+            attempt_tokens = next_tokens
+            continue
+
+        logging.warning(
+            "LLM response contained no text content (finish_reason=%s).",
+            finish_reason,
+        )
         return ""
+
+    return ""
 
 
 def annotate_clusters(
@@ -153,6 +213,7 @@ def annotate_clusters(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     temperature: float = DEFAULT_TEMPERATURE,
     max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
+    tissue_descriptor: Optional[str] = None,
 ) -> str:
     """Return LLM-generated annotations given prior knowledge and cluster summaries."""
 
@@ -165,7 +226,7 @@ def annotate_clusters(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY environment variable not set")
 
-    prompt = create_prompt(prior_knowledge, cluster_data)
+    prompt = create_prompt(prior_knowledge, cluster_data, tissue_descriptor=tissue_descriptor)
     return query_llm(
         prompt,
         api_key,
@@ -180,11 +241,13 @@ def create_summary_prompt(
     prior_knowledge: Dict[str, Any],
     cluster_data: Dict[str, Any],
     annotation_text: str,
+    tissue_descriptor: Optional[str] = None,
 ) -> str:
     """Create the LLM prompt asking for an overall interpretation summary."""
 
+    tissue_text = tissue_descriptor or DEFAULT_TISSUE_DESCRIPTOR
     prompt = (
-        "You are assisting with quality control of a Phenocycler (CODEX) experiment on fallopian tube tissue.\n"
+        f"You are assisting with quality control of a Phenocycler (CODEX) experiment on {tissue_text} tissue.\n"
         "Review the following information and respond in English with a structured assessment.\n\n"
         "Prior knowledge (expected cell types and markers):\n"
         f"```json\n{json.dumps(prior_knowledge, indent=2)}\n```\n\n"
@@ -218,6 +281,7 @@ def summarize_annotation(
     system_prompt: str = DEFAULT_SUMMARY_SYSTEM_PROMPT,
     temperature: float = DEFAULT_TEMPERATURE,
     max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
+    tissue_descriptor: Optional[str] = None,
 ) -> str:
     """Return a high-level summary describing biological signal interpretation."""
 
@@ -228,7 +292,12 @@ def summarize_annotation(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY environment variable not set")
 
-    prompt = create_summary_prompt(prior_knowledge, cluster_data, annotation_text)
+    prompt = create_summary_prompt(
+        prior_knowledge,
+        cluster_data,
+        annotation_text,
+        tissue_descriptor=tissue_descriptor,
+    )
     return query_llm(
         prompt,
         api_key,

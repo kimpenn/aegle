@@ -21,6 +21,8 @@ from aegle_analysis.analysis_annotator import (
     summarize_annotation,
     load_json_file,
     save_results,
+    DEFAULT_MODEL,
+    DEFAULT_TISSUE_DESCRIPTOR,
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_SUMMARY_SYSTEM_PROMPT,
 )
@@ -46,6 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--system_prompt", help="Override system prompt text")
     parser.add_argument("--temperature", type=float, help="Override sampling temperature")
     parser.add_argument("--max_tokens", type=int, help="Override max response tokens")
+    parser.add_argument("--tissue_descriptor", help="Override the tissue descriptor used in prompts")
     parser.add_argument("--output_file", help="Override output file name for annotation text")
     parser.add_argument("--log_level", default="INFO", help="Logging level (default: INFO)")
     return parser.parse_args()
@@ -100,7 +103,7 @@ def main() -> None:
     if not prior_data:
         raise SystemExit(f"Prior knowledge JSON empty or invalid: {prior_path}")
 
-    model = args.model or analysis_cfg.get("llm_model", "gpt-5-2025-08-07")
+    model = args.model or analysis_cfg.get("llm_model", DEFAULT_MODEL)
     temperature = args.temperature if args.temperature is not None else float(analysis_cfg.get("llm_temperature", 1))
     max_tokens = args.max_tokens if args.max_tokens is not None else int(analysis_cfg.get("llm_max_tokens", 4000))
     system_prompt = (
@@ -111,6 +114,11 @@ def main() -> None:
     summarize = bool(analysis_cfg.get("summarize_annotation", analysis_cfg.get("annotate_cell_types", False)))
     summary_system_prompt = analysis_cfg.get("llm_summary_system_prompt") or DEFAULT_SUMMARY_SYSTEM_PROMPT
     summary_output_filename = analysis_cfg.get("llm_summary_output_file")
+    tissue_descriptor = (
+        args.tissue_descriptor
+        or analysis_cfg.get("tissue_descriptor")
+        or DEFAULT_TISSUE_DESCRIPTOR
+    )
 
     logging.info("Running LLM annotation...")
     annotation_text = annotate_clusters(
@@ -120,6 +128,7 @@ def main() -> None:
         system_prompt=system_prompt,
         temperature=temperature,
         max_completion_tokens=max_tokens,
+        tissue_descriptor=tissue_descriptor,
     )
 
     if not annotation_text:
@@ -146,6 +155,7 @@ def main() -> None:
                 system_prompt=summary_system_prompt,
                 temperature=temperature,
                 max_completion_tokens=max_tokens,
+                tissue_descriptor=tissue_descriptor,
             )
         except Exception as exc:
             logging.error("LLM annotation summary failed: %s", exc)
@@ -167,6 +177,7 @@ def main() -> None:
             "model": model,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "tissue_descriptor": tissue_descriptor,
             "prior_path": prior_path,
             "cluster_payload_path": str(cluster_payload_path),
             "result_path": str(annotation_path),

@@ -12,9 +12,10 @@ defaults:
   analysis::plots_subdir: plots
   analysis::de_subdir: differential_expression
   analysis::annotate_cell_types: false
-  analysis::llm_model: gpt-5-2025-08-07
+  analysis::llm_model: gpt-5.1-2025-11-13
   analysis::llm_temperature: 1
-  analysis::llm_max_tokens: 4000
+  analysis::llm_max_tokens: 10000
+  analysis::tissue_descriptor: fallopian tube
 
 fields:
   - key: exp_id
@@ -129,7 +130,7 @@ fields:
   - key: analysis::llm_model
     type: str
     required: false
-    description: LLM model identifier (e.g. gpt-4o).
+    description: LLM model identifier (e.g. gpt-5.1-2025-11-13).
 
   - key: analysis::llm_temperature
     type: float
@@ -164,6 +165,11 @@ fields:
     required: false
     allow_null: true
     description: Optional override for the summary output file name.
+
+  - key: analysis::tissue_descriptor
+    type: str
+    required: false
+    description: Descriptive tissue name injected into the LLM prompts (e.g. fallopian tube, ovary).
 
   - key: analysis::generate_pipeline_report
     type: bool

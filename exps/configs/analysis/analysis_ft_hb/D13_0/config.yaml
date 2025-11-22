@@ -35,7 +35,7 @@ analysis:
   annotate_cell_types: true
   llm_prior_path: 
     /workspaces/codex-analysis/data/FallopianTube/cell_type_markers.json # Absolute path to prior knowledge JSON
-  llm_model: gpt-5-2025-08-07
+  llm_model: gpt-5.1-2025-11-13
   llm_temperature: 1
   llm_max_tokens: 4000
   llm_system_prompt: NULL

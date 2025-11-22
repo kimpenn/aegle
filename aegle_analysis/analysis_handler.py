@@ -47,6 +47,8 @@ from aegle_analysis.analysis_annotator import (
     summarize_annotation,
     load_json_file,
     save_results,
+    DEFAULT_MODEL,
+    DEFAULT_TISSUE_DESCRIPTOR,
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_SUMMARY_SYSTEM_PROMPT,
 )
@@ -638,14 +640,16 @@ def run_analysis(config, args):
             if not prior_data:
                 logging.warning("Unable to load prior knowledge from %s; skipping LLM annotation.", prior_path)
             else:
+                tissue_descriptor = getattr(args, "tissue_descriptor", DEFAULT_TISSUE_DESCRIPTOR)
                 try:
                     annotation_text = annotate_clusters(
                         prior_data,
                         cluster_payload,
-                        model=getattr(args, "llm_model", "gpt-4o"),
+                        model=getattr(args, "llm_model", DEFAULT_MODEL),
                         system_prompt=getattr(args, "llm_system_prompt", None) or DEFAULT_SYSTEM_PROMPT,
                         temperature=float(getattr(args, "llm_temperature", 0.1)),
                         max_completion_tokens=int(getattr(args, "llm_max_tokens", 4000)),
+                        tissue_descriptor=tissue_descriptor,
                     )
                 except Exception as exc:
                     logging.error("LLM annotation failed: %s", exc)
@@ -656,9 +660,10 @@ def run_analysis(config, args):
                         save_results(annotation_text, annotation_path)
                         annotation_output_path = Path(annotation_path)
                         adata.uns["llm_annotation"] = {
-                            "model": getattr(args, "llm_model", "gpt-4o"),
+                            "model": getattr(args, "llm_model", DEFAULT_MODEL),
                             "temperature": float(getattr(args, "llm_temperature", 0.1)),
                             "max_tokens": int(getattr(args, "llm_max_tokens", 4000)),
+                            "tissue_descriptor": tissue_descriptor,
                             "prior_path": str(prior_path),
                             "cluster_payload_path": cluster_payload_path,
                             "result_path": annotation_path,
@@ -672,11 +677,12 @@ def run_analysis(config, args):
                                     prior_data,
                                     cluster_payload,
                                     annotation_text,
-                                    model=getattr(args, "llm_model", "gpt-4o"),
+                                    model=getattr(args, "llm_model", DEFAULT_MODEL),
                                     system_prompt=getattr(args, "llm_summary_system_prompt", None)
                                     or DEFAULT_SUMMARY_SYSTEM_PROMPT,
                                     temperature=float(getattr(args, "llm_temperature", 0.1)),
                                     max_completion_tokens=int(getattr(args, "llm_max_tokens", 4000)),
+                                    tissue_descriptor=tissue_descriptor,
                                 )
                             except Exception as exc:
                                 logging.error("LLM annotation summary failed: %s", exc)

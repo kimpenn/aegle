@@ -1,6 +1,6 @@
 """Minimal smoke test for the OpenAI chat completions client."""
 """
-python 0-phenocycler-penntmc-pipeline/aegle_analysis/llm_smoketest.py --model gpt-5-2025-08-07 --prompt "Give me a two-sentence summary of the Phenocycler analysis pipeline." --max-completion-tokens 600 --temperature 0.2
+python 0-phenocycler-penntmc-pipeline/aegle_analysis/llm_smoketest.py --model gpt-5.1-2025-11-13 --prompt "Give me a two-sentence summary of the Phenocycler analysis pipeline." --max-completion-tokens 600 --temperature 0.2
 """
 
 from __future__ import annotations
@@ -8,7 +8,9 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from typing import Sequence
+from typing import Any, List, Sequence
+
+from aegle_analysis.analysis_annotator import DEFAULT_MODEL as DEFAULT_LLM_MODEL
 
 try:
     from openai import OpenAI
@@ -24,8 +26,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default="gpt-4o-mini",
-        help="Model name to query (default: gpt-4o-mini).",
+        default=DEFAULT_LLM_MODEL,
+        help=f"Model name to query (default: {DEFAULT_LLM_MODEL}).",
     )
     parser.add_argument(
         "--system",
@@ -55,6 +57,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Logging level (default: INFO).",
     )
     return parser.parse_args(argv)
+
+
+def _normalize_message_content(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        fragments: List[str] = []
+        for chunk in content:
+            text = None
+            if isinstance(chunk, dict):
+                text = chunk.get("text")
+            else:
+                text = getattr(chunk, "text", None)
+            if text:
+                fragments.append(str(text))
+        return "\n".join(fragments).strip()
+    return str(content).strip()
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -87,7 +108,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if getattr(message, "refusal", None):
         logging.warning("refusal: %s", message.refusal)
 
-    content = (message.content or "").strip()
+    content = _normalize_message_content(getattr(message, "content", None))
     if content:
         logging.info("content:\n%s", content)
     else:

@@ -1,0 +1,15 @@
+exp_id: D13_img0024
+data:
+  file_name: /workspaces/codex-analysis/data/uterus/D13/img0024/img0024.qptiff
+
+bftools:
+  showinf_path: /workspaces/codex-analysis/bftools/showinf
+tissue_extraction:
+  n_tissue: -1
+  downscale_factor: 64
+  min_area: -1
+  visualize: true
+  output_dir: 
+    /workspaces/codex-analysis/data/uterus/D13/img0024/processed_hubmap
+  manual_mask_json: 
+    /workspaces/codex-analysis/data/uterus/D13/img0024/processed_hubmap/hubmap_annotations
