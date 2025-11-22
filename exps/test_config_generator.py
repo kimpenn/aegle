@@ -89,12 +89,12 @@ def case_main_smoke(tmp_dir: Path) -> Path:
 
     csv_path = tmp_dir / "main_design.csv"
     header = (
-        "exp_id,data::file_name,data::antibodies_file,data::image_mpp,"
+        "exp_id,sample_id,data::file_name,data::antibodies_file,data::image_mpp,"
         "channels::nuclear_channel,channels::wholecell_channel,"
         "patching::split_mode,segmentation::model_path"
     )
     row = (
-        f"main_smoke,{image},{antibodies},0.5,"
+        f"main_smoke,sample1,{image},{antibodies},0.5,"
         f"DAPI,\"CD45,CD3\",full_image,{model_dir}"
     )
     _write_csv(csv_path, header, [row])
@@ -212,6 +212,91 @@ def case_preprocess_missing_downscale_should_fail(tmp_dir: Path) -> CommandResul
     return result
 
 
+def case_analysis_invalid_seg_format_should_fail(tmp_dir: Path) -> CommandResult:
+    """Segmentation format must be one of the allowed schema choices."""
+    tmp_dir = tmp_dir.resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = tmp_dir / "analysis_bad_seg.csv"
+    header = "exp_id,analysis::data_dir,analysis::segmentation_format"
+    row = "analysis_bad,exp_out,invalid_format"
+    _write_csv(csv_path, header, [row])
+
+    output_dir = tmp_dir / "out"
+    result = run_generator(
+        analysis_step="analysis",
+        experiment_set="analysis_bad_seg",
+        csv_path=csv_path,
+        template_path=TEMPLATES_DIR / "analysis_template.yaml",
+        schema_path=SCHEMAS_DIR / "analysis.yaml",
+        output_dir=output_dir,
+    )
+    if result.returncode == 0:
+        raise SmokeTestError("Expected invalid segmentation_format to fail schema validation")
+    if "segmentation_format" not in result.output:
+        raise SmokeTestError("Expected error message to mention segmentation_format")
+    return result
+
+
+def case_analysis_missing_data_dir_should_fail(tmp_dir: Path) -> CommandResult:
+    """analysis::data_dir is required; omission should fail schema validation."""
+    tmp_dir = tmp_dir.resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = tmp_dir / "analysis_missing_data_dir.csv"
+    header = "exp_id,analysis::segmentation_format"
+    row = "analysis_missing,pickle.zst"
+    _write_csv(csv_path, header, [row])
+
+    output_dir = tmp_dir / "out"
+    result = run_generator(
+        analysis_step="analysis",
+        experiment_set="analysis_missing_data_dir",
+        csv_path=csv_path,
+        template_path=TEMPLATES_DIR / "analysis_template.yaml",
+        schema_path=SCHEMAS_DIR / "analysis.yaml",
+        output_dir=output_dir,
+    )
+    if result.returncode == 0:
+        raise SmokeTestError("Expected missing analysis::data_dir to fail schema validation")
+    if "analysis::data_dir" not in result.output:
+        raise SmokeTestError("Expected error message to mention analysis::data_dir")
+    return result
+
+
+def case_analysis_smoke(tmp_dir: Path) -> Path:
+    """Generate analysis configs from CSV and ensure they materialise."""
+    tmp_dir = tmp_dir.resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = tmp_dir / "analysis_design.csv"
+    header = "exp_id,analysis::data_dir,analysis::output_subdir,analysis::segmentation_format"
+    row = "analysis_smoke,exp_out,analysis_out,pickle.zst"
+    _write_csv(csv_path, header, [row])
+
+    output_dir = tmp_dir / "out"
+    result = run_generator(
+        analysis_step="analysis",
+        experiment_set="analysis_smoke_tests",
+        csv_path=csv_path,
+        template_path=TEMPLATES_DIR / "analysis_template.yaml",
+        schema_path=SCHEMAS_DIR / "analysis.yaml",
+        output_dir=output_dir,
+    )
+    if result.returncode != 0:
+        raise SmokeTestError(
+            f"analysis_smoke failed with code {result.returncode}:\n{result.output}"
+        )
+
+    config_path = output_dir / "analysis_smoke" / "config.yaml"
+    if not config_path.is_file():
+        raise SmokeTestError(
+            "Expected config.yaml to be created for analysis_smoke test"
+        )
+    with config_path.open(encoding="utf-8") as f:
+        generated_config = yaml.safe_load(f)
+    if generated_config.get("analysis", {}).get("segmentation_format") != "pickle.zst":
+        raise SmokeTestError("segmentation_format should be set from CSV row")
+    return config_path
+
+
 def run_smoke_tests(tmp_dir: Optional[Path] = None) -> None:
     created_tmp: Optional[tempfile.TemporaryDirectory[str]] = None
     if tmp_dir is None:
@@ -237,6 +322,7 @@ def run_smoke_tests(tmp_dir: Optional[Path] = None) -> None:
     record("main", case_main_smoke)
     record("preprocess_manual", case_preprocess_manual_mask)
     record("preprocess_missing", case_preprocess_missing_downscale_should_fail)
+    record("analysis", case_analysis_smoke)
 
     if created_tmp is not None:
         created_tmp.cleanup()

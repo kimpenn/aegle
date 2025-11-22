@@ -40,6 +40,11 @@ echo "Output directory: $OUT_DIR"
 echo "Log level set to: $LOG_LEVEL"
 echo "-----------------------------------------------------------"
 
+if [ -z "${RUN_E2E}" ]; then
+  echo "RUN_E2E not set; skipping execution of ${0##*/}"
+  exit 0
+fi
+
 # Loop through the experiments and call run_main.sh for each
 for EXP_ID in "${EXPERIMENTS[@]}"; do
   START_TIME=$(date +%s)

@@ -20,3 +20,18 @@ def test_preprocess_manual_mask(tmp_path: Path) -> None:
 @pytest.mark.usefixtures("tmp_path")
 def test_preprocess_missing_downscale_should_fail(tmp_path: Path) -> None:
     smoke.case_preprocess_missing_downscale_should_fail(tmp_path / "pre_missing")
+
+
+@pytest.mark.usefixtures("tmp_path")
+def test_analysis_smoke(tmp_path: Path) -> None:
+    smoke.case_analysis_smoke(tmp_path / "analysis")
+
+
+@pytest.mark.usefixtures("tmp_path")
+def test_analysis_invalid_seg_format_should_fail(tmp_path: Path) -> None:
+    smoke.case_analysis_invalid_seg_format_should_fail(tmp_path / "analysis_bad_seg")
+
+
+@pytest.mark.usefixtures("tmp_path")
+def test_analysis_missing_data_dir_should_fail(tmp_path: Path) -> None:
+    smoke.case_analysis_missing_data_dir_should_fail(tmp_path / "analysis_missing_data")

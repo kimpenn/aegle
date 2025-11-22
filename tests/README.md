@@ -74,6 +74,18 @@ Running the snippet creates PNG previews in
 `0-phenocycler-penntmc-pipeline/debug_synthetic_previews/`, which mirrors the
 scenarios covered by the tests.
 
+## Environment gates
+- `RUN_INTEGRATION=1` enables mocked pipeline integration tests.
+- `RUN_ANALYSIS_INT=1` enables the analysis integration stub.
+- `RUN_E2E=1` enables the shell smokes under `tests/main/`.
+Default runs (without these env vars) execute only the fast unit-style suite.
+
+## Real-assets validator
+Use `tests/utils/validate_real_assets.py` to compare real configs/CSV/TIFF
+against fixture expectations:
+```bash
+python tests/utils/validate_real_assets.py --config path/to/config.yaml --data-dir /path/to/data --out-dir /path/to/out
+```
 ## Shell harnesses under `tests/main`
 The shell scripts orchestrate end-to-end smoke tests for different experiment
 setups (e.g. oocytes, FT patches). They wrap `run_main_test_*.sh` scripts and
