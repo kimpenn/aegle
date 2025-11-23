@@ -1,22 +1,25 @@
 # Top-level configuration for CODEX pipeline
-exp_id: default
-sample_id: default
+# D18_0 with Phase 5c GPU Acceleration (400-540x overlap speedup expected)
+exp_id: D18_0_phase5c
+sample_id: 18-5
 
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
 # -----------------------------------------------------------------------------
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
-  file_name: NW_Ovary_16/Scan1/NW_1_Scan1.qptiff
-  
+  file_name:
+    /workspaces/codex-analysis/data/Ovary/D17_18/redo_Scan1/processed_hubmap/Ovary_D17_D18_redo_Scan1.er_manual_18-5_Central_Ovary.ome.tiff
+
   # Path to the TSV file containing antibody definitions (one row per channel)
-  antibodies_file: NW_Ovary_16/Scan1/extras/antibodies.tsv
-  
+  antibodies_file:
+    /workspaces/codex-analysis/data/Ovary/D17_18/redo_Scan1/extras/antibodies.tsv
+
   # Microns per pixel for this image; used in downstream calculations (e.g., segmentation scaling)
   image_mpp: 0.5
-  
+
   # Whether to compute and save channel-level statistics (min, max, 95th percentile, etc.)
-  generate_channel_stats: True
+  generate_channel_stats: false
 
 # -----------------------------------------------------------------------------
 # (B) Channel Configuration
@@ -24,46 +27,45 @@ data:
 channels:
   # Name of the nuclear marker channel (must match an entry in the antibodies file)
   nuclear_channel: DAPI
-  
-  # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
-  wholecell_channel: 
-  - Pan-Cytokeratin
 
-# -----------------------------------------------------------------------------
-# (C) Patch Extraction Parameters
-# -----------------------------------------------------------------------------
+  # Name(s) of the whole-cell marker channel(s). If multiple, they will be merged.
+  wholecell_channel:
+    - OGN
+    - Beta-actin
+    - UCHL1
+    - Vimentin
 patching:
   # Split mode can be "full_image", "halves", "quarters", or "patches"
   split_mode: full_image
-  
+
   # Split direction can be "vertical" or "horizontal"
   split_direction: NULL
 
   # Size (height, width) of each patch (in pixels)
-  patch_height: -1
-  patch_width: -1
-  
+  patch_height: NULL
+  patch_width: NULL
+
   # Overlap fraction between adjacent patches (0.1 means 10% overlap)
-  overlap: 0.1
+  overlap: NULL
 
 # -----------------------------------------------------------------------------
 # (D) Visualization Settings
 # -----------------------------------------------------------------------------
 visualization:
   # Whether to save RGB visualizations of all patches
-  visualize_patches: True
+  visualize_patches: true
 
   # Whether to keep a temporary compressed cache of the full multi-channel patches for reuse
-  cache_all_channel_patches: True
+  cache_all_channel_patches: true
 
   # Whether to save the raw multi-channel patches to disk at the end of the run
-  save_all_channel_patches: False
+  save_all_channel_patches: false
 
   # Number of threads to use when compressing all-channel patches (0=auto, -1=all cores)
-  all_channel_compression_threads: 0
+  all_channel_compression_threads: 120
 
   # Whether to visualize and save the segmentation mask overlay (after segmentation)
-  visualize_segmentation: True
+  visualize_segmentation: true
 
 # -----------------------------------------------------------------------------
 # (E) QC (Patch-Level Quality Control)
@@ -71,10 +73,10 @@ visualization:
 patch_qc:
   # Minimum fraction of non-zero pixels required for a patch to be considered valid
   non_zero_perc_threshold: 0.05
-  
+
   # Minimum mean intensity for the patch to be considered informative
   mean_intensity_threshold: 1.0
-  
+
   # Minimum standard deviation required to avoid marking patches as too "flat"
   std_intensity_threshold: 1.0
 
@@ -86,47 +88,39 @@ segmentation:
   model_path: /workspaces/codex-analysis/data/deepcell/v7/MultiplexSegmentation
 
   # If True, save segmentation masks as images
-  save_segmentation_images: True
+  save_segmentation_images: true
 
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
-  save_segmentation_pickle: True
+  save_segmentation_pickle: true
   segmentation_pickle_compression: zstd      # options: none|gzip|bz2|lzma|zstd
   segmentation_pickle_compression_level: 5   # optional, honours backend limits
   segmentation_pickle_compression_threads: 0   # 0=auto, -1=all cores
   # If True, run segmentation analysis
   # Calculate metrics based on the segmentation results to describe the data quality
-  segmentation_analysis: False
+  segmentation_analysis: false
   density_analysis:
-    calculate_global_density: False
-    calculate_local_density: False
+    calculate_global_density: false
+    calculate_local_density: false
 
-  # Mask repair configuration (cell-nucleus matching and repair)
+  # -------------------------------------------------------------------------
+  # PHASE 5c: GPU-Accelerated Mask Repair (400-540x overlap speedup)
+  # -------------------------------------------------------------------------
   repair:
-    # Enable GPU acceleration for mask repair operations (Phase 3 with vectorized matching)
-    # Phase 3 provides 10-20x speedup for mismatch computation and matching on large samples
-    # - GPU morphology: 10-50x speedup for boundary detection
-    # - GPU overlap: 3-6x speedup for overlap matrix computation (Phase 4)
-    # - GPU overlap bincount: 400-540x speedup (Phase 5c, recommended for >100K cells)
-    # - GPU mismatch (Phase 3): 100-1000x speedup via vectorized boolean operations
-    # Requires CuPy and CUDA-compatible GPU. Falls back to CPU if GPU unavailable.
-    use_gpu: false  # Conservative default for backward compatibility
+    # Enable GPU acceleration for mask repair operations
+    # Provides massive speedup for large samples (D18_0: 54 min → 6-8 sec)
+    use_gpu: true
 
     # Phase 5c: Use bincount approach for overlap computation (400-540x speedup)
     # When True: tries bincount first, falls back to Phase 4 if needed
     # When False: uses Phase 4 sequential approach (baseline)
-    # Recommended: True for samples with >100K cells
-    # Phase 5c benefits: 54 min → 6-8 sec on D18_0 (1.99M cells)
+    # RECOMMENDED: true for samples with >100K cells
     use_bincount_overlap: true
 
     # Batch size for GPU overlap computation (null = auto-size based on GPU memory)
-    # Manual override useful for GPU memory constrained environments
-    # Auto-sizing estimates based on mask dimensions and available VRAM
     # Only used for Phase 4 fallback (Phase 5c auto-manages memory)
     gpu_batch_size: null
 
-    # Batch size for GPU mismatch computation (null = auto-size, 10000 = default)
-    # Phase 3 feature: controls how many cell-nucleus pairs to process per GPU batch
-    # Larger batches = faster but more GPU memory. Typical: 5K-50K pairs per batch.
+    # Batch size for GPU mismatch computation (null = auto-size)
     gpu_mismatch_batch_size: null
 
     # Automatically fallback to CPU if GPU errors occur
@@ -137,52 +131,51 @@ segmentation:
     # Log detailed GPU performance metrics (timing, speedup, memory usage)
     # Useful for performance analysis and optimization
     log_gpu_performance: true
-  
 
 # -----------------------------------------------------------------------------
-# (G) Testing Data Disruption (Optional) 
+# (F.5) Cell Profiling Configuration
+# -----------------------------------------------------------------------------
+profiling:
+  features:
+    # Whether to compute Laplacian variance (expensive spatial texture measure)
+    compute_laplacian: false
+
+    # Whether to compute coefficient of variation
+    compute_cov: false
+
+    # Data type for channel processing (float32 reduces memory vs float64)
+    channel_dtype: float32
+
+    # GPU acceleration for bincount operations (requires CuPy)
+    use_gpu: true
+
+    # GPU batch size (number of channels to process at once on GPU)
+    # Set to 0 for automatic detection based on available VRAM
+    gpu_batch_size: 0
+
+# -----------------------------------------------------------------------------
+# (G) Testing Data Disruption (Optional)
 #     If you do not want to disrupt your data, set "type" to null or remove this block.
 # -----------------------------------------------------------------------------
 testing:
   data_disruption:
     # Disruption type can be "downsampling" or "gaussian"
     type: NULL
-    
+
     # Intensity level of disruption (1-5, for instance)
-    level: -1.0
-    
+    level: NULL
+
     # Whether to save the disrupted patches to disk (for debugging/testing)
-    save_disrupted_patches: False  
+    save_disrupted_patches: NULL
 
     # Whether to visualize the disrupted patches
-    visualize_disrupted: False
+    visualize_disrupted: false
 
 # -----------------------------------------------------------------------------
 # (H) Evaluation Metrics
 # -----------------------------------------------------------------------------
 evaluation:
-  compute_metrics: False
-
-# -----------------------------------------------------------------------------
-# (I) Profiling Feature Flags
-# -----------------------------------------------------------------------------
-profiling:
-  features:
-    # Compute per-channel Laplacian variance (expensive); disable to speed up profiling.
-    compute_laplacian: False
-
-    # Compute per-channel coefficient of variation; disable to save time.
-    compute_cov: False
-
-    # Dtype for per-channel intensity calculations; float32 reduces memory/compute.
-    channel_dtype: float32
-
-    # GPU acceleration for bincount operations (requires CuPy and CUDA-compatible GPU)
-    # Provides 10-20x speedup for large samples (>1M cells)
-    # Automatically falls back to CPU if GPU unavailable
-    use_gpu: True
-
-    # GPU batch size (number of channels to process at once on GPU)
-    # Set to 0 for automatic detection based on available VRAM
-    # Larger batches are faster but require more GPU memory
-    gpu_batch_size: 0
+  compute_metrics: false
+report:
+  generate_report: true
+  report_format: html

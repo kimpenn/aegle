@@ -165,15 +165,22 @@ def run_cell_segmentation(
     repair_config = config.get("segmentation", {}).get("repair", {})
     use_gpu = repair_config.get("use_gpu", False)
     gpu_batch_size = repair_config.get("gpu_batch_size", None)
+    use_bincount_overlap = repair_config.get("use_bincount_overlap", True)
+    fallback_to_cpu = repair_config.get("fallback_to_cpu", True)
     log_gpu_performance = repair_config.get("log_gpu_performance", False)
 
     # Log GPU repair configuration
     if use_gpu:
         logging.info("GPU-accelerated mask repair enabled")
-        if gpu_batch_size is not None:
-            logging.info(f"GPU batch size: {gpu_batch_size}")
+        if use_bincount_overlap:
+            logging.info("  Phase 5c bincount overlap: enabled (400-540x speedup expected)")
         else:
-            logging.info("GPU batch size: auto-detect")
+            logging.info("  Phase 4 sequential overlap: enabled (baseline)")
+        if gpu_batch_size is not None:
+            logging.info(f"  GPU batch size: {gpu_batch_size}")
+        else:
+            logging.info("  GPU batch size: auto-detect")
+        logging.info(f"  Fallback to CPU: {'enabled' if fallback_to_cpu else 'disabled'}")
     else:
         logging.info("Using CPU mask repair (GPU disabled by config)")
 
@@ -182,6 +189,8 @@ def run_cell_segmentation(
         seg_res_batch,
         use_gpu=use_gpu,
         gpu_batch_size=gpu_batch_size,
+        use_bincount_overlap=use_bincount_overlap,
+        fallback_to_cpu=fallback_to_cpu,
     )
 
     # Log GPU performance metrics if enabled

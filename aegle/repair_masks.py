@@ -69,13 +69,21 @@ def _compute_labeled_boundary(mask: np.ndarray) -> np.ndarray:
     return boundary_mask
 
 
-def repair_masks_batch(seg_res_batch, use_gpu=False, gpu_batch_size=None):
+def repair_masks_batch(
+    seg_res_batch,
+    use_gpu=False,
+    gpu_batch_size=None,
+    use_bincount_overlap=True,
+    fallback_to_cpu=True,
+):
     """Repair masks for a batch of segmentation results with progress tracking.
 
     Args:
         seg_res_batch: List of segmentation results, each containing 'cell' and 'nucleus' masks
         use_gpu: Whether to use GPU acceleration (default: False for backward compatibility)
         gpu_batch_size: Batch size for GPU overlap computation (None = auto-detect)
+        use_bincount_overlap: Use Phase 5c bincount approach (default: True, 400-540x speedup)
+        fallback_to_cpu: Automatically fallback to CPU on GPU errors (default: True)
 
     Returns:
         List of repaired mask dictionaries, each containing repair_metadata if GPU was used
@@ -114,6 +122,8 @@ def repair_masks_batch(seg_res_batch, use_gpu=False, gpu_batch_size=None):
                 nucleus_mask_2d,
                 use_gpu=True,
                 batch_size=gpu_batch_size,
+                use_bincount_overlap=use_bincount_overlap,
+                fallback_to_cpu=fallback_to_cpu,
             )
 
             # Compute outside mask

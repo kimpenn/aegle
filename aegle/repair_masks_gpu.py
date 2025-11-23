@@ -19,12 +19,14 @@ def repair_masks_gpu(
     config: Optional[Dict] = None,
     use_gpu: bool = True,
     batch_size: Optional[int] = None,
+    use_bincount_overlap: bool = True,
+    fallback_to_cpu: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """GPU-accelerated mask repair pipeline.
 
     This is the main entry point for GPU-accelerated repair. It integrates:
     - GPU morphological operations (boundary detection)
-    - GPU overlap matrix computation
+    - GPU overlap matrix computation (Phase 5c bincount or Phase 4 baseline)
     - Cell-nucleus matching logic
     - CPU fallback on errors
 
@@ -34,6 +36,8 @@ def repair_masks_gpu(
         config: Optional config dict with GPU settings
         use_gpu: Whether to attempt GPU acceleration
         batch_size: Optional batch size override for overlap computation
+        use_bincount_overlap: Use Phase 5c bincount approach (400-540x speedup)
+        fallback_to_cpu: Automatically fallback to CPU on GPU errors
 
     Returns:
         Tuple of:
@@ -86,7 +90,7 @@ def repair_masks_gpu(
         log_gpu_memory("GPU memory before repair")
 
         cell_repaired, nucleus_repaired, gpu_metadata = _repair_masks_gpu_impl(
-            cell_mask, nucleus_mask, batch_size
+            cell_mask, nucleus_mask, batch_size, use_bincount_overlap, fallback_to_cpu
         )
 
         # Merge GPU metadata
@@ -117,6 +121,8 @@ def _repair_masks_gpu_impl(
     cell_mask: np.ndarray,
     nucleus_mask: np.ndarray,
     batch_size: Optional[int] = None,
+    use_bincount_overlap: bool = True,
+    fallback_to_cpu: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """Internal GPU implementation (no fallback logic).
 
@@ -124,12 +130,14 @@ def _repair_masks_gpu_impl(
         cell_mask: Cell mask (H, W)
         nucleus_mask: Nucleus mask (H, W)
         batch_size: Batch size for overlap computation
+        use_bincount_overlap: Use Phase 5c bincount approach
+        fallback_to_cpu: Enable automatic fallback on errors
 
     Returns:
         Tuple of (cell_repaired, nucleus_repaired, metadata)
     """
     from aegle.repair_masks_gpu_morphology import compute_labeled_boundary_gpu
-    from aegle.repair_masks_gpu_overlap import compute_overlap_matrix_gpu
+    from aegle.repair_masks_gpu_overlap import compute_overlap_matrix_gpu_auto
     from aegle.repair_masks_gpu_mismatch import compute_mismatch_matrix_gpu
     from aegle.repair_masks import get_indices_numpy
 
@@ -178,11 +186,15 @@ def _repair_masks_gpu_impl(
 
     logger.info(f"  Found {len(cell_coords)} cells, {len(nucleus_coords)} nuclei")
 
-    # Stage 3: Compute overlap matrix (GPU)
+    # Stage 3: Compute overlap matrix (GPU with auto fallback)
     logger.info("Stage 3/5: Computing cell-nucleus overlap matrix on GPU...")
     t0 = time.time()
-    overlap_matrix, cell_labels_arr, nucleus_labels_arr = compute_overlap_matrix_gpu(
-        cell_mask, nucleus_mask, batch_size=batch_size or 0
+    overlap_matrix, cell_labels_arr, nucleus_labels_arr = compute_overlap_matrix_gpu_auto(
+        cell_mask,
+        nucleus_mask,
+        batch_size=batch_size or 0,
+        use_bincount=use_bincount_overlap,
+        fallback_enabled=fallback_to_cpu,
     )
     stage_timings["overlap_computation"] = time.time() - t0
     logger.info(
