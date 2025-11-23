@@ -69,14 +69,16 @@ def _compute_labeled_boundary(mask: np.ndarray) -> np.ndarray:
     return boundary_mask
 
 
-def repair_masks_batch(seg_res_batch):
+def repair_masks_batch(seg_res_batch, use_gpu=False, gpu_batch_size=None):
     """Repair masks for a batch of segmentation results with progress tracking.
 
     Args:
         seg_res_batch: List of segmentation results, each containing 'cell' and 'nucleus' masks
+        use_gpu: Whether to use GPU acceleration (default: False for backward compatibility)
+        gpu_batch_size: Batch size for GPU overlap computation (None = auto-detect)
 
     Returns:
-        List of repaired mask dictionaries
+        List of repaired mask dictionaries, each containing repair_metadata if GPU was used
     """
     res_list = []
     total_batches = len(seg_res_batch)
@@ -95,13 +97,55 @@ def repair_masks_batch(seg_res_batch):
 
         logging.info(f"Batch {idx} - Cells: {n_cells:,}, Nuclei: {n_nuclei:,}")
 
-        # Add first dim to the masks to match to implementation of repair_masks_single
-        cell_mask = np.expand_dims(cell_mask, axis=0)
-        nucleus_mask = np.expand_dims(nucleus_mask, axis=0)
-
-        # Run core mask repair function with timing
+        # Route to GPU or CPU implementation
         batch_start = time.time()
-        res = repair_masks_single(cell_mask, nucleus_mask)
+
+        if use_gpu:
+            # Use GPU implementation
+            from aegle.repair_masks_gpu import repair_masks_gpu
+
+            # Ensure 2D masks for GPU (no batch dimension)
+            cell_mask_2d = np.asarray(cell_mask).squeeze()
+            nucleus_mask_2d = np.asarray(nucleus_mask).squeeze()
+
+            # Run GPU repair
+            cell_matched_2d, nucleus_matched_2d, repair_metadata = repair_masks_gpu(
+                cell_mask_2d,
+                nucleus_mask_2d,
+                use_gpu=True,
+                batch_size=gpu_batch_size,
+            )
+
+            # Compute outside mask
+            cell_outside_nucleus = cell_matched_2d.astype(np.int32) - nucleus_matched_2d.astype(np.int32)
+            cell_outside_nucleus = np.clip(cell_outside_nucleus, 0, None).astype(np.uint32)
+
+            # Expand dims to match CPU format (batch dimension)
+            cell_matched_mask = np.expand_dims(cell_matched_2d, axis=0)
+            nucleus_matched_mask = np.expand_dims(nucleus_matched_2d, axis=0)
+            cell_outside_nucleus_mask = np.expand_dims(cell_outside_nucleus, axis=0)
+
+            # Compute matched fraction
+            n_matched = repair_metadata.get("n_matched_cells", 0)
+            matched_fraction = n_matched / n_cells if n_cells > 0 else 0.0
+
+            # Build result dict
+            res = {
+                "cell_matched_mask": cell_matched_mask,
+                "nucleus_matched_mask": nucleus_matched_mask,
+                "cell_outside_nucleus_mask": cell_outside_nucleus_mask,
+                "matched_fraction": matched_fraction,
+                "repair_metadata": repair_metadata,
+            }
+
+        else:
+            # Use CPU implementation (existing code)
+            # Add first dim to the masks to match implementation of repair_masks_single
+            cell_mask = np.expand_dims(cell_mask, axis=0)
+            nucleus_mask = np.expand_dims(nucleus_mask, axis=0)
+
+            res = repair_masks_single(cell_mask, nucleus_mask)
+
         batch_elapsed = time.time() - batch_start
 
         # Log batch completion statistics
@@ -110,6 +154,16 @@ def repair_masks_batch(seg_res_batch):
         logging.info(f"Matched: {matched_cells:,}/{n_cells:,} cells ({matched_cells / n_cells * 100 if n_cells > 0 else 0:.1f}%)")
         if batch_elapsed > 0:
             logging.info(f"Rate: {n_cells / batch_elapsed:.1f} cells/sec")
+
+        # Log GPU metadata if available
+        if use_gpu and "repair_metadata" in res:
+            metadata = res["repair_metadata"]
+            if metadata.get("gpu_used"):
+                logging.info(f"GPU repair used successfully")
+                if "speedup" in metadata:
+                    logging.info(f"Speedup vs CPU: {metadata['speedup']:.2f}x")
+            elif metadata.get("fallback_to_cpu"):
+                logging.warning(f"GPU repair fell back to CPU: {metadata.get('fallback_reason', 'unknown')}")
 
         res_list.append(res)
 

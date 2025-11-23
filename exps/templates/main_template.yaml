@@ -84,10 +84,10 @@ patch_qc:
 segmentation:
   # Path to the segmentation model directory (e.g., for DeepCell or another tool)
   model_path: /workspaces/codex-analysis/data/deepcell/v7/MultiplexSegmentation
-  
+
   # If True, save segmentation masks as images
   save_segmentation_images: True
-  
+
   # If True, pickle the entire codex_patches object (containing segmentation results, etc.)
   save_segmentation_pickle: True
   segmentation_pickle_compression: zstd      # options: none|gzip|bz2|lzma|zstd
@@ -99,6 +99,27 @@ segmentation:
   density_analysis:
     calculate_global_density: False
     calculate_local_density: False
+
+  # Mask repair configuration (cell-nucleus matching and repair)
+  repair:
+    # Enable GPU acceleration for mask repair operations
+    # Provides 3-6x speedup for overlap computation and morphology operations
+    # Note: Overall speedup is currently ~1x because cell matching (95% of runtime) remains CPU-bound
+    # Requires CuPy and CUDA-compatible GPU. Falls back to CPU if GPU unavailable.
+    use_gpu: false  # Conservative default for backward compatibility
+
+    # Batch size for GPU overlap computation (null = auto-size based on GPU memory)
+    # Manual override useful for GPU memory constrained environments
+    # Auto-sizing estimates based on mask dimensions and available VRAM
+    gpu_batch_size: null
+
+    # Automatically fallback to CPU if GPU errors occur
+    # Recommended to keep enabled for robustness
+    fallback_to_cpu: true
+
+    # Log detailed GPU performance metrics (timing, speedup, memory usage)
+    # Useful for performance analysis and optimization
+    log_gpu_performance: true
   
 
 # -----------------------------------------------------------------------------

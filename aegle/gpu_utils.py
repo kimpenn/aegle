@@ -207,3 +207,197 @@ def log_gpu_memory(prefix="GPU memory"):
         )
     else:
         logger.debug(f"{prefix}: Unable to query GPU memory")
+
+
+def transfer_masks_to_gpu(cell_mask, nucleus_mask):
+    """Transfer cell and nucleus masks to GPU with error handling.
+
+    This function handles the transfer of segmentation masks to GPU memory,
+    with proper error handling and CPU fallback mechanisms.
+
+    Args:
+        cell_mask: Cell segmentation mask (numpy array)
+        nucleus_mask: Nucleus segmentation mask (numpy array)
+
+    Returns:
+        tuple: (cell_mask_gpu, nucleus_mask_gpu) as CuPy arrays, or (None, None) if transfer fails
+
+    Raises:
+        ImportError: If CuPy is not available
+        RuntimeError: If GPU transfer fails for other reasons
+
+    Example:
+        >>> import numpy as np
+        >>> from aegle.gpu_utils import transfer_masks_to_gpu
+        >>> cell_mask = np.zeros((1000, 1000), dtype=np.uint32)
+        >>> nucleus_mask = np.zeros((1000, 1000), dtype=np.uint32)
+        >>> cell_gpu, nucleus_gpu = transfer_masks_to_gpu(cell_mask, nucleus_mask)
+        >>> if cell_gpu is not None:
+        ...     # Process on GPU
+        ...     pass
+        ... else:
+        ...     # Fall back to CPU
+        ...     pass
+    """
+    if not is_cupy_available():
+        raise ImportError("CuPy not available - cannot transfer masks to GPU")
+
+    try:
+        import cupy as cp
+
+        # Ensure masks are contiguous arrays for efficient transfer
+        cell_mask = np.asarray(cell_mask, order='C')
+        nucleus_mask = np.asarray(nucleus_mask, order='C')
+
+        # Transfer to GPU
+        cell_mask_gpu = cp.asarray(cell_mask)
+        nucleus_mask_gpu = cp.asarray(nucleus_mask)
+
+        logger.debug(
+            f"Transferred masks to GPU: cell {cell_mask.shape} ({cell_mask.nbytes / 1e6:.2f} MB), "
+            f"nucleus {nucleus_mask.shape} ({nucleus_mask.nbytes / 1e6:.2f} MB)"
+        )
+
+        return cell_mask_gpu, nucleus_mask_gpu
+
+    except cp.cuda.memory.OutOfMemoryError as e:
+        logger.error(f"GPU OOM when transferring masks: {e}")
+        logger.error(
+            f"Required: {(cell_mask.nbytes + nucleus_mask.nbytes) / 1e9:.2f} GB, "
+            f"Available: {get_gpu_memory_info()['free_gb']:.2f} GB"
+        )
+        clear_gpu_memory()
+        raise RuntimeError(f"Insufficient GPU memory to transfer masks: {e}") from e
+
+    except Exception as e:
+        logger.error(f"Failed to transfer masks to GPU: {e}")
+        raise RuntimeError(f"GPU transfer failed: {e}") from e
+
+
+def transfer_from_gpu(gpu_array):
+    """Safely transfer array from GPU to CPU.
+
+    This function handles the transfer of arrays from GPU to CPU memory,
+    with proper type checking and error handling.
+
+    Args:
+        gpu_array: CuPy array to transfer to CPU
+
+    Returns:
+        numpy array: CPU version of the array
+
+    Raises:
+        TypeError: If input is not a CuPy array
+        RuntimeError: If transfer fails
+
+    Example:
+        >>> import cupy as cp
+        >>> from aegle.gpu_utils import transfer_from_gpu
+        >>> gpu_array = cp.array([1, 2, 3])
+        >>> cpu_array = transfer_from_gpu(gpu_array)
+        >>> type(cpu_array)
+        <class 'numpy.ndarray'>
+    """
+    if not is_cupy_available():
+        raise ImportError("CuPy not available - cannot transfer from GPU")
+
+    try:
+        import cupy as cp
+
+        # Handle None or numpy arrays (already on CPU)
+        if gpu_array is None:
+            return None
+        if isinstance(gpu_array, np.ndarray):
+            logger.warning("transfer_from_gpu called on numpy array - returning as-is")
+            return gpu_array
+
+        # Verify it's a CuPy array
+        if not isinstance(gpu_array, cp.ndarray):
+            raise TypeError(
+                f"Expected CuPy array, got {type(gpu_array)}. "
+                f"Use this function only for GPU arrays."
+            )
+
+        # Transfer to CPU
+        cpu_array = cp.asnumpy(gpu_array)
+
+        logger.debug(
+            f"Transferred array from GPU to CPU: "
+            f"shape {cpu_array.shape}, dtype {cpu_array.dtype}, "
+            f"size {cpu_array.nbytes / 1e6:.2f} MB"
+        )
+
+        return cpu_array
+
+    except Exception as e:
+        logger.error(f"Failed to transfer array from GPU: {e}")
+        raise RuntimeError(f"GPU to CPU transfer failed: {e}") from e
+
+
+def check_gpu_memory_for_masks(mask_shape, num_masks=2, dtype=np.uint32, safety_factor=0.8):
+    """Check if GPU has sufficient memory for mask operations.
+
+    This function validates that the GPU has enough VRAM to hold the specified
+    masks plus overhead for intermediate computations.
+
+    Args:
+        mask_shape: Shape of each mask (height, width)
+        num_masks: Number of masks to allocate (default: 2 for cell + nucleus)
+        dtype: Data type of masks (default: np.uint32)
+        safety_factor: Require this fraction of free memory (default: 0.8)
+
+    Returns:
+        bool: True if sufficient memory available, False otherwise
+
+    Example:
+        >>> from aegle.gpu_utils import check_gpu_memory_for_masks
+        >>> if check_gpu_memory_for_masks((10000, 10000), num_masks=2):
+        ...     # Proceed with GPU processing
+        ...     pass
+        ... else:
+        ...     # Fall back to CPU or use smaller batches
+        ...     pass
+    """
+    if not is_cupy_available():
+        logger.warning("GPU not available - cannot check GPU memory")
+        return False
+
+    mem_info = get_gpu_memory_info()
+    if mem_info is None:
+        logger.warning("Could not query GPU memory - assuming insufficient")
+        return False
+
+    # Calculate required memory
+    dtype_size = np.dtype(dtype).itemsize
+    height, width = mask_shape
+    pixels = height * width
+
+    # Memory for masks
+    masks_gb = (pixels * dtype_size * num_masks) / 1e9
+
+    # Add overhead for intermediate arrays (erosion, dilation, etc.)
+    # Morphological ops typically need ~3x mask size (original + eroded + dilated)
+    overhead_factor = 3.0
+    total_required_gb = masks_gb * overhead_factor
+
+    # Check against available memory
+    available_gb = mem_info['free_gb'] * safety_factor
+
+    sufficient = total_required_gb <= available_gb
+
+    if sufficient:
+        logger.info(
+            f"GPU memory check PASSED: "
+            f"Required {total_required_gb:.2f} GB, "
+            f"Available {available_gb:.2f} GB "
+            f"(safety factor: {safety_factor})"
+        )
+    else:
+        logger.warning(
+            f"GPU memory check FAILED: "
+            f"Required {total_required_gb:.2f} GB, "
+            f"Available {available_gb:.2f} GB "
+            f"(safety factor: {safety_factor})"
+        )
+
+    return sufficient

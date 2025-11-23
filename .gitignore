@@ -151,3 +151,4 @@ segmentation.log
 *.swp
 *.swo
 *.DS_Store
+d18_benchmark.pid

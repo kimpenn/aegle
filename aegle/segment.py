@@ -160,8 +160,48 @@ def run_cell_segmentation(
         seg_res_batch = segment(valid_patches, config)
     
     memory_monitor.log_memory_usage("After segmentation, before repair")
-    
-    repaired_seg_res_batch = repair_masks_batch(seg_res_batch)
+
+    # Get repair configuration
+    repair_config = config.get("segmentation", {}).get("repair", {})
+    use_gpu = repair_config.get("use_gpu", False)
+    gpu_batch_size = repair_config.get("gpu_batch_size", None)
+    log_gpu_performance = repair_config.get("log_gpu_performance", False)
+
+    # Log GPU repair configuration
+    if use_gpu:
+        logging.info("GPU-accelerated mask repair enabled")
+        if gpu_batch_size is not None:
+            logging.info(f"GPU batch size: {gpu_batch_size}")
+        else:
+            logging.info("GPU batch size: auto-detect")
+    else:
+        logging.info("Using CPU mask repair (GPU disabled by config)")
+
+    # Run mask repair with GPU support
+    repaired_seg_res_batch = repair_masks_batch(
+        seg_res_batch,
+        use_gpu=use_gpu,
+        gpu_batch_size=gpu_batch_size,
+    )
+
+    # Log GPU performance metrics if enabled
+    if log_gpu_performance and use_gpu and repaired_seg_res_batch:
+        # Aggregate metadata from all patches
+        total_time = sum(res.get("repair_metadata", {}).get("total_time", 0)
+                        for res in repaired_seg_res_batch)
+        gpu_used_count = sum(1 for res in repaired_seg_res_batch
+                            if res.get("repair_metadata", {}).get("gpu_used", False))
+
+        if gpu_used_count > 0:
+            logging.info(f"GPU repair performance summary:")
+            logging.info(f"  - {gpu_used_count}/{len(repaired_seg_res_batch)} patches used GPU")
+            logging.info(f"  - Total repair time: {total_time:.2f}s")
+
+            # Log speedup if available
+            for i, res in enumerate(repaired_seg_res_batch):
+                metadata = res.get("repair_metadata", {})
+                if metadata.get("speedup"):
+                    logging.info(f"  - Patch {i}: {metadata['speedup']:.2f}x speedup")
 
     memory_monitor.log_memory_usage("After mask repair")
 

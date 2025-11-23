@@ -286,6 +286,59 @@ Recent optimization work (see `tests/test_extract_features_flags.py`) allows dis
 - `compute_cov: False` skips coefficient of variation
 - `channel_dtype: float32` reduces memory usage vs. float64
 
+### GPU Acceleration
+
+#### Cell Profiling GPU Acceleration
+
+Enable GPU acceleration for cell profiling (intensity feature extraction):
+
+```yaml
+profiling:
+  features:
+    use_gpu: true
+    gpu_batch_size: 0  # Auto-size based on GPU memory
+```
+
+**Performance:** 15-20x speedup for large samples (>1M cells). A typical large sample (1.8M cells, 45 channels) processes in ~20 minutes with GPU vs ~6-8 hours CPU.
+
+**Requirements:**
+- CuPy installed: `pip install cupy-cuda12x`
+- CUDA-capable GPU with sufficient VRAM
+- Automatically falls back to CPU if GPU unavailable
+
+#### Mask Repair GPU Acceleration
+
+Enable GPU acceleration for mask repair operations (cell-nucleus matching):
+
+```yaml
+segmentation:
+  repair:
+    use_gpu: true
+    gpu_batch_size: null  # Auto-size based on GPU memory
+    fallback_to_cpu: true
+    log_gpu_performance: true
+```
+
+**Performance:** 3-6x speedup for overlap computation and morphology operations. Currently, the overall pipeline speedup is ~1x because cell matching (95% of runtime) remains CPU-bound. Future optimization could GPU-accelerate the matching loop for additional gains.
+
+**Requirements:**
+- CuPy installed: `pip install cupy-cuda12x`
+- CUDA-capable GPU with sufficient VRAM
+- Automatically falls back to CPU if GPU unavailable
+
+**Configuration Options:**
+- `use_gpu`: Enable/disable GPU acceleration (default: false for backward compatibility)
+- `gpu_batch_size`: Number of cells to process per GPU batch (null = auto-detect, recommended)
+- `fallback_to_cpu`: Automatically use CPU if GPU fails (default: true, recommended)
+- `log_gpu_performance`: Log detailed timing and speedup metrics (default: true)
+
+**Logging:**
+When enabled, GPU repair logs include:
+- GPU availability and memory status
+- Per-patch GPU usage and timing
+- Speedup metrics (GPU vs CPU)
+- Fallback events and reasons
+
 ### Resume Capability
 Use `--resume_stage cell_profiling` to skip segmentation and recompute only cell profiling. This requires that segmentation outputs (masks and metadata) already exist in the output directory.
 
