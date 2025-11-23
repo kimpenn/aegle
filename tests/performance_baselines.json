@@ -1,0 +1,111 @@
+{
+  "normalization_log1p_small": {
+    "time_seconds": 0.002330792136490345,
+    "timestamp": "2025-11-23T12:40:08.417262",
+    "system_info": {
+      "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 1000,
+      "n_markers": 10,
+      "norm": "log1p"
+    }
+  },
+  "normalization_log1p_medium": {
+    "time_seconds": 0.007387775927782059,
+    "timestamp": "2025-11-23T12:41:25.645892",
+    "system_info": {
+      "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 10000,
+      "n_markers": 25,
+      "norm": "log1p"
+    }
+  },
+  "clustering_full_small": {
+    "time_seconds": 0.8041013916954398,
+    "timestamp": "2025-11-23T12:41:29.152940",
+    "system_info": {
+      "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 1000,
+      "n_markers": 10,
+      "n_neighbors": 10,
+      "resolution": 0.2
+    }
+  },
+  "clustering_knn_small": {
+    "time_seconds": 0.07490034215152264,
+    "timestamp": "2025-11-23T12:41:31.219585",
+    "system_info": {
+      "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 1000,
+      "n_neighbors": 10
+    }
+  },
+  "clustering_leiden_small": {
+    "time_seconds": 0.05147739965468645,
+    "timestamp": "2025-11-23T12:41:33.333210",
+    "system_info": {
+      "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 1000,
+      "resolution": 0.2
+    }
+  },
+  "clustering_umap_small": {
+    "time_seconds": 0.66040407307446,
+    "timestamp": "2025-11-23T12:41:36.654705",
+    "system_info": {
+      "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 1000
+    }
+  },
+  "differential_wilcoxon_small": {
+    "time_seconds": 0.026471884921193123,
+    "timestamp": "2025-11-23T12:41:38.627843",
+    "system_info": {
+      "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 1000,
+      "n_markers": 10,
+      "n_clusters": 3
+    }
+  },
+  "full_pipeline_small": {
+    "time_seconds": 0.8313834462314844,
+    "timestamp": "2025-11-23T12:41:42.210397",
+    "system_info": {
+      "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 1000,
+      "n_markers": 10,
+      "n_clusters": 3
+    }
+  }
+}

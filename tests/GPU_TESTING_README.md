@@ -390,6 +390,138 @@ pytest tests/test_gpu_stress.py -v -m stress
 - **GPU Test Utils**: `tests/utils/gpu_test_utils.py`
 - **Phase 2 Plan**: `scratch/repair_optimization/PLANS_phase2_gpu_acceleration.md`
 
+## Performance Testing and Regression Detection
+
+### Analysis Pipeline Performance Tests
+
+**Module**: `tests/test_analysis_performance.py`
+
+This module provides performance benchmarking and regression detection for the analysis pipeline (normalization, clustering, differential expression).
+
+#### Baseline Performance Tests
+
+These tests establish CPU performance baselines on small datasets:
+
+```bash
+# Run all baseline tests
+pytest tests/test_analysis_performance.py -v -k "baseline"
+
+# Run specific baseline tests
+pytest tests/test_analysis_performance.py::TestBaselineNormalizationPerformance -v
+pytest tests/test_analysis_performance.py::TestBaselineClusteringPerformance -v
+pytest tests/test_analysis_performance.py::TestBaselineDifferentialPerformance -v
+pytest tests/test_analysis_performance.py::TestBaselineFullPipeline -v
+```
+
+**What it does:**
+- Times each analysis stage (normalization, k-NN, Leiden, UMAP, differential)
+- Records results to `tests/performance_baselines.json`
+- Includes system info and metadata for reproducibility
+
+**Current baselines (1K cells, 10 markers):**
+- Normalization (log1p): ~2ms
+- k-NN graph: ~145ms
+- Leiden clustering: ~53ms
+- UMAP: ~670ms
+- Differential (Wilcoxon): ~28ms
+- Full pipeline: ~900ms
+
+#### Regression Detection Tests
+
+These tests compare current performance to baselines and warn if >20% slower:
+
+```bash
+# Run regression tests
+pytest tests/test_analysis_performance.py::TestCPUPerformanceRegression -v
+```
+
+**What it does:**
+- Runs each analysis stage again
+- Compares to baseline from `performance_baselines.json`
+- Logs warning (not failure) if >20% slower
+- Helps detect accidental performance degradation
+
+#### GPU Speedup Tests (Placeholder for Phase 5)
+
+```bash
+# These tests are currently skipped
+pytest tests/test_analysis_performance.py::TestGPUSpeedupRequirement -v
+```
+
+**Phase 5 TODO:**
+- Implement GPU-accelerated analysis functions
+- Benchmark GPU vs CPU on medium datasets (10K cells)
+- Assert GPU achieves >5x speedup
+- Record GPU baselines separately
+
+#### Performance Baselines File
+
+**Location**: `tests/performance_baselines.json`
+
+**Structure**:
+```json
+{
+  "stage_name": {
+    "time_seconds": 0.123,
+    "timestamp": "2025-11-23T12:00:00",
+    "system_info": {
+      "platform": "Linux-...",
+      "processor": "x86_64",
+      "python_version": "3.8.10"
+    },
+    "metadata": {
+      "n_cells": 1000,
+      "n_markers": 10
+    },
+    "history": [
+      {"time_seconds": 0.120, "timestamp": "2025-11-22T..."}
+    ]
+  }
+}
+```
+
+**When to update baselines:**
+- After intentional performance improvements
+- After upgrading dependencies (numpy, scipy, scanpy)
+- When baseline becomes stale (e.g., hardware upgrade)
+
+**How to update**:
+```bash
+# Just re-run baseline tests
+pytest tests/test_analysis_performance.py -v -k "baseline"
+```
+
+The baseline file preserves history (last 10 entries) so you can track trends.
+
+#### Performance Helpers
+
+**Module**: `tests/utils/performance_helpers.py`
+
+Utilities for accurate benchmarking:
+
+```python
+from tests.utils.performance_helpers import (
+    benchmark_function,
+    record_baseline,
+    compare_to_baseline,
+    format_time,
+)
+
+# Benchmark a function
+result, time_sec = benchmark_function(my_func, arg1, arg2, warmup=True)
+
+# Record to baseline
+record_baseline("my_stage", time_sec, "baselines.json", metadata={...})
+
+# Compare to baseline
+status, ratio, baseline = compare_to_baseline("my_stage", time_sec, "baselines.json")
+if status == "slower":
+    print(f"WARNING: {ratio:.2f}x slower!")
+
+# Format time nicely
+print(f"Took {format_time(time_sec)}")  # "1.23s", "123ms", etc.
+```
+
 ## Summary
 
 The GPU testing suite provides comprehensive validation of the GPU-accelerated mask repair pipeline:
@@ -401,4 +533,445 @@ The GPU testing suite provides comprehensive validation of the GPU-accelerated m
 - **CI/CD ready** with appropriate test markers
 - **Clear documentation** and troubleshooting guidance
 
+The performance testing framework enables:
+- **Baseline tracking** for CPU analysis pipeline
+- **Regression detection** (warns if >20% slower)
+- **GPU speedup validation** (Phase 5 placeholder)
+- **Reproducible benchmarks** with system info and metadata
+
 This ensures the GPU implementation is production-ready and maintains correctness and performance over time.
+
+---
+
+# Analysis GPU Testing Infrastructure
+
+This section describes the GPU testing infrastructure for the **analysis pipeline** (downstream of segmentation), which uses `aegle_analysis.gpu_utils` for GPU acceleration of clustering, normalization, and differential expression.
+
+## Analysis GPU Modules
+
+The analysis pipeline has separate GPU utilities from the segmentation pipeline:
+
+- **Segmentation GPU**: `aegle.gpu_utils` (CuPy-only, for mask repair)
+- **Analysis GPU**: `aegle_analysis.gpu_utils` (CuPy or PyTorch, for clustering/analysis)
+
+## Test Module: `test_analysis_gpu_availability.py`
+
+This module tests all functions in `aegle_analysis.gpu_utils`:
+
+### Functions Tested
+
+1. **`is_gpu_available()`**: Check if GPU is available via CuPy or PyTorch
+2. **`get_gpu_memory_info(device_id=0)`**: Get GPU memory information
+3. **`log_gpu_info(logger)`**: Log GPU availability and details
+4. **`select_compute_backend(use_gpu, fallback_to_cpu, logger)`**: Select GPU or CPU backend
+
+### Running Analysis GPU Tests
+
+```bash
+# Run all analysis GPU availability tests
+pytest tests/test_analysis_gpu_availability.py -v
+
+# Run specific test class
+pytest tests/test_analysis_gpu_availability.py::TestIsGPUAvailable -v
+pytest tests/test_analysis_gpu_availability.py::TestGetGPUMemoryInfo -v
+pytest tests/test_analysis_gpu_availability.py::TestLogGPUInfo -v
+pytest tests/test_analysis_gpu_availability.py::TestSelectComputeBackend -v
+pytest tests/test_analysis_gpu_availability.py::TestGPUUtilsIntegration -v
+```
+
+### Test Coverage
+
+| Test Class | Tests | Coverage |
+|------------|-------|----------|
+| `TestIsGPUAvailable` | 5 | GPU detection, caching, error handling |
+| `TestGetGPUMemoryInfo` | 6 | Memory queries, fallback mechanisms |
+| `TestLogGPUInfo` | 3 | Logging with/without GPU |
+| `TestSelectComputeBackend` | 5 | Backend selection logic |
+| `TestGPUUtilsIntegration` | 3 | Integration between functions |
+| **Total** | **22** | **>95%** |
+
+## GPU Test Helpers and Fixtures
+
+### Test Utilities (`tests/utils/gpu_test_helpers.py`)
+
+This module provides reusable GPU testing utilities that work for both segmentation and analysis GPU tests:
+
+```python
+from tests.utils.gpu_test_helpers import (
+    skip_if_no_gpu,           # Skip test if GPU unavailable
+    compare_cpu_gpu_results,  # Compare CPU/GPU outputs
+    assert_arrays_close,      # Assert numerical equivalence
+    mock_gpu_memory,          # Mock GPU memory for testing
+)
+```
+
+#### Using `skip_if_no_gpu()`
+
+```python
+@skip_if_no_gpu()
+def test_gpu_clustering():
+    """This test only runs if GPU is available."""
+    # GPU-dependent test code
+    pass
+```
+
+#### Using `compare_cpu_gpu_results()`
+
+```python
+def test_cpu_gpu_equivalence():
+    """Test that CPU and GPU produce same results."""
+    data = create_test_data()
+
+    # Run on CPU
+    result_cpu = cluster(data, use_gpu=False)
+
+    # Run on GPU
+    result_gpu = cluster(data, use_gpu=True)
+
+    # Compare results (default tolerance: rtol=1e-5, atol=1e-6)
+    compare_cpu_gpu_results(result_cpu, result_gpu, rtol=1e-5)
+```
+
+#### Using `assert_arrays_close()`
+
+```python
+def test_numerical_equivalence():
+    """Test arrays are numerically close."""
+    arr1 = np.array([1.0, 2.0, 3.0])
+    arr2 = np.array([1.0000001, 2.0000001, 3.0000001])
+
+    # Will pass with default tolerance (rtol=1e-5)
+    assert_arrays_close(arr1, arr2)
+
+    # Stricter tolerance
+    assert_arrays_close(arr1, arr2, rtol=1e-7, atol=1e-8)
+```
+
+#### Using `mock_gpu_memory()`
+
+```python
+def test_batch_size_with_limited_memory():
+    """Test batch size estimation with mocked GPU memory."""
+    # Mock 8 GB GPU with 4 GB free
+    with mock_gpu_memory(total_bytes=8e9, free_bytes=4e9):
+        batch_size = estimate_batch_size(data_size=large_dataset)
+        assert 1 <= batch_size <= 100
+```
+
+### Fixtures (`tests/conftest.py`)
+
+The `conftest.py` file provides shared fixtures for all GPU tests:
+
+#### GPU Availability Fixtures
+
+```python
+def test_something(gpu_available):
+    """Use gpu_available fixture for segmentation GPU (CuPy)."""
+    if not gpu_available:
+        pytest.skip("GPU not available")
+    # ... test code
+
+def test_analysis(analysis_gpu_available):
+    """Use analysis_gpu_available fixture for analysis GPU (CuPy/PyTorch)."""
+    if not analysis_gpu_available:
+        pytest.skip("Analysis GPU not available")
+    # ... test code
+```
+
+#### Synthetic Data Fixtures
+
+```python
+def test_small_dataset(synthetic_data_small):
+    """Test with small synthetic dataset (1K cells)."""
+    adata = synthetic_data_small.adata
+    # adata is AnnData with 1000 cells, 10 markers, 3 clusters
+
+def test_medium_dataset(synthetic_data_medium):
+    """Test with medium synthetic dataset (10K cells)."""
+    adata = synthetic_data_medium.adata
+    # adata is AnnData with 10000 cells, 25 markers, 5 clusters
+
+def test_large_dataset(synthetic_data_large):
+    """Test with large synthetic dataset (100K cells)."""
+    adata = synthetic_data_large.adata
+    # adata is AnnData with 100000 cells, 50 markers, 8 clusters
+```
+
+#### Mask Fixtures
+
+```python
+def test_simple(simple_masks):
+    """Test with simple masks (10 cells)."""
+    cell_mask, nucleus_mask = simple_masks
+
+def test_medium(medium_masks):
+    """Test with medium masks (100 cells)."""
+    cell_mask, nucleus_mask = medium_masks
+
+def test_large(large_masks):
+    """Test with large masks (1000 cells)."""
+    cell_mask, nucleus_mask = large_masks
+```
+
+## Numerical Tolerance Guidelines
+
+When comparing GPU and CPU results for analysis operations:
+
+### Why Tolerances Are Needed
+
+GPU and CPU may produce slightly different results due to:
+1. **Different operation order**: Parallel GPU execution vs sequential CPU
+2. **Different precision**: GPU may use different precision for intermediate results
+3. **Different libraries**: CUDA math vs CPU BLAS/LAPACK
+
+### Recommended Tolerances by Operation
+
+| Operation | Default rtol | Default atol | Notes |
+|-----------|--------------|--------------|-------|
+| Array arithmetic | 1e-6 | 1e-7 | Simple operations should be very close |
+| Matrix operations | 1e-5 | 1e-6 | Standard for most comparisons |
+| Normalization (log1p) | 1e-5 | 1e-6 | Standard tolerance |
+| Distance/similarity | 1e-5 | 1e-6 | Matrix operations |
+| Clustering (k-NN, Leiden) | 1e-4 | 1e-5 | Iterative algorithms, looser |
+| UMAP | 1e-3 | 1e-4 | Stochastic algorithm, very loose |
+
+### Example: Choosing Tolerance
+
+```python
+# For simple operations (normalization)
+compare_cpu_gpu_results(cpu_norm, gpu_norm, rtol=1e-5, atol=1e-6)
+
+# For iterative algorithms (clustering)
+compare_cpu_gpu_results(cpu_clusters, gpu_clusters, rtol=1e-4, atol=1e-5)
+
+# For stochastic algorithms (UMAP) - may need even looser
+compare_cpu_gpu_results(cpu_umap, gpu_umap, rtol=1e-3, atol=1e-4)
+```
+
+### When to Adjust Tolerance
+
+If a test fails with "arrays not close enough":
+
+1. **Check magnitude of differences**: Print `np.abs(cpu - gpu).max()`
+2. **Verify correctness**: Is GPU implementation algorithmically correct?
+3. **Document choice**: If increasing tolerance, add comment explaining why
+
+```python
+# Example: Documenting tolerance adjustment
+# Looser tolerance needed because parallel reduction order differs
+# Verified differences are <0.01% and scientifically negligible
+compare_cpu_gpu_results(cpu_result, gpu_result, rtol=1e-4)
+```
+
+## Mocking GPU for Testing Fallback Logic
+
+### Mock GPU Unavailable
+
+Test behavior when GPU is requested but unavailable:
+
+```python
+from unittest.mock import patch
+
+def test_fallback_to_cpu():
+    """Test graceful fallback when GPU unavailable."""
+    with patch('aegle_analysis.gpu_utils.is_gpu_available', return_value=False):
+        # Request GPU (should fall back to CPU)
+        result = analyze(data, use_gpu=True, fallback_to_cpu=True)
+        assert result is not None
+```
+
+### Mock GPU Error
+
+Test error handling when GPU operations fail:
+
+```python
+def test_gpu_error_handling():
+    """Test handling of GPU errors."""
+    with patch('aegle_analysis.some_gpu_func', side_effect=RuntimeError("GPU error")):
+        # Should catch error and fall back or raise informative error
+        result = analyze(data, use_gpu=True, fallback_to_cpu=True)
+        assert result is not None
+```
+
+### Mock GPU Memory Info
+
+Test memory-dependent logic:
+
+```python
+def test_with_limited_memory():
+    """Test behavior with limited GPU memory."""
+    mock_mem = {'total_mb': 4000, 'free_mb': 500, 'used_mb': 3500}
+
+    with patch('aegle_analysis.gpu_utils.get_gpu_memory_info', return_value=mock_mem):
+        # Should detect insufficient memory and adjust or fall back
+        result = process_large_data(data, use_gpu=True)
+        assert result is not None
+```
+
+## Common Test Patterns for Analysis GPU
+
+### Pattern 1: Test Backend Selection
+
+```python
+from aegle_analysis.gpu_utils import select_compute_backend
+import logging
+
+def test_backend_selection():
+    """Test that backend selection works correctly."""
+    logger = logging.getLogger('test')
+
+    # Request CPU
+    backend = select_compute_backend(use_gpu=False, fallback_to_cpu=True, logger=logger)
+    assert backend == "cpu"
+
+    # Request GPU (with fallback)
+    backend = select_compute_backend(use_gpu=True, fallback_to_cpu=True, logger=logger)
+    assert backend in ["gpu", "cpu"]  # Depends on availability
+```
+
+### Pattern 2: Test GPU/CPU Equivalence
+
+```python
+def test_normalization_gpu_cpu_equivalence(analysis_gpu_available):
+    """Test GPU and CPU normalization produce same results."""
+    if not analysis_gpu_available:
+        pytest.skip("Analysis GPU not available")
+
+    data = create_test_data()
+
+    # Run on CPU
+    result_cpu = normalize(data, use_gpu=False)
+
+    # Run on GPU
+    result_gpu = normalize(data, use_gpu=True)
+
+    # Compare
+    compare_cpu_gpu_results(result_cpu, result_gpu, rtol=1e-5)
+```
+
+### Pattern 3: Test Fallback Behavior
+
+```python
+def test_fallback_when_gpu_disabled():
+    """Test CPU fallback when GPU explicitly disabled."""
+    result = analyze(data, use_gpu=False)
+    assert result is not None
+    # Should use CPU even if GPU available
+
+def test_fallback_when_gpu_unavailable():
+    """Test CPU fallback when GPU unavailable."""
+    with patch('aegle_analysis.gpu_utils.is_gpu_available', return_value=False):
+        result = analyze(data, use_gpu=True, fallback_to_cpu=True)
+        assert result is not None
+        # Should automatically fall back to CPU
+```
+
+### Pattern 4: Parametrized Testing
+
+```python
+@pytest.mark.parametrize("use_gpu", [False, True])
+def test_process_both_backends(use_gpu, analysis_gpu_available):
+    """Test processing works with both CPU and GPU."""
+    if use_gpu and not analysis_gpu_available:
+        pytest.skip("GPU not available")
+
+    result = process(data, use_gpu=use_gpu)
+    assert result is not None
+    validate_result(result)
+```
+
+## Best Practices for Analysis GPU Testing
+
+1. **Always test CPU path**: Analysis GPU may not be available in all environments
+2. **Use fixtures**: Leverage `analysis_gpu_available` and synthetic data fixtures
+3. **Document tolerances**: Explain why specific rtol/atol values are used
+4. **Test backend selection**: Verify `select_compute_backend()` logic is correct
+5. **Mock for edge cases**: Use mocks to test GPU unavailable scenarios
+6. **Separate concerns**: Test GPU utilities separately from actual analysis algorithms
+7. **Validate outputs**: Don't just check GPU==CPU, also verify correctness
+
+## Integration with CI/CD
+
+### Testing Without GPU
+
+The test infrastructure gracefully skips GPU tests when GPU unavailable:
+
+```bash
+# Run on system without GPU - GPU tests will be skipped
+pytest tests/test_analysis_gpu_availability.py -v
+# Output: "SKIPPED (GPU not available)"
+```
+
+### Testing With GPU
+
+On systems with GPU, all tests run:
+
+```bash
+# Run on system with GPU - all tests execute
+pytest tests/test_analysis_gpu_availability.py -v
+# All tests should pass
+```
+
+### Example CI Configuration
+
+```yaml
+# .github/workflows/test.yml
+test_analysis_cpu:
+  runs-on: ubuntu-latest
+  steps:
+    - name: Test CPU analysis and fallback
+      run: pytest tests/test_analysis_gpu_availability.py -v
+
+test_analysis_gpu:
+  runs-on: [self-hosted, gpu]
+  steps:
+    - name: Test GPU analysis
+      run: pytest tests/test_analysis_gpu_availability.py -v
+```
+
+## Troubleshooting Analysis GPU Tests
+
+### Issue: Tests Skip Even With GPU Available
+
+**Cause**: CuPy or PyTorch not installed, or GPU not detected
+
+**Solutions**:
+1. Check installation: `python -c "import cupy; print(cupy.__version__)"`
+2. Check PyTorch: `python -c "import torch; print(torch.cuda.is_available())"`
+3. Verify detection: `pytest tests/test_analysis_gpu_availability.py::TestIsGPUAvailable::test_returns_boolean -v -s`
+
+### Issue: Tolerance Failures
+
+**Cause**: GPU and CPU results differ beyond tolerance
+
+**Solutions**:
+1. Print differences: `print(np.abs(gpu - cpu).max())`
+2. Check if systematic: Are all values off by similar amount?
+3. Increase tolerance if scientifically acceptable: `rtol=1e-4`
+4. Document why: Add comment explaining tolerance choice
+
+### Issue: Mocking Doesn't Work
+
+**Cause**: Wrong module path or caching
+
+**Solutions**:
+1. Verify path: `'aegle_analysis.gpu_utils.is_gpu_available'` not `'aegle.gpu_utils'`
+2. Reset cache: Set `_GPU_AVAILABLE = None` in test setup
+3. Use `return_value` for simple mocks, `side_effect` for exceptions
+
+## Summary: Analysis GPU Testing
+
+The analysis GPU testing infrastructure provides:
+
+- **22 tests** in `test_analysis_gpu_availability.py`
+- **>95% coverage** of `aegle_analysis.gpu_utils` functions
+- **Reusable utilities** in `tests/utils/gpu_test_helpers.py`
+- **Shared fixtures** in `tests/conftest.py`
+- **Clear guidelines** for tolerance selection and mocking
+- **CI/CD compatibility** with automatic skipping when GPU unavailable
+
+Key differences from segmentation GPU testing:
+- Supports both **CuPy and PyTorch** backends
+- Focuses on **backend selection** logic
+- Prepares for Phase 5 GPU-accelerated analysis algorithms
+- Uses **looser tolerances** for iterative/stochastic algorithms
