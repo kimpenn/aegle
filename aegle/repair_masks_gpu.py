@@ -80,7 +80,9 @@ def repair_masks_gpu(
 
     try:
         # Attempt GPU repair
-        logger.info("Running GPU-accelerated mask repair...")
+        logger.info("=" * 80)
+        logger.info("STARTING GPU-ACCELERATED MASK REPAIR (Phase 3)")
+        logger.info("=" * 80)
         log_gpu_memory("GPU memory before repair")
 
         cell_repaired, nucleus_repaired, gpu_metadata = _repair_masks_gpu_impl(
@@ -128,24 +130,26 @@ def _repair_masks_gpu_impl(
     """
     from aegle.repair_masks_gpu_morphology import compute_labeled_boundary_gpu
     from aegle.repair_masks_gpu_overlap import compute_overlap_matrix_gpu
+    from aegle.repair_masks_gpu_mismatch import compute_mismatch_matrix_gpu
     from aegle.repair_masks import get_indices_numpy
 
     metadata = {}
     stage_timings = {}
 
     # Stage 1: Compute labeled boundaries (GPU)
-    logger.debug("Stage 1: Computing labeled cell boundaries on GPU...")
+    logger.info("Stage 1/5: Computing labeled cell boundaries on GPU...")
     t0 = time.time()
     cell_membrane_mask = compute_labeled_boundary_gpu(cell_mask)
     stage_timings["boundary_computation"] = time.time() - t0
-    logger.debug(f"Boundary computation took {stage_timings['boundary_computation']:.3f}s")
+    logger.info(f"  ✓ Boundary computation completed in {stage_timings['boundary_computation']:.3f}s")
 
     # Stage 2: Extract coordinates (CPU - already fast, keep as-is)
-    logger.debug("Stage 2: Extracting cell/nucleus coordinates...")
+    logger.info("Stage 2/5: Extracting cell/nucleus coordinates (CPU)...")
     t0 = time.time()
     cell_coords_dict = get_indices_numpy(cell_mask)
     nucleus_coords_dict = get_indices_numpy(nucleus_mask)
     stage_timings["coordinate_extraction"] = time.time() - t0
+    logger.info(f"  ✓ Coordinate extraction completed in {stage_timings['coordinate_extraction']:.3f}s")
 
     # Remove background and get labels
     cell_labels = sorted([label for label in cell_coords_dict.keys() if label > 0])
@@ -172,19 +176,43 @@ def _repair_masks_gpu_impl(
     cell_membrane_coords = get_indices_sparse(cell_membrane_mask)[1:]
     cell_membrane_coords = list(map(lambda x: np.array(x).T, cell_membrane_coords))
 
-    logger.debug(f"Found {len(cell_coords)} cells, {len(nucleus_coords)} nuclei")
+    logger.info(f"  Found {len(cell_coords)} cells, {len(nucleus_coords)} nuclei")
 
     # Stage 3: Compute overlap matrix (GPU)
-    logger.debug("Stage 3: Computing cell-nucleus overlap matrix on GPU...")
+    logger.info("Stage 3/5: Computing cell-nucleus overlap matrix on GPU...")
     t0 = time.time()
     overlap_matrix, cell_labels_arr, nucleus_labels_arr = compute_overlap_matrix_gpu(
         cell_mask, nucleus_mask, batch_size=batch_size or 0
     )
     stage_timings["overlap_computation"] = time.time() - t0
-    logger.debug(f"Overlap computation took {stage_timings['overlap_computation']:.3f}s")
+    logger.info(
+        f"  ✓ Overlap computation completed in {stage_timings['overlap_computation']:.3f}s "
+        f"({overlap_matrix.sum()} overlapping pairs)"
+    )
 
-    # Stage 4: Match cells to nuclei (CPU - irregular data structure)
-    logger.debug("Stage 4: Matching cells to nuclei...")
+    # Stage 3.5: Compute mismatch matrix (GPU) - Phase 3 optimization
+    logger.info("Stage 4/5: Computing mismatch fractions on GPU (Phase 3)...")
+    t0 = time.time()
+    mismatch_matrix_sparse = compute_mismatch_matrix_gpu(
+        cell_mask,
+        nucleus_mask,
+        cell_membrane_mask,
+        overlap_matrix,
+        cell_labels_arr,
+        nucleus_labels_arr,
+        batch_size=batch_size or 10000,
+    )
+    stage_timings["mismatch_computation"] = time.time() - t0
+    n_pairs = mismatch_matrix_sparse.nnz
+    sparse_mb = mismatch_matrix_sparse.data.nbytes / 1e6
+    pairs_per_sec = n_pairs / stage_timings["mismatch_computation"] if stage_timings["mismatch_computation"] > 0 else 0
+    logger.info(
+        f"  ✓ Mismatch computation completed in {stage_timings['mismatch_computation']:.3f}s "
+        f"({n_pairs} pairs at {pairs_per_sec:.0f} pairs/sec, {sparse_mb:.2f} MB sparse)"
+    )
+
+    # Stage 4: Match cells to nuclei (CPU with GPU-precomputed mismatch fractions)
+    logger.info("Stage 5/5: Matching cells to nuclei (CPU greedy algorithm with GPU mismatch)...")
     t0 = time.time()
     cell_matched_list, nucleus_matched_list, n_repaired = _match_cells_to_nuclei(
         cell_coords,
@@ -196,17 +224,24 @@ def _repair_masks_gpu_impl(
         nucleus_labels,
         nucleus_labels_arr,  # Pass the array from overlap computation
         nucleus_label_to_idx,
+        mismatch_matrix_sparse,  # NEW: Pass precomputed mismatch matrix
     )
     stage_timings["cell_matching"] = time.time() - t0
-    logger.debug(f"Cell matching took {stage_timings['cell_matching']:.3f}s")
+    cells_per_sec = len(cell_coords) / stage_timings["cell_matching"] if stage_timings["cell_matching"] > 0 else 0
+    logger.info(
+        f"  ✓ Cell matching completed in {stage_timings['cell_matching']:.3f}s "
+        f"({len(cell_matched_list)}/{len(cell_coords)} cells matched at {cells_per_sec:.0f} cells/sec, "
+        f"{n_repaired} repaired)"
+    )
 
     # Stage 5: Assemble repaired masks (CPU)
-    logger.debug("Stage 5: Assembling repaired masks...")
+    logger.info("Assembling final repaired masks...")
     t0 = time.time()
     from aegle.repair_masks import get_mask
     cell_matched_mask = get_mask(cell_matched_list, cell_mask.shape)
     nucleus_matched_mask = get_mask(nucleus_matched_list, nucleus_mask.shape)
     stage_timings["mask_assembly"] = time.time() - t0
+    logger.info(f"  ✓ Mask assembly completed in {stage_timings['mask_assembly']:.3f}s")
 
     # Update metadata
     metadata.update(stage_timings)
@@ -217,6 +252,23 @@ def _repair_masks_gpu_impl(
         "overlap_density": overlap_matrix.sum() / (len(cell_labels) * len(nucleus_labels))
         if len(cell_labels) * len(nucleus_labels) > 0 else 0,
     })
+
+    # Log summary
+    total_time = sum(stage_timings.values())
+    logger.info("=" * 80)
+    logger.info("GPU REPAIR PIPELINE COMPLETED (Phase 3)")
+    logger.info("=" * 80)
+    logger.info(f"Stage Timing Breakdown:")
+    logger.info(f"  Boundary (GPU):      {stage_timings['boundary_computation']:7.2f}s ({stage_timings['boundary_computation']/total_time*100:5.1f}%)")
+    logger.info(f"  Coordinates (CPU):   {stage_timings['coordinate_extraction']:7.2f}s ({stage_timings['coordinate_extraction']/total_time*100:5.1f}%)")
+    logger.info(f"  Overlap (GPU):       {stage_timings['overlap_computation']:7.2f}s ({stage_timings['overlap_computation']/total_time*100:5.1f}%)")
+    logger.info(f"  Mismatch (GPU):      {stage_timings['mismatch_computation']:7.2f}s ({stage_timings['mismatch_computation']/total_time*100:5.1f}%)")
+    logger.info(f"  Matching (CPU+GPU):  {stage_timings['cell_matching']:7.2f}s ({stage_timings['cell_matching']/total_time*100:5.1f}%)")
+    logger.info(f"  Assembly (CPU):      {stage_timings['mask_assembly']:7.2f}s ({stage_timings['mask_assembly']/total_time*100:5.1f}%)")
+    logger.info(f"  {'─' * 30}")
+    logger.info(f"  TOTAL:               {total_time:7.2f}s")
+    logger.info(f"Results: {len(cell_matched_list)}/{len(cell_coords)} cells matched, {n_repaired} repaired")
+    logger.info("=" * 80)
 
     return cell_matched_mask.astype(np.uint32), nucleus_matched_mask.astype(np.uint32), metadata
 
@@ -231,12 +283,13 @@ def _match_cells_to_nuclei(
     nucleus_labels,
     nucleus_labels_arr,
     nucleus_label_to_idx,
+    mismatch_matrix_sparse=None,
 ):
-    """Match cells to nuclei using overlap matrix.
+    """Match cells to nuclei using precomputed mismatch matrix.
 
     This is the CPU-based matching logic from the original repair_masks.py,
-    but accelerated by using the precomputed GPU overlap matrix instead of
-    computing overlaps on-the-fly.
+    but accelerated by using the GPU-precomputed mismatch matrix to avoid
+    expensive Python set operations in the inner loop.
 
     Args:
         cell_coords: List of cell coordinate arrays
@@ -248,6 +301,8 @@ def _match_cells_to_nuclei(
         nucleus_labels: List of nucleus label IDs
         nucleus_labels_arr: NumPy array of nucleus labels (for indexing)
         nucleus_label_to_idx: Dict mapping nucleus label → index
+        mismatch_matrix_sparse: (n_cells, n_nuclei) sparse matrix of precomputed
+                               mismatch fractions (optional, for GPU acceleration)
 
     Returns:
         Tuple of (cell_matched_list, nucleus_matched_list, n_repaired)
@@ -274,9 +329,10 @@ def _match_cells_to_nuclei(
                 pbar.update(1)
                 continue
 
-            # Use overlap matrix to find candidate nuclei (GPU precomputed)
-            # overlap_matrix[i, :] gives boolean array of which nuclei overlap cell i
-            overlapping_nucleus_indices = np.where(overlap_matrix[i, :])[0]
+            # Use overlap matrix to find candidate nuclei (GPU precomputed, sparse CSR)
+            # overlap_matrix.getrow(i) gives sparse row, .indices gives column indices of nonzeros
+            overlap_row = overlap_matrix.getrow(i)  # Sparse CSR row (O(1) access)
+            overlapping_nucleus_indices = overlap_row.indices  # Column indices of nonzeros
 
             if len(overlapping_nucleus_indices) == 0:
                 # No overlapping nuclei - skip this cell
@@ -289,28 +345,63 @@ def _match_cells_to_nuclei(
             best_mismatch_fraction = 1
             whole_cell_best = []
 
-            for j in nucleus_search_num:
-                # Use label→index mapping
-                if j != 0 and j in nucleus_label_to_idx:
-                    j_idx = nucleus_label_to_idx[j]
+            # Phase 3 optimization: Use precomputed mismatch matrix if available
+            if mismatch_matrix_sparse is not None:
+                # GPU-accelerated path: Use sparse matrix lookups
+                # Get mismatch fractions for all overlapping nuclei at once
+                mismatch_row = mismatch_matrix_sparse.getrow(i)
 
-                    if (j_idx not in nucleus_matched_indices) and (
-                        i not in cell_matched_indices
-                    ):
-                        whole_cell, nucleus, mismatch_fraction = get_matched_cells(
+                if mismatch_row.nnz > 0:
+                    # Filter to unmatched nuclei only
+                    available_mask = np.array(
+                        [idx not in nucleus_matched_indices for idx in mismatch_row.indices]
+                    )
+
+                    if np.any(available_mask) and i not in cell_matched_indices:
+                        # Find best nucleus (minimum mismatch among unmatched)
+                        available_indices = mismatch_row.indices[available_mask]
+                        available_mismatches = mismatch_row.data[available_mask]
+                        best_local_idx = np.argmin(available_mismatches)
+                        j_idx = available_indices[best_local_idx]
+                        best_mismatch_fraction = available_mismatches[best_local_idx]
+
+                        # Still need to call get_matched_cells once for trimming
+                        whole_cell_best, nucleus_best, _ = get_matched_cells(
                             cell_coords[i],
                             cell_membrane_coords[i],
                             nucleus_coords[j_idx],
                             mismatch_repair=1,
                         )
 
-                        if whole_cell.size > 0 and nucleus.size > 0:
-                            if mismatch_fraction < best_mismatch_fraction:
-                                best_mismatch_fraction = mismatch_fraction
-                                whole_cell_best = whole_cell
-                                nucleus_best = nucleus
-                                i_ind = i
-                                j_ind = j_idx
+                        if whole_cell_best.size > 0 and nucleus_best.size > 0:
+                            i_ind = i
+                            j_ind = j_idx
+                        else:
+                            whole_cell_best = []
+            else:
+                # CPU fallback path: Original loop with get_matched_cells
+                for j in nucleus_search_num:
+                    # Use label→index mapping
+                    if j != 0 and j in nucleus_label_to_idx:
+                        j_idx = nucleus_label_to_idx[j]
+
+                        if (j_idx not in nucleus_matched_indices) and (
+                            i not in cell_matched_indices
+                        ):
+                            whole_cell, nucleus, mismatch_fraction = get_matched_cells(
+                                cell_coords[i],
+                                cell_membrane_coords[i],
+                                nucleus_coords[j_idx],
+                                mismatch_repair=1,
+                            )
+
+                            if whole_cell.size > 0 and nucleus.size > 0:
+                                if mismatch_fraction < best_mismatch_fraction:
+                                    best_mismatch_fraction = mismatch_fraction
+                                    whole_cell_best = whole_cell
+                                    nucleus_best = nucleus
+                                    i_ind = i
+                                    j_ind = j_idx
 
             if best_mismatch_fraction < 1 and best_mismatch_fraction > 0:
                 repaired_num += 1
