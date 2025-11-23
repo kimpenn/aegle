@@ -453,35 +453,31 @@ class CodexImage:
             f"Padding dimensions calculated: pad_height={pad_height}, pad_width={pad_width}"
         )
 
-        # self.extended_all_channel_image = np.pad(
-        #     self.all_channel_image,
-        #     ((0, 0), (0, pad_height), (0, pad_width), (0, 0)),
-        #     mode="constant",
-        #     constant_values=0,
-        # )
-        self.extended_all_channel_image = np.pad(
-            self.all_channel_image,
-            ((0, pad_height), (0, pad_width), (0, 0)),
-            mode="constant",
-            constant_values=0,
-        )
+        # Skip padding if no padding is needed (common in full_image mode)
+        if pad_height == 0 and pad_width == 0:
+            self.logger.info(
+                "No padding required (pad_height=0, pad_width=0). Using original images."
+            )
+            self.extended_all_channel_image = self.all_channel_image
+            self.extended_extracted_channel_image = self.extracted_channel_image
+        else:
+            # Apply padding when needed
+            self.extended_all_channel_image = np.pad(
+                self.all_channel_image,
+                ((0, pad_height), (0, pad_width), (0, 0)),
+                mode="constant",
+                constant_values=0,
+            )
+            self.extended_extracted_channel_image = np.pad(
+                self.extracted_channel_image,
+                ((0, pad_height), (0, pad_width), (0, 0)),
+                mode="constant",
+                constant_values=0,
+            )
 
         self.logger.info(
             f"Extended all channel image shape: {self.extended_all_channel_image.shape}"
         )
-        # self.extended_extracted_channel_image = np.pad(
-        #     self.extracted_channel_image,
-        #     ((0, 0), (0, pad_height), (0, pad_width), (0, 0)),
-        #     mode="constant",
-        #     constant_values=0,
-        # )
-        self.extended_extracted_channel_image = np.pad(
-            self.extracted_channel_image,
-            ((0, pad_height), (0, pad_width), (0, 0)),
-            mode="constant",
-            constant_values=0,
-        )
-
         self.logger.info(
             f"Extended extracted channel image shape: {self.extended_extracted_channel_image.shape}"
         )
