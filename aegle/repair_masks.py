@@ -7,11 +7,55 @@ import numpy as np
 from typing import List, Tuple, Dict, Optional
 import logging
 from scipy.sparse import csr_matrix
+import time
+from tqdm import tqdm
 
 from aegle.codex_patches import CodexPatches
-from aegle.evaluation_func import get_indices_pandas
 from aegle.visualization import make_outline_overlay
-import logging
+
+
+def get_indices_numpy(data: np.ndarray) -> Dict[int, Tuple]:
+    """Extract coordinates for each label using pure NumPy.
+
+    This function replaces the pandas-based implementation (get_indices_pandas)
+    to eliminate DataFrame overhead and improve performance. Returns the same
+    data structure: a dictionary mapping label → coordinate tuples.
+
+    Args:
+        data: Labeled mask array (can have batch dimension or be 2D/3D)
+
+    Returns:
+        Dictionary mapping label → tuple of coordinate arrays
+        - Keys: integer labels found in the mask
+        - Values: tuples of coordinate arrays (one array per dimension)
+          matching the format returned by np.unravel_index()
+
+    Example:
+        For a 2D mask, returns {1: (array([y1, y2, ...]), array([x1, x2, ...])), ...}
+        For a 3D mask, returns {1: (array([z1, z2, ...]), array([y1, y2, ...]), array([x1, x2, ...])), ...}
+    """
+    arr = np.asarray(data)
+    if arr.size == 0:
+        return {}
+
+    # Flatten and sort indices by label
+    flat = arr.ravel()
+    order = np.argsort(flat, kind="stable")
+    sorted_labels = flat[order]
+
+    # Get unique labels and split points
+    labels, counts = np.unique(sorted_labels, return_counts=True)
+    split_points = np.cumsum(counts[:-1])
+
+    # Split the ordered indices into groups by label
+    groups = np.split(order, split_points) if split_points.size else [order]
+
+    # Convert flat indices to coordinate tuples for each label
+    coords_dict = {}
+    for label, group in zip(labels, groups):
+        coords_dict[int(label)] = np.unravel_index(group, arr.shape)
+
+    return coords_dict
 
 
 def _compute_labeled_boundary(mask: np.ndarray) -> np.ndarray:
@@ -26,18 +70,49 @@ def _compute_labeled_boundary(mask: np.ndarray) -> np.ndarray:
 
 
 def repair_masks_batch(seg_res_batch):
+    """Repair masks for a batch of segmentation results with progress tracking.
+
+    Args:
+        seg_res_batch: List of segmentation results, each containing 'cell' and 'nucleus' masks
+
+    Returns:
+        List of repaired mask dictionaries
+    """
     res_list = []
+    total_batches = len(seg_res_batch)
+
     for idx, seg_res in enumerate(seg_res_batch):
-        logging.info(f"Repairing masks for batch index: {idx}")
+        logging.info("=" * 60)
+        logging.info(f"Processing batch {idx + 1}/{total_batches}")
+        logging.info("=" * 60)
+
         cell_mask = seg_res["cell"]
         nucleus_mask = seg_res["nucleus"]
+
+        # Get cell and nucleus counts for logging
+        n_cells = len(np.unique(cell_mask)) - 1  # Exclude background (0)
+        n_nuclei = len(np.unique(nucleus_mask)) - 1
+
+        logging.info(f"Batch {idx} - Cells: {n_cells:,}, Nuclei: {n_nuclei:,}")
+
         # Add first dim to the masks to match to implementation of repair_masks_single
         cell_mask = np.expand_dims(cell_mask, axis=0)
         nucleus_mask = np.expand_dims(nucleus_mask, axis=0)
 
-        # run core mask repair function
+        # Run core mask repair function with timing
+        batch_start = time.time()
         res = repair_masks_single(cell_mask, nucleus_mask)
+        batch_elapsed = time.time() - batch_start
+
+        # Log batch completion statistics
+        matched_cells = len(np.unique(res['cell_matched_mask'])) - 1
+        logging.info(f"Batch {idx} complete in {batch_elapsed / 3600:.2f} hours ({batch_elapsed / 60:.1f} minutes)")
+        logging.info(f"Matched: {matched_cells:,}/{n_cells:,} cells ({matched_cells / n_cells * 100 if n_cells > 0 else 0:.1f}%)")
+        if batch_elapsed > 0:
+            logging.info(f"Rate: {n_cells / batch_elapsed:.1f} cells/sec")
+
         res_list.append(res)
+
     return res_list
 
 
@@ -103,30 +178,38 @@ def get_matched_fraction(repair_mask, mask, cell_matched_mask, nucleus_mask):
 def get_matched_masks(cell_mask, nucleus_mask):
     # debug_dir = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/debug"
     cell_membrane_mask = get_boundary(cell_mask)
-    # cell_coords = get_indices_sparse(cell_mask)[1:]
-    # nucleus_coords = get_indices_sparse(nucleus_mask)[1:]
-    cell_coords = get_indices_pandas(cell_mask)
-    if cell_coords.index[0] == 0:
-        cell_coords = cell_coords.drop(0)
-    else:
-        logging.info(f"cell_coords.index[0]: {cell_coords.index[0]}")
 
-    nucleus_coords = get_indices_pandas(nucleus_mask)
-    if nucleus_coords.index[0] == 0:
-        nucleus_coords = nucleus_coords.drop(0)
-    else:
-        logging.info(f"nucleus_coords.index[0]: {nucleus_coords.index[0]}")
+    # Extract coordinates using NumPy (replaces pandas-based implementation)
+    cell_coords_dict = get_indices_numpy(cell_mask)
+    nucleus_coords_dict = get_indices_numpy(nucleus_mask)
 
+    # Remove background label (0) and convert to list format
+    # The dict uses labels as keys, so we need to create a list indexed by (label - 1)
+    cell_labels = sorted([label for label in cell_coords_dict.keys() if label > 0])
+    nucleus_labels = sorted([label for label in nucleus_coords_dict.keys() if label > 0])
+
+    if cell_labels and cell_labels[0] != 1:
+        logging.info(f"cell_coords first label: {cell_labels[0]}")
+    if nucleus_labels and nucleus_labels[0] != 1:
+        logging.info(f"nucleus_coords first label: {nucleus_labels[0]}")
+
+    # Convert to list format: cell_coords[i] contains coordinates for label (i+1)
+    # Transpose to get shape (N, ndim) where N is number of pixels
+    cell_coords = [np.array(cell_coords_dict[label]).T for label in cell_labels]
+    nucleus_coords = [np.array(nucleus_coords_dict[label]).T for label in nucleus_labels]
+
+    # Create mapping from nucleus label to list index for O(1) lookup
+    nucleus_label_to_idx = {label: idx for idx, label in enumerate(nucleus_labels)}
+
+    # Get membrane coordinates using sparse method (unchanged)
     cell_membrane_coords = get_indices_sparse(cell_membrane_mask)[1:]
-    cell_coords = list(map(lambda x: np.array(x).T, cell_coords))
     cell_membrane_coords = list(map(lambda x: np.array(x).T, cell_membrane_coords))
-    nucleus_coords = list(map(lambda x: np.array(x).T, nucleus_coords))
     # logging.info(f"cell_coords: {len(cell_coords)}")
     # logging.info(f"nucleus_coords: {len(nucleus_coords)}")
     # logging.info(f"cell_membrane_coords: {len(cell_membrane_coords)}")
 
-    cell_matched_index_list = []
-    nucleus_matched_index_list = []
+    cell_matched_indices = set()
+    nucleus_matched_indices = set()
     cell_matched_list = []
     nucleus_matched_list = []
 
@@ -139,51 +222,75 @@ def get_matched_masks(cell_mask, nucleus_mask):
     # 	pickle.dump(nucleus_coords, f)
 
     repaired_num = 0
-    for i in range(len(cell_coords)):
-        if len(cell_coords[i]) != 0:
-            current_cell_coords = cell_coords[i]
-            nucleus_search_num = np.unique(
-                list(map(lambda x: nucleus_mask[tuple(x)], current_cell_coords))
-            )
-            # logging.info(f"nucleus_search_num: {nucleus_search_num}")
-            best_mismatch_fraction = 1
-            whole_cell_best = []
-            for j in nucleus_search_num:
-                # logging.info(f"i: {i}; j: {j}")
-                if j != 0:
-                    if (j - 1 not in nucleus_matched_index_list) and (
-                        i not in cell_matched_index_list
-                    ):
-                        whole_cell, nucleus, mismatch_fraction = get_matched_cells(
-                            cell_coords[i],
-                            cell_membrane_coords[i],
-                            nucleus_coords[j - 1],
-                            mismatch_repair=1,
-                        )
-                        # This part was type(whole_cell) != bool
-                        # Ref: https://github.com/murphygroup/CellSegmentationEvaluator/blob/6def33dd172ad9074bd856399535a5deea3e3fd6/full_pipeline/pipeline/segmentation/get_cellular_compartments.py#L176
-                        # We changed it to arrary size to make sure whole_cell and nucleus are alwasy arrays
-                        if whole_cell.size > 0 and nucleus.size > 0:
-                            if mismatch_fraction < best_mismatch_fraction:
-                                best_mismatch_fraction = mismatch_fraction
-                                whole_cell_best = whole_cell
-                                nucleus_best = nucleus
-                                i_ind = i
-                                j_ind = j - 1
-            if best_mismatch_fraction < 1 and best_mismatch_fraction > 0:
-                repaired_num += 1
+    total_cells = len(cell_coords)
 
-            if len(whole_cell_best) > 0:
-                cell_matched_list.append(whole_cell_best)
-                nucleus_matched_list.append(nucleus_best)
-                cell_matched_index_list.append(i_ind)
-                nucleus_matched_index_list.append(j_ind)
-            else:
-                # logging.debug(f"Skipped cell#{str(i)}")
-                pass
+    # Add progress bar for cell matching loop
+    with tqdm(
+        total=total_cells,
+        desc="Matching cells to nuclei",
+        unit="cell",
+        mininterval=1.0,
+        dynamic_ncols=True,
+    ) as pbar:
+        for i in range(total_cells):
+            if len(cell_coords[i]) != 0:
+                current_cell_coords = cell_coords[i]
+                # Optimized: Use set instead of np.unique() to avoid O(n log n) sorting
+                # We only need unique nucleus IDs, not sorted order
+                nucleus_ids_set = set(nucleus_mask[tuple(current_cell_coords.T)])
+                # Remove background (0) and convert to array
+                nucleus_ids_set.discard(0)
+                nucleus_search_num = np.array(list(nucleus_ids_set), dtype=nucleus_mask.dtype)
+                # logging.info(f"nucleus_search_num: {nucleus_search_num}")
+                best_mismatch_fraction = 1
+                whole_cell_best = []
+                for j in nucleus_search_num:
+                    # logging.info(f"i: {i}; j: {j}")
+                    if j != 0 and j in nucleus_label_to_idx:
+                        j_idx = nucleus_label_to_idx[j]
+                        if (j_idx not in nucleus_matched_indices) and (
+                            i not in cell_matched_indices
+                        ):
+                            whole_cell, nucleus, mismatch_fraction = get_matched_cells(
+                                cell_coords[i],
+                                cell_membrane_coords[i],
+                                nucleus_coords[j_idx],
+                                mismatch_repair=1,
+                            )
+                            # This part was type(whole_cell) != bool
+                            # Ref: https://github.com/murphygroup/CellSegmentationEvaluator/blob/6def33dd172ad9074bd856399535a5deea3e3fd6/full_pipeline/pipeline/segmentation/get_cellular_compartments.py#L176
+                            # We changed it to arrary size to make sure whole_cell and nucleus are alwasy arrays
+                            if whole_cell.size > 0 and nucleus.size > 0:
+                                if mismatch_fraction < best_mismatch_fraction:
+                                    best_mismatch_fraction = mismatch_fraction
+                                    whole_cell_best = whole_cell
+                                    nucleus_best = nucleus
+                                    i_ind = i
+                                    j_ind = j_idx
+                if best_mismatch_fraction < 1 and best_mismatch_fraction > 0:
+                    repaired_num += 1
+
+                if len(whole_cell_best) > 0:
+                    cell_matched_list.append(whole_cell_best)
+                    nucleus_matched_list.append(nucleus_best)
+                    cell_matched_indices.add(i_ind)
+                    nucleus_matched_indices.add(j_ind)
+                else:
+                    # logging.debug(f"Skipped cell#{str(i)}")
+                    pass
+
+            # Update progress bar
+            pbar.update(1)
+
+            # Update progress bar stats every 1000 cells
+            if i % 1000 == 0 and i > 0:
+                pbar.set_postfix({
+                    'matched': len(cell_matched_indices),
+                    'repaired': repaired_num,
+                })
 
     if repaired_num > 0:
-        logging.info(f"{repaired_num} cells repaired out of {len(cell_coords)} cells")
+        logging.info(f"{repaired_num} cells repaired out of {total_cells} cells")
 
     cell_matched_mask = get_mask(cell_matched_list, cell_mask.shape)
     nucleus_matched_mask = get_mask(nucleus_matched_list, nucleus_mask.shape)

@@ -14,6 +14,7 @@ setup(
         "Pillow",
         "pyyaml",
         "zstandard",
+        "tqdm",
     ],
     extras_require={
         "gpu": [

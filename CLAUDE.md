@@ -129,6 +129,111 @@ Phase 1: Configuration & Setup
 [12 more paragraphs]
 ```
 
+## Exploration and Optimization Workflow
+
+**IMPORTANT**: When exploring, profiling, or optimizing the codebase, follow this structured workflow to maintain a clean separation between production code and exploratory work.
+
+### Scratch Folder for Exploration
+
+All exploration, profiling, benchmarking, and analysis work should be placed in the `scratch/` directory to avoid cluttering the production codebase:
+
+- **What goes in scratch/**:
+  - Profiling scripts and outputs (`.prof` files, logs)
+  - Experimental benchmark scripts
+  - Analysis and exploration scripts
+  - Investigation reports and findings
+  - Demo/prototype code
+  - Temporary validation scripts
+
+- **What stays in production**:
+  - Core implementation (`aegle/`, `aegle_analysis/`)
+  - Production test suite (`tests/test_*.py`)
+  - Production benchmarks (`tests/benchmark_*.py`)
+  - Test fixtures and utilities (`tests/utils/`)
+  - Package configuration (`setup.py`, `pyproject.toml`)
+
+### Planning Before Execution
+
+**REQUIRED**: Before starting any significant optimization or exploration work, create a detailed plan document in `scratch/PLANS_<name>.md`:
+
+1. **File naming**: Use descriptive names (e.g., `PLANS_repair_optimization.md`, `PLANS_gpu_acceleration.md`)
+
+2. **Plan structure**:
+   ```markdown
+   # Project Name
+
+   ## Context and Background
+   - Current state and problem description
+   - Performance metrics (before state)
+   - Why this work is needed
+
+   ## Goals and Success Criteria
+   - Clear, measurable objectives
+   - Acceptance criteria
+   - Target metrics
+
+   ## Phases and Tasks
+
+   ### Phase 0: Setup
+   - [ ] Task 0.1: Description
+     - Subtasks with clear deliverables
+     - Dependencies: (list task IDs this depends on)
+
+   ### Phase 1: Implementation
+   - [ ] Task 1.1: Description
+     - Dependencies: 0.1
+   - [ ] Task 1.2: Description
+     - Dependencies: 0.1
+   - [ ] Task 1.3: Description
+     - Dependencies: 1.1, 1.2
+
+   ## Parallelization Strategy
+   - Tasks 1.1 and 1.2 can run in parallel (both depend only on 0.1)
+   - Task 1.3 must wait for 1.1 and 1.2 to complete
+
+   ## Progress Tracking
+   [Update this section during execution with discoveries]
+   ```
+
+3. **Dependency analysis**: Explicitly identify which tasks can run in parallel vs. sequentially to maximize subagent parallelization
+
+4. **Example**: See `scratch/PLANS_repair_optimization.md` for a complete real-world example
+
+### Progress Tracking
+
+During execution, continuously update the plan document:
+
+1. **Mark completed tasks**: Change `[ ]` to `[x]` as tasks finish
+2. **Document discoveries**: Add findings, bottlenecks identified, unexpected issues
+3. **Record results**: Include performance numbers, test results, validation outcomes
+4. **Update dependencies**: Adjust task lists if new dependencies are discovered
+5. **Add new tasks**: If investigation reveals additional work needed
+
+### Organization After Completion
+
+After completing exploration work, organize all artifacts into logical subdirectories within `scratch/`:
+
+- `scratch/phase0-setup/` - Initial setup and baseline work
+- `scratch/phase1-implementation/` - Implementation artifacts
+  - `profiling/` - Profiling scripts and outputs
+  - `benchmarks/` - Performance benchmarks
+  - `validation/` - Validation scripts
+- `scratch/reports/` - Analysis reports and findings
+- `scratch/demos/` - Demo and prototype scripts
+
+Create documentation files:
+- `scratch/README.md` - Overview and navigation guide
+- `scratch/FILE_INVENTORY.md` - Detailed file listing (optional for large projects)
+
+### Working with Claude Code Subagents
+
+When orchestrating parallel work with subagents:
+
+1. **Reference the plan**: Provide subagents with the relevant section of `PLANS_x.md`
+2. **Specify dependencies**: Tell subagents which prior tasks must complete first
+3. **Define deliverables**: Clearly state what outputs are expected (scripts, reports, data)
+4. **Coordinate outputs**: Ensure subagents write to designated `scratch/` subdirectories
+
 ## Project Structure
 
 - `aegle/`: Core pipeline modules (image loading, patching, segmentation, profiling)
@@ -141,6 +246,10 @@ Phase 1: Configuration & Setup
 - `tests/`: Unit and integration tests
   - `utils/`: Shared test fixtures and synthetic data factory
   - `preprocess/`, `main/`, `analysis/`: Stage-specific tests
+- `scratch/`: Exploration, profiling, and optimization work (see Exploration and Optimization Workflow)
+  - `PLANS_*.md`: Detailed project plans
+  - `phase*-*/`: Phase-organized exploration artifacts
+  - `reports/`: Analysis reports and findings
 - `out/`: Pipeline outputs (git-ignored)
 - `logs/`: Execution logs (git-ignored)
 - `data/`: Input data directory (git-ignored)
