@@ -176,6 +176,18 @@ def get_matched_fraction(repair_mask, mask, cell_matched_mask, nucleus_mask):
 
 
 def get_matched_masks(cell_mask, nucleus_mask):
+    """Match cell and nucleus masks and compute matched/unmatched masks.
+
+    This function handles non-contiguous label IDs correctly using a label→index
+    mapping. Labels do not need to be contiguous (e.g., [1, 5, 7, 23] is valid).
+
+    Args:
+        cell_mask: Cell segmentation mask (H, W) with integer labels
+        nucleus_mask: Nucleus segmentation mask (H, W) with integer labels
+
+    Returns:
+        tuple: (cell_matched_mask, nucleus_matched_mask, cell_outside_nucleus_mask)
+    """
     # debug_dir = "/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/debug"
     cell_membrane_mask = get_boundary(cell_mask)
 
@@ -193,12 +205,15 @@ def get_matched_masks(cell_mask, nucleus_mask):
     if nucleus_labels and nucleus_labels[0] != 1:
         logging.info(f"nucleus_coords first label: {nucleus_labels[0]}")
 
-    # Convert to list format: cell_coords[i] contains coordinates for label (i+1)
+    # Convert to list format: cell_coords[i] contains coordinates for label cell_labels[i]
     # Transpose to get shape (N, ndim) where N is number of pixels
     cell_coords = [np.array(cell_coords_dict[label]).T for label in cell_labels]
     nucleus_coords = [np.array(nucleus_coords_dict[label]).T for label in nucleus_labels]
 
-    # Create mapping from nucleus label to list index for O(1) lookup
+    # Create mapping from nucleus label ID to list index for O(1) lookup
+    # This is CRITICAL for handling non-contiguous label IDs (e.g., 1, 5, 7, 23)
+    # Without this mapping, code that used nucleus_coords[j - 1] would fail with
+    # IndexError when labels have gaps (e.g., j=23 but list has only 4 items)
     nucleus_label_to_idx = {label: idx for idx, label in enumerate(nucleus_labels)}
 
     # Get membrane coordinates using sparse method (unchanged)
@@ -246,15 +261,17 @@ def get_matched_masks(cell_mask, nucleus_mask):
                 whole_cell_best = []
                 for j in nucleus_search_num:
                     # logging.info(f"i: {i}; j: {j}")
+                    # Use label→index mapping to handle non-contiguous label IDs
+                    # Check that j exists in mapping (it should, but be defensive)
                     if j != 0 and j in nucleus_label_to_idx:
-                        j_idx = nucleus_label_to_idx[j]
+                        j_idx = nucleus_label_to_idx[j]  # Get correct index for label j
                         if (j_idx not in nucleus_matched_indices) and (
                             i not in cell_matched_indices
                         ):
                             whole_cell, nucleus, mismatch_fraction = get_matched_cells(
                                 cell_coords[i],
                                 cell_membrane_coords[i],
-                                nucleus_coords[j_idx],
+                                nucleus_coords[j_idx],  # Use mapped index, not j-1
                                 mismatch_repair=1,
                             )
                             # This part was type(whole_cell) != bool

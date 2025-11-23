@@ -489,6 +489,110 @@ def create_edge_case_single_cell() -> Tuple[np.ndarray, np.ndarray, Dict[str, An
     return cell_mask, nucleus_mask, expected_results
 
 
+def create_noncontiguous_labels_case(
+    label_gaps: str = "nucleus",
+    nucleus_labels: list = [1, 5, 7, 23],
+    cell_labels: list = [1, 2, 3, 4],
+    image_size: Tuple[int, int] = (256, 256),
+    cell_radius: int = 30,
+    nucleus_radius: int = 15,
+    seed: int = 50,
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """Create test case with non-contiguous label IDs to test label→index mapping.
+
+    This tests the fix for the bug where nucleus_coords[j - 1] assumed contiguous
+    labels (1, 2, 3, ...). With non-contiguous labels (e.g., 1, 5, 7, 23), the
+    code must use a label→index mapping instead of assuming label-1 = index.
+
+    Args:
+        label_gaps: Which mask has non-contiguous labels ("nucleus", "cell", or "both")
+        nucleus_labels: List of nucleus label IDs to use (can have gaps)
+        cell_labels: List of cell label IDs to use (can have gaps)
+        image_size: (height, width) of output masks
+        cell_radius: Radius of each cell (pixels)
+        nucleus_radius: Radius of each nucleus (pixels)
+        seed: Random seed for reproducibility
+
+    Returns:
+        Tuple of (cell_mask, nucleus_mask, expected_results)
+        - cell_mask: (H, W) labeled mask with specified labels
+        - nucleus_mask: (H, W) labeled mask with specified labels
+        - expected_results: Dict with expected outputs after repair
+
+    Example:
+        # Test non-contiguous nucleus labels (most common case)
+        cell, nucleus, expected = create_noncontiguous_labels_case(
+            label_gaps="nucleus",
+            nucleus_labels=[1, 5, 7, 23],  # Gaps: missing 2,3,4,6,8-22
+            cell_labels=[1, 2, 3, 4]       # Contiguous
+        )
+    """
+    np.random.seed(seed)
+    H, W = image_size
+
+    # Determine which labels to use based on label_gaps parameter
+    if label_gaps == "nucleus":
+        n_labels_nucleus = nucleus_labels
+        n_labels_cell = cell_labels
+    elif label_gaps == "cell":
+        n_labels_nucleus = nucleus_labels if nucleus_labels != [1, 5, 7, 23] else [1, 2, 3, 4]
+        n_labels_cell = cell_labels if cell_labels != [1, 2, 3, 4] else [2, 10, 15, 30]
+    elif label_gaps == "both":
+        n_labels_nucleus = nucleus_labels
+        n_labels_cell = cell_labels if cell_labels != [1, 2, 3, 4] else [2, 10, 15, 30]
+    else:
+        raise ValueError(f"label_gaps must be 'nucleus', 'cell', or 'both', got: {label_gaps}")
+
+    n_cells = len(n_labels_cell)
+
+    cell_mask = np.zeros((H, W), dtype=np.uint32)
+    nucleus_mask = np.zeros((H, W), dtype=np.uint32)
+
+    # Create grid of non-overlapping cells with specified label IDs
+    grid_size = int(np.ceil(np.sqrt(n_cells)))
+    spacing = min(H, W) // (grid_size + 1)
+
+    positions = []
+    for idx in range(n_cells):
+        row = idx // grid_size
+        col = idx % grid_size
+        y = spacing * (row + 1)
+        x = spacing * (col + 1)
+        positions.append((y, x))
+
+    # Create cells with specified label IDs
+    for idx, (cy, cx) in enumerate(positions):
+        label_id = n_labels_cell[idx]
+        y_grid, x_grid = np.ogrid[:H, :W]
+        cell_circle = (y_grid - cy)**2 + (x_grid - cx)**2 <= cell_radius**2
+        cell_mask[cell_circle] = label_id
+
+    # Create nuclei with specified label IDs (one per cell, centered)
+    for idx, (cy, cx) in enumerate(positions):
+        if idx < len(n_labels_nucleus):
+            label_id = n_labels_nucleus[idx]
+            y_grid, x_grid = np.ogrid[:H, :W]
+            nucleus_circle = (y_grid - cy)**2 + (x_grid - cx)**2 <= nucleus_radius**2
+            nucleus_mask[nucleus_circle] = label_id
+
+    # Expected results: All cells should match (perfect overlap)
+    n_matched = min(len(n_labels_cell), len(n_labels_nucleus))
+
+    expected_results = {
+        "n_matched_cells": n_matched,
+        "n_matched_nuclei": n_matched,
+        "n_unmatched_cells": len(n_labels_cell) - n_matched,
+        "n_unmatched_nuclei": len(n_labels_nucleus) - n_matched,
+        "note": f"Non-contiguous labels test (label_gaps={label_gaps})",
+        "cell_labels": n_labels_cell,
+        "nucleus_labels": n_labels_nucleus,
+        "first_cell_label": n_labels_cell[0],
+        "first_nucleus_label": n_labels_nucleus[0],
+    }
+
+    return cell_mask, nucleus_mask, expected_results
+
+
 # Export all fixture functions
 __all__ = [
     "create_simple_mask_pair",
@@ -498,5 +602,6 @@ __all__ = [
     "create_stress_test_case",
     "create_edge_case_empty_masks",
     "create_edge_case_single_cell",
+    "create_noncontiguous_labels_case",
     "plot_mask_pair",
 ]

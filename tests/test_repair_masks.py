@@ -32,6 +32,7 @@ from tests.utils.repair_test_fixtures import (
     create_stress_test_case,
     create_edge_case_empty_masks,
     create_edge_case_single_cell,
+    create_noncontiguous_labels_case,
 )
 
 
@@ -658,3 +659,160 @@ class TestRepairStressCase:
         # Verify outputs are valid
         assert result["cell_matched_mask"].shape == (1024, 1024)
         assert result["matched_fraction"] > 0.9
+
+
+class TestRepairNonContiguousLabels:
+    """Test mask repair with non-contiguous label IDs.
+
+    This class tests the fix for the bug where get_matched_masks() assumed
+    contiguous label IDs (1, 2, 3, ...) and used nucleus_coords[j - 1] which
+    would fail if labels had gaps (e.g., 1, 5, 7, 23).
+
+    The fix creates a label→index mapping to handle any label sequence.
+    """
+
+    def test_noncontiguous_nucleus_labels(self):
+        """Test with non-contiguous nucleus labels only."""
+        # Create test case with gaps in nucleus labels
+        cell_mask, nucleus_mask, expected = create_noncontiguous_labels_case(
+            label_gaps="nucleus",
+            nucleus_labels=[1, 5, 7, 23],  # Gaps: missing 2,3,4,6,8-22
+            cell_labels=[1, 2, 3, 4],       # Contiguous
+        )
+
+        # Verify labels are as expected
+        nucleus_ids = sorted(np.unique(nucleus_mask))
+        nucleus_ids = [x for x in nucleus_ids if x > 0]
+        assert nucleus_ids == [1, 5, 7, 23], \
+            f"Nucleus labels should be [1, 5, 7, 23], got {nucleus_ids}"
+
+        # Add batch dimension
+        cell_mask_batch = np.expand_dims(cell_mask, axis=0)
+        nucleus_mask_batch = np.expand_dims(nucleus_mask, axis=0)
+
+        # Run repair - should NOT raise IndexError
+        result = repair_masks_single(cell_mask_batch, nucleus_mask_batch)
+
+        # Verify results
+        n_matched_cells = len(np.unique(result["cell_matched_mask"])) - 1
+        assert n_matched_cells == expected["n_matched_cells"], \
+            f"Expected {expected['n_matched_cells']} matched cells, got {n_matched_cells}"
+
+        # Verify outputs are valid
+        assert result["cell_matched_mask"].shape == cell_mask.shape
+        assert result["matched_fraction"] > 0.9
+
+    def test_noncontiguous_cell_labels(self):
+        """Test with non-contiguous cell labels only."""
+        # Create test case with gaps in cell labels
+        cell_mask, nucleus_mask, expected = create_noncontiguous_labels_case(
+            label_gaps="cell",
+            nucleus_labels=[1, 2, 3, 4],    # Contiguous
+            cell_labels=[2, 10, 15, 30],    # Gaps: missing 1,3-9,11-14,16-29
+        )
+
+        # Verify labels are as expected
+        cell_ids = sorted(np.unique(cell_mask))
+        cell_ids = [x for x in cell_ids if x > 0]
+        assert cell_ids == [2, 10, 15, 30], \
+            f"Cell labels should be [2, 10, 15, 30], got {cell_ids}"
+
+        # Add batch dimension
+        cell_mask_batch = np.expand_dims(cell_mask, axis=0)
+        nucleus_mask_batch = np.expand_dims(nucleus_mask, axis=0)
+
+        # Run repair - should NOT raise IndexError
+        result = repair_masks_single(cell_mask_batch, nucleus_mask_batch)
+
+        # Verify results
+        n_matched_cells = len(np.unique(result["cell_matched_mask"])) - 1
+        assert n_matched_cells == expected["n_matched_cells"], \
+            f"Expected {expected['n_matched_cells']} matched cells, got {n_matched_cells}"
+
+        # Verify outputs are valid
+        assert result["cell_matched_mask"].shape == cell_mask.shape
+
+    def test_noncontiguous_both_masks(self):
+        """Test with non-contiguous labels in both cell and nucleus masks."""
+        # Create test case with gaps in both masks
+        cell_mask, nucleus_mask, expected = create_noncontiguous_labels_case(
+            label_gaps="both",
+            nucleus_labels=[1, 5, 7, 23],   # Gaps in nucleus
+            cell_labels=[2, 10, 15, 30],    # Gaps in cell
+        )
+
+        # Verify labels are as expected
+        nucleus_ids = sorted(np.unique(nucleus_mask))
+        nucleus_ids = [x for x in nucleus_ids if x > 0]
+        assert nucleus_ids == [1, 5, 7, 23]
+
+        cell_ids = sorted(np.unique(cell_mask))
+        cell_ids = [x for x in cell_ids if x > 0]
+        assert cell_ids == [2, 10, 15, 30]
+
+        # Add batch dimension
+        cell_mask_batch = np.expand_dims(cell_mask, axis=0)
+        nucleus_mask_batch = np.expand_dims(nucleus_mask, axis=0)
+
+        # Run repair - should NOT raise IndexError
+        result = repair_masks_single(cell_mask_batch, nucleus_mask_batch)
+
+        # Verify results (should match as many as possible)
+        n_matched_cells = len(np.unique(result["cell_matched_mask"])) - 1
+        assert n_matched_cells == expected["n_matched_cells"], \
+            f"Expected {expected['n_matched_cells']} matched cells, got {n_matched_cells}"
+
+    def test_large_label_gaps(self):
+        """Test with very large gaps in label IDs (stress test)."""
+        # Create test case with extreme label gaps
+        cell_mask, nucleus_mask, expected = create_noncontiguous_labels_case(
+            label_gaps="both",
+            nucleus_labels=[1, 100, 200, 500],  # Huge gaps
+            cell_labels=[10, 500, 1000, 5000],  # Huge gaps
+        )
+
+        # Verify labels
+        nucleus_ids = sorted(np.unique(nucleus_mask))
+        nucleus_ids = [x for x in nucleus_ids if x > 0]
+        assert nucleus_ids == [1, 100, 200, 500]
+
+        # Add batch dimension
+        cell_mask_batch = np.expand_dims(cell_mask, axis=0)
+        nucleus_mask_batch = np.expand_dims(nucleus_mask, axis=0)
+
+        # Run repair - should handle large label IDs correctly
+        result = repair_masks_single(cell_mask_batch, nucleus_mask_batch)
+
+        # Verify no crashes and results are valid
+        assert result["cell_matched_mask"].shape == cell_mask.shape
+        assert result["nucleus_matched_mask"].shape == nucleus_mask.shape
+
+    def test_labels_starting_from_non_one(self):
+        """Test with labels that don't start from 1 (edge case)."""
+        # Create test case where first label is not 1
+        cell_mask, nucleus_mask, expected = create_noncontiguous_labels_case(
+            label_gaps="both",
+            nucleus_labels=[10, 11, 12, 13],  # No label 1
+            cell_labels=[20, 21, 22, 23],     # No label 1
+        )
+
+        # Verify labels
+        nucleus_ids = sorted(np.unique(nucleus_mask))
+        nucleus_ids = [x for x in nucleus_ids if x > 0]
+        assert nucleus_ids == [10, 11, 12, 13]
+        assert expected["first_nucleus_label"] == 10, "First nucleus label should be 10, not 1"
+
+        # Add batch dimension
+        cell_mask_batch = np.expand_dims(cell_mask, axis=0)
+        nucleus_mask_batch = np.expand_dims(nucleus_mask, axis=0)
+
+        # Run repair - should work even without label 1
+        result = repair_masks_single(cell_mask_batch, nucleus_mask_batch)
+
+        # Verify results
+        n_matched_cells = len(np.unique(result["cell_matched_mask"])) - 1
+        assert n_matched_cells == expected["n_matched_cells"], \
+            f"Expected {expected['n_matched_cells']} matched cells, got {n_matched_cells}"
+
+        # Verify outputs are valid
+        assert result["cell_matched_mask"].shape == cell_mask.shape
