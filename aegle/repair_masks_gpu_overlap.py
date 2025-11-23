@@ -130,6 +130,16 @@ def compute_overlap_matrix_gpu(
         # Process cells in batches to avoid OOM
         n_batches = (n_cells + batch_size - 1) // batch_size
 
+        # Initialize progress tracking (Agent A's enhancement)
+        import time
+        from aegle.gpu_utils import get_gpu_memory_info
+
+        total_cells = n_cells
+        cells_processed = 0
+        start_time = time.time()
+        last_log_cells = 0
+        log_interval = 50000  # Log every 50K cells
+
         for batch_idx in range(0, n_cells, batch_size):
             batch_end = min(batch_idx + batch_size, n_cells)
             batch_num = batch_idx // batch_size + 1
@@ -164,13 +174,44 @@ def compute_overlap_matrix_gpu(
                         row_indices.append(i)  # Cell index
                         col_indices.append(j)  # Nucleus index
 
+            # Update progress (Agent A's enhancement)
+            cells_processed = batch_end
+            batch_time = time.time() - start_time
+
+            # Progress logging every log_interval cells
+            if cells_processed - last_log_cells >= log_interval or cells_processed == total_cells:
+                elapsed = time.time() - start_time
+                rate = cells_processed / elapsed if elapsed > 0 else 0
+                eta_sec = (total_cells - cells_processed) / rate if rate > 0 else 0
+                eta_min = eta_sec / 60
+
+                progress_pct = 100 * cells_processed / total_cells
+                avg_overlaps = len(row_indices) / cells_processed if cells_processed > 0 else 0
+
+                # GPU memory
+                mem_info = get_gpu_memory_info()
+                gpu_used = mem_info['used_gb'] if mem_info else 0
+                gpu_total = mem_info['total_gb'] if mem_info else 0
+
+                logger.info(
+                    f"Stage 3 progress: {cells_processed:,}/{total_cells:,} cells "
+                    f"({progress_pct:.1f}%) - "
+                    f"{rate:.0f} cells/sec - "
+                    f"ETA: {eta_min:.1f} min"
+                )
+                logger.info(
+                    f"  GPU memory: {gpu_used:.1f}/{gpu_total:.1f} GB, "
+                    f"Avg overlaps/cell: {avg_overlaps:.2f}"
+                )
+
+                last_log_cells = cells_processed
+
             # Clear GPU memory after each batch
             if batch_num < n_batches:
                 clear_gpu_memory()
 
         # Clean up GPU arrays
         del cell_mask_gpu, nucleus_mask_gpu, cell_flat, nucleus_flat
-        del nucleus_label_to_idx_keys, nucleus_label_to_idx_values
         clear_gpu_memory()
 
         log_gpu_memory("GPU memory after overlap computation")
