@@ -21,12 +21,13 @@ def compute_overlap_matrix_gpu_auto(
     nucleus_mask: np.ndarray,
     batch_size: int = 0,
     use_bincount: bool = True,
+    bincount_chunk_size: int = 20000,
     fallback_enabled: bool = True,
 ) -> Tuple[csr_matrix, np.ndarray, np.ndarray]:
     """Smart wrapper with automatic fallback chain for overlap computation.
 
     Fallback chain:
-        1. Phase 5c (bincount) - if use_bincount=True
+        1. Phase 5c (chunked bincount) - if use_bincount=True
         2. Phase 4 (sequential cp.unique) - if GPU available
         3. CPU fallback - if GPU fails or unavailable
 
@@ -38,6 +39,8 @@ def compute_overlap_matrix_gpu_auto(
         batch_size: Number of cells to process per GPU batch (0=auto)
                    Only used for Phase 4 fallback
         use_bincount: If True, try Phase 5c bincount first (default: True)
+        bincount_chunk_size: Cells per chunk for Phase 5c (default: 20000)
+                            Set to 0 for auto-sizing, None to disable chunking
         fallback_enabled: If True, fall back on errors (default: True)
 
     Returns:
@@ -54,8 +57,10 @@ def compute_overlap_matrix_gpu_auto(
     # Try Phase 5c bincount (fastest)
     if use_bincount and is_cupy_available():
         try:
-            logger.info("Trying Phase 5c (bincount approach)...")
-            return compute_overlap_matrix_gpu_bincount(cell_mask, nucleus_mask)
+            logger.info("Trying Phase 5c (chunked bincount approach)...")
+            return compute_overlap_matrix_gpu_bincount(
+                cell_mask, nucleus_mask, chunk_size=bincount_chunk_size
+            )
         except Exception as e:
             if fallback_enabled:
                 logger.warning(f"Phase 5c failed: {e}")
@@ -326,26 +331,34 @@ def compute_overlap_matrix_gpu(
 def compute_overlap_matrix_gpu_bincount(
     cell_mask: np.ndarray,
     nucleus_mask: np.ndarray,
+    chunk_size: int = 20000,
 ) -> Tuple[csr_matrix, np.ndarray, np.ndarray]:
-    """Phase 5c: Single-pass bincount-based overlap computation (SPARSE CSR FORMAT).
+    """Phase 5c: Chunked bincount-based overlap computation (SPARSE CSR FORMAT).
 
-    This is a highly optimized GPU implementation that replaces the sequential
-    per-cell processing with a single vectorized bincount operation.
+    This is a highly optimized GPU implementation that uses chunked processing
+    to avoid OOM errors on large samples while maintaining high speedup.
 
-    Expected speedup: 400-540x over Phase 4 baseline (54 min → 6-8 sec on D18_0).
+    Expected speedup: 85-90x over Phase 4 baseline (9 min → 6-8 sec on D11_0).
 
     Algorithm:
-        1. Extract valid pixels (non-zero in both masks) → ~100M pixels
+        1. Extract valid pixels (non-zero in both masks)
         2. Remap labels to contiguous indices using np.searchsorted()
-        3. Compute linear indices for 2D→1D raveling: idx = row * n_cols + col
-        4. Single cp.bincount() call to count overlaps (ONE GPU kernel!)
-        5. Reshape and convert to sparse CSR matrix
+        3. Process cells in chunks to avoid OOM:
+           - For each chunk of cells:
+             * Compute linear indices for chunk
+             * Run cp.bincount() on chunk (fits in memory)
+             * Extract non-zero entries
+           - Combine all chunks into sparse CSR matrix
 
-    Memory usage: ~27 GB peak (fits in 50 GB VRAM).
+    Memory usage: chunk_size × n_nuclei × 8 bytes per chunk (configurable).
+    For chunk_size=20000 and n_nuclei=80000: ~12.7 GB per chunk.
 
     Args:
         cell_mask: 2D cell segmentation mask (H, W) with integer labels
         nucleus_mask: 2D nucleus segmentation mask (H, W) with integer labels
+        chunk_size: Number of cells to process per chunk (default: 20000)
+                   Set to 0 for auto-sizing based on available VRAM.
+                   Set to None to disable chunking (use original algorithm).
 
     Returns:
         Tuple of:
@@ -466,8 +479,9 @@ def compute_overlap_matrix_gpu_bincount(
         )
 
         # Transfer indices back to GPU
-        cell_indices = cp.asarray(cell_indices_cpu, dtype=cp.int32)
-        nucleus_indices = cp.asarray(nucleus_indices_cpu, dtype=cp.int32)
+        # Use int64 to prevent overflow when n_cells * n_nuclei > 2^31
+        cell_indices = cp.asarray(cell_indices_cpu, dtype=cp.int64)
+        nucleus_indices = cp.asarray(nucleus_indices_cpu, dtype=cp.int64)
 
         # Free CPU arrays
         del cell_ids_valid, nucleus_ids_valid, cell_ids_valid_cpu, nucleus_ids_valid_cpu
@@ -481,75 +495,152 @@ def compute_overlap_matrix_gpu_bincount(
                 f"{mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB"
             )
 
-        # STEP 3: Compute linear indices for 2D → 1D raveling
-        logger.debug("Step 3: Computing linear indices (2D → 1D)...")
-        step_start = time.time()
+        # STEP 3: Auto-size chunk if requested
+        if chunk_size == 0:
+            # Auto-size based on available VRAM (target 90% utilization)
+            mem_info = get_gpu_memory_info()
+            if mem_info:
+                available_vram = mem_info['free_gb'] * 1e9  # Convert to bytes
+                chunk_size = int((available_vram * 0.9) / (n_nuclei * 8))
+                chunk_size = min(chunk_size, 50000)  # Cap at 50k for stability
+                chunk_size = max(chunk_size, 5000)   # Minimum 5k
+                logger.info(f"  Auto-sized chunk_size to {chunk_size:,} cells based on VRAM")
+            else:
+                chunk_size = 20000  # Default fallback
+                logger.warning("  Could not detect VRAM, using default chunk_size=20000")
 
-        # linear_idx = cell_idx * n_nuclei + nucleus_idx
-        linear_indices = cell_indices * n_nuclei + nucleus_indices
+        # Check if chunking is needed
+        needs_chunking = (chunk_size is not None) and (chunk_size < n_cells)
 
-        logger.info(
-            f"  Computed {n_valid_pixels:,} linear indices "
-            f"({time.time() - step_start:.2f}s)"
-        )
+        if not needs_chunking:
+            # Use original non-chunked algorithm
+            logger.info("Processing all cells in single pass (no chunking)")
 
-        # Free intermediate arrays
-        del cell_indices, nucleus_indices
-        clear_gpu_memory()
+            # STEP 3: Compute linear indices for 2D → 1D raveling
+            logger.debug("Step 3: Computing linear indices (2D → 1D)...")
+            step_start = time.time()
 
-        mem_info = get_gpu_memory_info()
-        if mem_info:
-            logger.debug(
-                f"  GPU memory after linear indexing: "
-                f"{mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB"
+            linear_indices = cell_indices * n_nuclei + nucleus_indices
+
+            logger.info(
+                f"  Computed {n_valid_pixels:,} linear indices "
+                f"({time.time() - step_start:.2f}s)"
             )
 
-        # STEP 4: Single bincount call (ONE GPU KERNEL!)
-        logger.debug("Step 4: Running cp.bincount() (single GPU kernel)...")
-        step_start = time.time()
+            # Free intermediate arrays
+            del cell_indices, nucleus_indices
+            clear_gpu_memory()
 
-        # This is the KEY optimization: replace 1.99M cp.unique() calls with ONE bincount
-        overlap_counts = cp.bincount(
-            linear_indices,
-            minlength=n_cells * n_nuclei
-        )
+            # STEP 4: Single bincount call
+            logger.debug("Step 4: Running cp.bincount()...")
+            step_start = time.time()
 
-        bincount_time = time.time() - step_start
-        logger.info(
-            f"  cp.bincount() completed in {bincount_time:.2f}s "
-            f"(processing {n_valid_pixels:,} pixels)"
-        )
+            overlap_counts = cp.bincount(linear_indices, minlength=n_cells * n_nuclei)
 
-        # Free linear indices
-        del linear_indices
-        clear_gpu_memory()
-
-        mem_info = get_gpu_memory_info()
-        if mem_info:
-            logger.debug(
-                f"  GPU memory after bincount: "
-                f"{mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB"
+            bincount_time = time.time() - step_start
+            logger.info(
+                f"  cp.bincount() completed in {bincount_time:.2f}s "
+                f"(processing {n_valid_pixels:,} pixels)"
             )
 
-        # STEP 5: Reshape and convert to sparse CSR matrix
-        logger.debug("Step 5: Converting to sparse CSR matrix...")
-        step_start = time.time()
+            # Free linear indices
+            del linear_indices
+            clear_gpu_memory()
 
-        # Reshape to 2D
-        overlap_matrix = overlap_counts.reshape(n_cells, n_nuclei)
+            # STEP 5: Reshape and convert to sparse CSR matrix
+            logger.debug("Step 5: Converting to sparse CSR matrix...")
+            step_start = time.time()
 
-        # Convert to boolean (overlap > 0)
-        overlap_bool = overlap_matrix > 0
+            overlap_matrix = overlap_counts.reshape(n_cells, n_nuclei)
+            overlap_bool = overlap_matrix > 0
+            overlap_bool_cpu = cp.asnumpy(overlap_bool)
 
-        # Transfer to CPU for scipy sparse conversion
-        overlap_bool_cpu = cp.asnumpy(overlap_bool)
+            del overlap_counts, overlap_matrix, overlap_bool
+            clear_gpu_memory()
 
-        # Free GPU array
-        del overlap_counts, overlap_matrix, overlap_bool
-        clear_gpu_memory()
+            overlap_sparse = csr_matrix(overlap_bool_cpu, dtype=np.uint8)
 
-        # Convert to sparse CSR (scipy on CPU)
-        overlap_sparse = csr_matrix(overlap_bool_cpu, dtype=np.uint8)
+        else:
+            # Use chunked algorithm to avoid OOM
+            n_chunks = (n_cells + chunk_size - 1) // chunk_size
+            chunk_memory_gb = (chunk_size * n_nuclei * 8) / 1e9
+
+            logger.info(
+                f"Using chunked bincount: {chunk_size:,} cells/chunk, "
+                f"{n_chunks} chunks, {chunk_memory_gb:.2f} GB per chunk"
+            )
+
+            # STEP 3-5: Chunked processing
+            all_rows = []
+            all_cols = []
+
+            for chunk_idx in range(n_chunks):
+                chunk_start = chunk_idx * chunk_size
+                chunk_end = min(chunk_start + chunk_size, n_cells)
+                chunk_n_cells = chunk_end - chunk_start
+
+                logger.debug(f"  Chunk {chunk_idx + 1}/{n_chunks}: cells [{chunk_start:,}, {chunk_end:,})")
+
+                # Filter pixels belonging to this chunk
+                chunk_mask = (cell_indices >= chunk_start) & (cell_indices < chunk_end)
+                n_chunk_pixels = int(cp.sum(chunk_mask))
+
+                if n_chunk_pixels == 0:
+                    logger.debug(f"    Skipping (no pixels)")
+                    continue
+
+                logger.debug(f"    Pixels in chunk: {n_chunk_pixels:,}")
+
+                # Get indices for this chunk (renumber cells to [0, chunk_n_cells))
+                chunk_cell_indices = cell_indices[chunk_mask] - chunk_start
+                chunk_nucleus_indices = nucleus_indices[chunk_mask]
+
+                # Compute linear indices for this chunk
+                linear_indices = chunk_cell_indices * n_nuclei + chunk_nucleus_indices
+
+                # Bincount for this chunk
+                chunk_start_time = time.time()
+                counts = cp.bincount(linear_indices, minlength=chunk_n_cells * n_nuclei)
+                chunk_time = time.time() - chunk_start_time
+
+                # Reshape to 2D and find non-zero entries
+                chunk_dense = counts.reshape(chunk_n_cells, n_nuclei)
+                chunk_rows, chunk_cols = cp.where(chunk_dense > 0)
+
+                # Adjust row indices to global coordinates
+                chunk_rows_global = chunk_rows + chunk_start
+
+                # Store (transfer to CPU)
+                all_rows.append(cp.asnumpy(chunk_rows_global))
+                all_cols.append(cp.asnumpy(chunk_cols))
+
+                n_overlaps = len(chunk_rows)
+                logger.debug(
+                    f"    Bincount: {chunk_time:.2f}s, found {n_overlaps:,} overlaps"
+                )
+
+                # Free GPU memory
+                del chunk_cell_indices, chunk_nucleus_indices, linear_indices
+                del counts, chunk_dense, chunk_rows, chunk_cols, chunk_rows_global
+                clear_gpu_memory()
+
+            # Free indices arrays
+            del cell_indices, nucleus_indices
+            clear_gpu_memory()
+
+            # Combine all chunks into sparse matrix
+            logger.debug("Combining chunks into sparse CSR matrix...")
+            step_start = time.time()
+
+            all_rows_combined = np.concatenate(all_rows)
+            all_cols_combined = np.concatenate(all_cols)
+            all_data = np.ones(len(all_rows_combined), dtype=np.uint8)
+
+            overlap_sparse = csr_matrix(
+                (all_data, (all_rows_combined, all_cols_combined)),
+                shape=(n_cells, n_nuclei),
+                dtype=np.uint8
+            )
 
         logger.info(
             f"  Converted to sparse CSR in {time.time() - step_start:.2f}s"

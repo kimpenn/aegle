@@ -1337,6 +1337,10 @@ def _merge_masks_for_visual(
         if mask.size == 0:
             continue
 
+        # Squeeze out batch dimension if present (shape: (1, H, W) -> (H, W))
+        if mask.ndim == 3 and mask.shape[0] == 1:
+            mask = np.squeeze(mask, axis=0)
+
         row = metadata_df.loc[patch_idx]
         y_start = int(round(float(row.get("y_start", 0))))
         x_start = int(round(float(row.get("x_start", 0))))

@@ -74,6 +74,7 @@ def repair_masks_batch(
     use_gpu=False,
     gpu_batch_size=None,
     use_bincount_overlap=True,
+    mismatch_num_gpus=1,
     fallback_to_cpu=True,
 ):
     """Repair masks for a batch of segmentation results with progress tracking.
@@ -83,6 +84,7 @@ def repair_masks_batch(
         use_gpu: Whether to use GPU acceleration (default: False for backward compatibility)
         gpu_batch_size: Batch size for GPU overlap computation (None = auto-detect)
         use_bincount_overlap: Use Phase 5c bincount approach (default: True, 400-540x speedup)
+        mismatch_num_gpus: Number of GPUs for mismatch computation (default: 1, 2=1.87x speedup)
         fallback_to_cpu: Automatically fallback to CPU on GPU errors (default: True)
 
     Returns:
@@ -123,6 +125,7 @@ def repair_masks_batch(
                 use_gpu=True,
                 batch_size=gpu_batch_size,
                 use_bincount_overlap=use_bincount_overlap,
+                mismatch_num_gpus=mismatch_num_gpus,
                 fallback_to_cpu=fallback_to_cpu,
             )
 

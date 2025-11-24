@@ -166,6 +166,7 @@ def run_cell_segmentation(
     use_gpu = repair_config.get("use_gpu", False)
     gpu_batch_size = repair_config.get("gpu_batch_size", None)
     use_bincount_overlap = repair_config.get("use_bincount_overlap", True)
+    mismatch_num_gpus = repair_config.get("mismatch_num_gpus", 1)
     fallback_to_cpu = repair_config.get("fallback_to_cpu", True)
     log_gpu_performance = repair_config.get("log_gpu_performance", False)
 
@@ -180,6 +181,10 @@ def run_cell_segmentation(
             logging.info(f"  GPU batch size: {gpu_batch_size}")
         else:
             logging.info("  GPU batch size: auto-detect")
+        if mismatch_num_gpus > 1:
+            logging.info(f"  Multi-GPU mismatch: {mismatch_num_gpus} GPUs (1.87x speedup expected)")
+        else:
+            logging.info(f"  Single-GPU mismatch: enabled")
         logging.info(f"  Fallback to CPU: {'enabled' if fallback_to_cpu else 'disabled'}")
     else:
         logging.info("Using CPU mask repair (GPU disabled by config)")
@@ -190,6 +195,7 @@ def run_cell_segmentation(
         use_gpu=use_gpu,
         gpu_batch_size=gpu_batch_size,
         use_bincount_overlap=use_bincount_overlap,
+        mismatch_num_gpus=mismatch_num_gpus,
         fallback_to_cpu=fallback_to_cpu,
     )
 

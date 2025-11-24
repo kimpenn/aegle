@@ -20,13 +20,15 @@ def repair_masks_gpu(
     use_gpu: bool = True,
     batch_size: Optional[int] = None,
     use_bincount_overlap: bool = True,
+    bincount_chunk_size: int = 20000,
+    mismatch_num_gpus: int = 1,
     fallback_to_cpu: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """GPU-accelerated mask repair pipeline.
 
     This is the main entry point for GPU-accelerated repair. It integrates:
     - GPU morphological operations (boundary detection)
-    - GPU overlap matrix computation (Phase 5c bincount or Phase 4 baseline)
+    - GPU overlap matrix computation (Phase 5c chunked bincount or Phase 4 baseline)
     - Cell-nucleus matching logic
     - CPU fallback on errors
 
@@ -36,7 +38,9 @@ def repair_masks_gpu(
         config: Optional config dict with GPU settings
         use_gpu: Whether to attempt GPU acceleration
         batch_size: Optional batch size override for overlap computation
-        use_bincount_overlap: Use Phase 5c bincount approach (400-540x speedup)
+        use_bincount_overlap: Use Phase 5c bincount approach (85-90x speedup)
+        bincount_chunk_size: Cells per chunk for Phase 5c (default: 20000, 0=auto)
+        mismatch_num_gpus: Number of GPUs for mismatch computation (default: 1, 0=auto-detect)
         fallback_to_cpu: Automatically fallback to CPU on GPU errors
 
     Returns:
@@ -49,7 +53,7 @@ def repair_masks_gpu(
         >>> cell_mask = np.zeros((1000, 1000), dtype=np.uint32)
         >>> nucleus_mask = np.zeros((1000, 1000), dtype=np.uint32)
         >>> cell_repaired, nucleus_repaired, metadata = repair_masks_gpu(
-        ...     cell_mask, nucleus_mask, use_gpu=True
+        ...     cell_mask, nucleus_mask, use_gpu=True, bincount_chunk_size=20000
         ... )
     """
     from aegle.gpu_utils import is_cupy_available, log_gpu_memory, clear_gpu_memory
@@ -90,7 +94,8 @@ def repair_masks_gpu(
         log_gpu_memory("GPU memory before repair")
 
         cell_repaired, nucleus_repaired, gpu_metadata = _repair_masks_gpu_impl(
-            cell_mask, nucleus_mask, batch_size, use_bincount_overlap, fallback_to_cpu
+            cell_mask, nucleus_mask, batch_size, use_bincount_overlap,
+            bincount_chunk_size, mismatch_num_gpus, fallback_to_cpu
         )
 
         # Merge GPU metadata
@@ -122,6 +127,8 @@ def _repair_masks_gpu_impl(
     nucleus_mask: np.ndarray,
     batch_size: Optional[int] = None,
     use_bincount_overlap: bool = True,
+    bincount_chunk_size: int = 20000,
+    mismatch_num_gpus: int = 1,
     fallback_to_cpu: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """Internal GPU implementation (no fallback logic).
@@ -131,6 +138,8 @@ def _repair_masks_gpu_impl(
         nucleus_mask: Nucleus mask (H, W)
         batch_size: Batch size for overlap computation
         use_bincount_overlap: Use Phase 5c bincount approach
+        bincount_chunk_size: Cells per chunk for Phase 5c (default: 20000)
+        mismatch_num_gpus: Number of GPUs for mismatch computation (1=single, >1=multi)
         fallback_to_cpu: Enable automatic fallback on errors
 
     Returns:
@@ -138,7 +147,10 @@ def _repair_masks_gpu_impl(
     """
     from aegle.repair_masks_gpu_morphology import compute_labeled_boundary_gpu
     from aegle.repair_masks_gpu_overlap import compute_overlap_matrix_gpu_auto
-    from aegle.repair_masks_gpu_mismatch import compute_mismatch_matrix_gpu
+    from aegle.repair_masks_gpu_mismatch import (
+        compute_mismatch_matrix_gpu,
+        compute_mismatch_matrix_multi_gpu,
+    )
     from aegle.repair_masks import get_indices_numpy
 
     metadata = {}
@@ -194,6 +206,7 @@ def _repair_masks_gpu_impl(
         nucleus_mask,
         batch_size=batch_size or 0,
         use_bincount=use_bincount_overlap,
+        bincount_chunk_size=bincount_chunk_size,
         fallback_enabled=fallback_to_cpu,
     )
     stage_timings["overlap_computation"] = time.time() - t0
@@ -205,15 +218,30 @@ def _repair_masks_gpu_impl(
     # Stage 3.5: Compute mismatch matrix (GPU) - Phase 3 optimization
     logger.info("Stage 4/5: Computing mismatch fractions on GPU (Phase 3)...")
     t0 = time.time()
-    mismatch_matrix_sparse = compute_mismatch_matrix_gpu(
-        cell_mask,
-        nucleus_mask,
-        cell_membrane_mask,
-        overlap_matrix,
-        cell_labels_arr,
-        nucleus_labels_arr,
-        batch_size=batch_size or 10000,
-    )
+
+    # Use multi-GPU if requested and available
+    if mismatch_num_gpus > 1:
+        mismatch_matrix_sparse = compute_mismatch_matrix_multi_gpu(
+            cell_mask,
+            nucleus_mask,
+            cell_membrane_mask,
+            overlap_matrix,
+            cell_labels_arr,
+            nucleus_labels_arr,
+            batch_size=batch_size or 10000,
+            num_gpus=mismatch_num_gpus,
+        )
+    else:
+        mismatch_matrix_sparse = compute_mismatch_matrix_gpu(
+            cell_mask,
+            nucleus_mask,
+            cell_membrane_mask,
+            overlap_matrix,
+            cell_labels_arr,
+            nucleus_labels_arr,
+            batch_size=batch_size or 10000,
+        )
+
     stage_timings["mismatch_computation"] = time.time() - t0
     n_pairs = mismatch_matrix_sparse.nnz
     sparse_mb = mismatch_matrix_sparse.data.nbytes / 1e6
@@ -320,6 +348,7 @@ def _match_cells_to_nuclei(
         Tuple of (cell_matched_list, nucleus_matched_list, n_repaired)
     """
     from aegle.repair_masks import get_matched_cells
+    import time
 
     cell_matched_indices = set()
     nucleus_matched_indices = set()
@@ -327,6 +356,14 @@ def _match_cells_to_nuclei(
     nucleus_matched_list = []
     repaired_num = 0
     total_cells = len(cell_coords)
+
+    # Progress logging
+    log_interval = 5000  # Log every 5000 cells
+    last_log_time = time.time()
+    log_time_interval = 10.0  # Log every 10 seconds
+    start_time = time.time()
+
+    logger.info(f"  Starting cell-nucleus matching for {total_cells:,} cells...")
 
     # Progress bar for cell matching
     with tqdm(
@@ -337,6 +374,16 @@ def _match_cells_to_nuclei(
         dynamic_ncols=True,
     ) as pbar:
         for i in range(total_cells):
+            # Log progress periodically
+            if (i > 0 and i % log_interval == 0) or (time.time() - last_log_time >= log_time_interval):
+                elapsed = time.time() - start_time
+                rate = i / elapsed if elapsed > 0 else 0
+                eta = (total_cells - i) / rate if rate > 0 else 0
+                logger.info(
+                    f"  Matching progress: {i:,}/{total_cells:,} cells ({i/total_cells*100:.1f}%, "
+                    f"{rate:.0f} cells/sec, ETA {eta:.0f}s, {repaired_num} repaired)"
+                )
+                last_log_time = time.time()
             if len(cell_coords[i]) == 0:
                 pbar.update(1)
                 continue
