@@ -408,6 +408,9 @@ def run_pipeline(config, args):
         codex_patches.save_metadata()
         logging.info("Patches generated and metadata saved successfully.")
 
+        # Extract split_mode for use in patch visualization and segmentation logic
+        split_mode = config.get("patching", {}).get("split_mode", "patches")
+
         # Optional: Add disruptions to patches for testing
         # Extract distruption type and level from config
         disruption_config = config.get("testing", {}).get("data_disruption", {})
@@ -430,8 +433,14 @@ def run_pipeline(config, args):
         # Optional: Visualize patches
         # Priority: if disruptions exist and visualize_patches is True, visualize disrupted patches
         # Otherwise, visualize original patches
+        # Skip visualization for full_image mode (only 1 patch = entire image, provides no QC value)
         if config.get("visualization", {}).get("visualize_patches", False):
-            if has_disruptions and disruption_config.get("visualize_disrupted", True):
+            if split_mode == "full_image":
+                logging.info(
+                    "Skipping patch visualization for split_mode='full_image' "
+                    "(only 1 patch = entire image, provides no QC value)."
+                )
+            elif has_disruptions and disruption_config.get("visualize_disrupted", True):
                 logging.info("Visualizing disrupted patches.")
                 save_patches_rgb(
                     codex_patches.disrupted_extracted_channel_patches,
@@ -505,8 +514,8 @@ def run_pipeline(config, args):
         
         # Get patches metadata
         patches_metadata_df = codex_patches.get_patches_metadata()
-        
-        split_mode = config.get("patching", {}).get("split_mode", "patches")
+
+        # split_mode already extracted earlier in pipeline
         use_segmentation_patches = split_mode == "patches"
         original_seg_results = getattr(codex_patches, "original_seg_res_batch", None)
 
