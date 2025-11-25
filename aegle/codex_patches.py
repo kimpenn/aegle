@@ -1198,6 +1198,10 @@ class CodexPatches:
             if mask.size == 0:
                 continue
 
+            # Handle batch dimension from GPU repair path (1, H, W) -> (H, W)
+            if mask.ndim == 3 and mask.shape[0] == 1:
+                mask = np.squeeze(mask, axis=0)
+
             if "y_start" in metadata_df.columns:
                 y_val = metadata_df.loc[patch_idx, "y_start"]
                 y_start = int(round(y_val)) if not pd.isna(y_val) else 0
