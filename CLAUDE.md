@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Time Awareness
+
+**IMPORTANT**: Before making any time-based judgments (e.g., "this log is X hours old", "the process has been running for Y minutes"), always run `date` to get the current time first. Never assume the current time based on context or conversation history.
+
+```bash
+# Always check current time before time-based analysis
+date
+```
+
 ## Repository Overview
 
 Aegle is a 2D PhenoCycler image processing and analysis pipeline for spatial biology. It handles multi-channel microscopy images (.qptiff files), performs cell segmentation using Mesmer/DeepCell, extracts single-cell features, and provides downstream analysis tools for quality control, clustering, and marker testing.
