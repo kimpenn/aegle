@@ -29,7 +29,8 @@ mkdir -p "${LOG_DIR}"
 declare -a EXPERIMENTS=(
   # "D11_13"
   # "D14_15"
-  "D17_18"
+  "D16"
+  # "D17_18"
 )
 
 echo "Starting processing with maximum $MAX_CONCURRENT concurrent experiments"

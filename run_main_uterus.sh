@@ -1,7 +1,8 @@
 #!/bin/bash
+# nohup bash /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/run_main_uterus.sh > logs/run_main_uterus_$(date +%Y%m%d_%H%M%S).log 2>&1 &
 
 # Define the experiment set name
-EXP_SET_NAME="test0206_main"  # "explore-eval-scores-dev" or "explore-eval-scores"
+EXP_SET_NAME="main_uterus_hb"
 
 # Define the base directory
 ROOT_DIR="/workspaces/codex-analysis"
@@ -12,7 +13,7 @@ DATA_DIR="${ROOT_DIR}/data"
 CONFIG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/exps/configs/main/${EXP_SET_NAME}"
 
 # Define logging level (can be DEBUG, INFO, WARNING, ERROR)
-LOG_LEVEL="DEBUG"
+LOG_LEVEL="INFO"
 
 # Define the output and log directories
 LOG_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/logs/main/${EXP_SET_NAME}"
@@ -21,12 +22,49 @@ OUT_DIR="${ROOT_DIR}/0-phenocycler-penntmc-pipeline/out/main/${EXP_SET_NAME}"
 mkdir -p "${OUT_DIR}"
 mkdir -p "${LOG_DIR}"
 
-# Define an array of experiment names
+# Define an array of experiment names (41 uterus samples from D11-D18)
 declare -a EXPERIMENTS=(
-  "D16_Scan1_0"
-  # "D16_Scan1_1"
-  # "D16_Scan1_2"
-  # "D16_Scan1_3"
+  # "D11_img0018_0"
+  # "D11_img0018_1"
+  "D11_img0018_2"
+  "D11_img0018_3"
+  # "D11_img0020_0"
+  # "D11_img0020_1"
+  # "D13_img0022_0"
+  # "D13_img0022_1"
+  # "D13_img0022_2"
+  # "D13_img0022_3"
+  # "D13_img0024_0"
+  # "D13_img0024_1"
+  # "D14_img0026_0"
+  # "D14_img0026_1"
+  # "D14_img0026_2"
+  # "D14_img0026_3"
+  # "D14_img0028_0"
+  # "D14_img0028_1"
+  # "D15_img0030_0"
+  # "D15_img0030_1"
+  # "D15_img0030_2"
+  # "D15_img0030_3"
+  # "D15_img0032_0"
+  # "D15_img0032_1"
+  # "D16_img0034_0"
+  # "D16_img0034_1"
+  # "D16_img0034_2"
+  # "D16_img0034_3"
+  # "D16_img0036_0"
+  # "D16_img0036_1"
+  # "D17_img0038_0"
+  # "D17_img0038_1"
+  # "D17_img0038_2"
+  # "D17_img0038_3"
+  # "D17_img0040_0"
+  # "D17_img0040_1"
+  # "D18_img0042_0"
+  # "D18_img0042_1"
+  # "D18_img0042_2"
+  # "D18_img0044_0"
+  # "D18_img0044_1"
 )
 
 # Count total experiments
