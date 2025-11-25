@@ -21,14 +21,17 @@ def compute_overlap_matrix_gpu_auto(
     nucleus_mask: np.ndarray,
     batch_size: int = 0,
     use_bincount: bool = True,
-    bincount_chunk_size: int = 20000,
+    bincount_chunk_size: int = 0,
+    overlap_num_gpus: int = 1,
     fallback_enabled: bool = True,
 ) -> Tuple[csr_matrix, np.ndarray, np.ndarray]:
     """Smart wrapper with automatic fallback chain for overlap computation.
 
     Fallback chain:
         1. Phase 5c (chunked bincount) - if use_bincount=True
+           - Multi-GPU if overlap_num_gpus > 1
         2. Phase 4 (sequential cp.unique) - if GPU available
+           - Multi-GPU if overlap_num_gpus > 1
         3. CPU fallback - if GPU fails or unavailable
 
     This provides robust operation: tries fastest method first, falls back if needed.
@@ -41,6 +44,7 @@ def compute_overlap_matrix_gpu_auto(
         use_bincount: If True, try Phase 5c bincount first (default: True)
         bincount_chunk_size: Cells per chunk for Phase 5c (default: 20000)
                             Set to 0 for auto-sizing, None to disable chunking
+        overlap_num_gpus: Number of GPUs to use for overlap computation (default: 1)
         fallback_enabled: If True, fall back on errors (default: True)
 
     Returns:
@@ -54,13 +58,53 @@ def compute_overlap_matrix_gpu_auto(
     """
     from aegle.gpu_utils import is_cupy_available
 
+    # Proactive decision: if auto-sizing, check if Phase 5c is viable before attempting
+    calculated_chunk_size = bincount_chunk_size
+    if use_bincount and bincount_chunk_size == 0 and is_cupy_available():
+        # Extract cell and nucleus counts for proactive decision
+        cell_labels_temp = np.unique(cell_mask)
+        cell_labels_temp = cell_labels_temp[cell_labels_temp != 0]
+        n_cells_temp = len(cell_labels_temp)
+
+        nucleus_labels_temp = np.unique(nucleus_mask)
+        nucleus_labels_temp = nucleus_labels_temp[nucleus_labels_temp != 0]
+        n_nuclei_temp = len(nucleus_labels_temp)
+
+        if n_cells_temp > 0 and n_nuclei_temp > 0:
+            # Make proactive decision about Phase 5c vs Phase 4
+            calculated_chunk_size, _, use_phase5c = calculate_optimal_chunk_size(
+                n_cells_temp, n_nuclei_temp, num_gpus=overlap_num_gpus
+            )
+
+            if not use_phase5c:
+                # Skip Phase 5c entirely, go directly to Phase 4
+                logger.info(
+                    "Proactive decision: skipping Phase 5c (chunk too small), "
+                    "using Phase 4 directly"
+                )
+                use_bincount = False  # Disable bincount, fall through to Phase 4
+
     # Try Phase 5c bincount (fastest)
     if use_bincount and is_cupy_available():
         try:
             logger.info("Trying Phase 5c (chunked bincount approach)...")
-            return compute_overlap_matrix_gpu_bincount(
-                cell_mask, nucleus_mask, chunk_size=bincount_chunk_size
-            )
+
+            # Use multi-GPU if requested
+            if overlap_num_gpus > 1:
+                # For multi-GPU, need to calculate chunk size if auto-sizing
+                if calculated_chunk_size == 0:
+                    # Should have been calculated in proactive decision
+                    calculated_chunk_size = 20000  # Fallback
+
+                return compute_overlap_matrix_gpu_bincount_multi_gpu(
+                    cell_mask, nucleus_mask,
+                    chunk_size=calculated_chunk_size,
+                    num_gpus=overlap_num_gpus
+                )
+            else:
+                return compute_overlap_matrix_gpu_bincount(
+                    cell_mask, nucleus_mask, chunk_size=calculated_chunk_size
+                )
         except Exception as e:
             if fallback_enabled:
                 logger.warning(f"Phase 5c failed: {e}")
@@ -73,7 +117,14 @@ def compute_overlap_matrix_gpu_auto(
         try:
             if use_bincount:  # Only log if we're falling back from bincount
                 logger.info("Using Phase 4 (sequential cp.unique)...")
-            return compute_overlap_matrix_gpu(cell_mask, nucleus_mask, batch_size)
+
+            # Use multi-GPU if requested
+            if overlap_num_gpus > 1:
+                return compute_overlap_matrix_gpu_multi_gpu(
+                    cell_mask, nucleus_mask, batch_size, num_gpus=overlap_num_gpus
+                )
+            else:
+                return compute_overlap_matrix_gpu(cell_mask, nucleus_mask, batch_size)
         except Exception as e:
             if fallback_enabled:
                 logger.warning(f"Phase 4 GPU failed: {e}")
@@ -328,10 +379,272 @@ def compute_overlap_matrix_gpu(
         return _compute_overlap_matrix_cpu(cell_mask, nucleus_mask)
 
 
+def compute_overlap_matrix_gpu_multi_gpu(
+    cell_mask: np.ndarray,
+    nucleus_mask: np.ndarray,
+    batch_size: int = 0,
+    num_gpus: int = 2,
+) -> Tuple[csr_matrix, np.ndarray, np.ndarray]:
+    """Multi-GPU Phase 4: Sequential cp.unique with cell-level round-robin distribution.
+
+    Distributes cells across multiple GPUs using round-robin assignment (GPU 0: cells
+    0,2,4..., GPU 1: cells 1,3,5...) for balanced workload. Each GPU processes its
+    assigned cells independently using cp.unique, then results are combined.
+
+    Expected speedup: ~2x for 2 GPUs on large samples.
+
+    Args:
+        cell_mask: 2D cell segmentation mask (H, W) with integer labels
+        nucleus_mask: 2D nucleus segmentation mask (H, W) with integer labels
+        batch_size: Number of cells per batch (unused, kept for API compatibility)
+        num_gpus: Number of GPUs to use (default: 2)
+
+    Returns:
+        Tuple of:
+            - overlap_sparse: scipy.sparse.csr_matrix (n_cells, n_nuclei)
+            - cell_labels: (n_cells,) array of cell label IDs
+            - nucleus_labels: (n_nuclei,) array of nucleus label IDs
+
+    Raises:
+        RuntimeError: If GPU processing fails
+    """
+    from aegle.gpu_utils import is_cupy_available, clear_gpu_memory, log_gpu_memory
+    from concurrent.futures import ThreadPoolExecutor
+    import cupy as cp
+    import time
+
+    if not is_cupy_available():
+        raise RuntimeError("GPU required for multi-GPU overlap computation")
+
+    try:
+        start_time = time.time()
+        logger.info(f"Phase 4 Multi-GPU: Computing overlap with {num_gpus} GPUs...")
+        log_gpu_memory("GPU memory before multi-GPU Phase 4")
+
+        # Validate GPU count
+        actual_gpu_count = cp.cuda.runtime.getDeviceCount()
+        if num_gpus > actual_gpu_count:
+            logger.warning(
+                f"Requested {num_gpus} GPUs but only {actual_gpu_count} available"
+            )
+            num_gpus = actual_gpu_count
+
+        # Get labels
+        cell_labels = np.unique(cell_mask)
+        cell_labels = cell_labels[cell_labels != 0].astype(np.int32)
+        nucleus_labels = np.unique(nucleus_mask)
+        nucleus_labels = nucleus_labels[nucleus_labels != 0].astype(np.int32)
+
+        n_cells = len(cell_labels)
+        n_nuclei = len(nucleus_labels)
+
+        logger.info(f"Computing overlap matrix: {n_cells:,} cells × {n_nuclei:,} nuclei")
+
+        if n_cells == 0 or n_nuclei == 0:
+            overlap_sparse = csr_matrix((n_cells, n_nuclei), dtype=np.uint8)
+            return overlap_sparse, cell_labels, nucleus_labels
+
+        # Round-robin cell distribution
+        gpu_cell_indices = [[] for _ in range(num_gpus)]
+        for cell_idx in range(n_cells):
+            gpu_id = cell_idx % num_gpus
+            gpu_cell_indices[gpu_id].append(cell_idx)
+
+        for gpu_id in range(num_gpus):
+            logger.info(f"  GPU {gpu_id}: {len(gpu_cell_indices[gpu_id]):,} cells")
+
+        # Worker function
+        def process_gpu_cells(gpu_id, cell_indices_list):
+            """Process assigned cells on a specific GPU."""
+            cp.cuda.Device(gpu_id).use()
+
+            logger.info(f"  [GPU {gpu_id}] Starting with {len(cell_indices_list):,} cells")
+
+            # Transfer masks
+            cell_flat = cp.asarray(cell_mask.ravel(), dtype=cp.int32)
+            nucleus_flat = cp.asarray(nucleus_mask.ravel(), dtype=cp.int32)
+
+            overlap_dict = {}
+            progress_interval = max(1, len(cell_indices_list) // 10)
+
+            for local_idx, cell_idx in enumerate(cell_indices_list):
+                cell_label = cell_labels[cell_idx]
+
+                # Find pixels for this cell
+                cell_pixels = (cell_flat == cell_label)
+                overlapping_nuclei = cp.unique(nucleus_flat[cell_pixels])
+                overlapping_nuclei = overlapping_nuclei[overlapping_nuclei != 0]
+
+                if len(overlapping_nuclei) > 0:
+                    nucleus_indices = np.searchsorted(
+                        nucleus_labels, cp.asnumpy(overlapping_nuclei)
+                    )
+                    for nuc_idx in nucleus_indices:
+                        overlap_dict[(cell_idx, nuc_idx)] = 1
+
+                if (local_idx + 1) % progress_interval == 0:
+                    pct = 100 * (local_idx + 1) / len(cell_indices_list)
+                    logger.info(
+                        f"  [GPU {gpu_id}] Progress: {local_idx+1:,}/{len(cell_indices_list):,} "
+                        f"({pct:.1f}%)"
+                    )
+
+            logger.info(f"  [GPU {gpu_id}] Completed all {len(cell_indices_list):,} cells")
+
+            del cell_flat, nucleus_flat
+            cp.get_default_memory_pool().free_all_blocks()
+
+            return overlap_dict
+
+        # Execute in parallel
+        parallel_start = time.time()
+
+        with ThreadPoolExecutor(max_workers=num_gpus) as executor:
+            futures = []
+            for gpu_id in range(num_gpus):
+                if len(gpu_cell_indices[gpu_id]) > 0:
+                    future = executor.submit(
+                        process_gpu_cells, gpu_id, gpu_cell_indices[gpu_id]
+                    )
+                    futures.append(future)
+
+            all_overlap_dicts = []
+            for future in futures:
+                all_overlap_dicts.append(future.result())
+
+        parallel_time = time.time() - parallel_start
+        logger.info(f"  Parallel processing completed in {parallel_time:.2f}s")
+
+        # Combine dictionaries
+        combined_dict = {}
+        for overlap_dict in all_overlap_dicts:
+            combined_dict.update(overlap_dict)
+
+        # Build sparse matrix
+        if combined_dict:
+            rows, cols = zip(*combined_dict.keys())
+            data = np.ones(len(rows), dtype=np.uint8)
+            overlap_sparse = csr_matrix(
+                (data, (rows, cols)), shape=(n_cells, n_nuclei), dtype=np.uint8
+            )
+        else:
+            overlap_sparse = csr_matrix((n_cells, n_nuclei), dtype=np.uint8)
+
+        total_time = time.time() - start_time
+        nnz = overlap_sparse.nnz
+        logger.info(
+            f"  ✓ Multi-GPU Phase 4: {nnz:,} overlaps in {total_time:.2f}s "
+            f"({n_cells / total_time:.0f} cells/sec)"
+        )
+
+        return overlap_sparse, cell_labels, nucleus_labels
+
+    except Exception as e:
+        logger.error(f"Multi-GPU Phase 4 failed: {e}")
+        clear_gpu_memory()
+        raise RuntimeError(f"Multi-GPU overlap failed: {e}") from e
+
+
+def calculate_optimal_chunk_size(
+    n_cells: int,
+    n_nuclei: int,
+    num_gpus: int = 1,
+    safety_margin: float = 0.85,
+    min_viable_chunk: int = 500,
+) -> Tuple[int, float, bool]:
+    """Calculate optimal chunk size from available VRAM with proactive Phase decision.
+
+    This function determines the best chunk size for Phase 5c bincount processing
+    based on available GPU memory, and decides whether Phase 5c is viable or if
+    Phase 4 should be used instead.
+
+    Decision logic:
+        1. Calculate optimal chunk size from available VRAM
+        2. If chunk_size < min_viable_chunk: Use Phase 4 (overhead not worth it)
+        3. If chunk_size >= n_cells * 0.9: Use single-pass bincount (all cells fit)
+        4. Otherwise: Use chunked Phase 5c with calculated chunk size
+
+    Args:
+        n_cells: Number of cells in the sample
+        n_nuclei: Number of nuclei in the sample
+        num_gpus: Number of GPUs available (default: 1)
+        safety_margin: VRAM utilization factor (default: 0.85 = 85%)
+        min_viable_chunk: Minimum chunk size for Phase 5c viability (default: 500)
+
+    Returns:
+        Tuple of:
+            - chunk_size: Optimal chunk size (cells per chunk)
+            - estimated_memory_gb: Estimated memory per chunk in GB
+            - use_phase5c: True if Phase 5c should be used, False to use Phase 4
+
+    Example:
+        For D11_img0018_1 with 580k cells, 512k nuclei, 47 GB free VRAM:
+            chunk_size, mem_gb, use_phase5c = calculate_optimal_chunk_size(580717, 512882)
+            # Returns: (9756, 41.0, True) - use Phase 5c with 9756 cells/chunk
+    """
+    from aegle.gpu_utils import get_gpu_memory_info
+
+    # Get available VRAM (use first GPU's memory, assume symmetric)
+    mem_info = get_gpu_memory_info()
+    if not mem_info:
+        logger.warning(
+            "  Could not detect GPU memory, using conservative default chunk_size=10000"
+        )
+        return 10000, (10000 * n_nuclei * 8) / 1e9, True
+
+    free_vram_bytes = mem_info['free_gb'] * 1e9
+
+    # Calculate optimal chunk size: (free_VRAM * safety_margin) / (n_nuclei * 8 bytes)
+    # Each chunk creates a (chunk_size × n_nuclei) matrix, 8 bytes per element (int64)
+    optimal_chunk_size = int((free_vram_bytes * safety_margin) / (n_nuclei * 8))
+
+    # Cap at total cells (no point in chunks larger than total)
+    optimal_chunk_size = min(optimal_chunk_size, n_cells)
+
+    # Ensure at least 1 cell per chunk
+    optimal_chunk_size = max(optimal_chunk_size, 1)
+
+    # Estimate memory usage per chunk
+    estimated_memory_gb = (optimal_chunk_size * n_nuclei * 8) / 1e9
+
+    # Proactive decision: should we use Phase 5c or go directly to Phase 4?
+    if optimal_chunk_size < min_viable_chunk:
+        # Chunk too small - Phase 5c overhead not worth it
+        logger.info(
+            f"  Chunk size {optimal_chunk_size:,} < min_viable ({min_viable_chunk:,})"
+        )
+        logger.info(
+            f"  Phase 5c overhead too high for small chunks, will use Phase 4 multi-GPU"
+        )
+        use_phase5c = False
+    elif optimal_chunk_size >= n_cells * 0.9:
+        # Can fit ~all cells in single pass
+        logger.info(
+            f"  Chunk size {optimal_chunk_size:,} >= 90% of cells ({n_cells:,})"
+        )
+        logger.info(
+            f"  Using single-pass bincount (all cells fit in memory)"
+        )
+        use_phase5c = True
+    else:
+        # Sweet spot: chunked Phase 5c is optimal
+        n_chunks_est = (n_cells + optimal_chunk_size - 1) // optimal_chunk_size
+        logger.info(
+            f"  Optimal chunk size: {optimal_chunk_size:,} cells/chunk "
+            f"(~{n_chunks_est} chunks, {estimated_memory_gb:.2f} GB/chunk)"
+        )
+        logger.info(
+            f"  Using chunked Phase 5c with multi-GPU ({num_gpus} GPUs)"
+        )
+        use_phase5c = True
+
+    return optimal_chunk_size, estimated_memory_gb, use_phase5c
+
+
 def compute_overlap_matrix_gpu_bincount(
     cell_mask: np.ndarray,
     nucleus_mask: np.ndarray,
-    chunk_size: int = 20000,
+    chunk_size: int = 0,
 ) -> Tuple[csr_matrix, np.ndarray, np.ndarray]:
     """Phase 5c: Chunked bincount-based overlap computation (SPARSE CSR FORMAT).
 
@@ -497,17 +810,22 @@ def compute_overlap_matrix_gpu_bincount(
 
         # STEP 3: Auto-size chunk if requested
         if chunk_size == 0:
-            # Auto-size based on available VRAM (target 90% utilization)
-            mem_info = get_gpu_memory_info()
-            if mem_info:
-                available_vram = mem_info['free_gb'] * 1e9  # Convert to bytes
-                chunk_size = int((available_vram * 0.9) / (n_nuclei * 8))
-                chunk_size = min(chunk_size, 50000)  # Cap at 50k for stability
-                chunk_size = max(chunk_size, 5000)   # Minimum 5k
-                logger.info(f"  Auto-sized chunk_size to {chunk_size:,} cells based on VRAM")
-            else:
-                chunk_size = 20000  # Default fallback
-                logger.warning("  Could not detect VRAM, using default chunk_size=20000")
+            # Use proactive adaptive chunk sizing
+            chunk_size, estimated_mem_gb, use_phase5c = calculate_optimal_chunk_size(
+                n_cells, n_nuclei, num_gpus=1, safety_margin=0.85, min_viable_chunk=500
+            )
+
+            if not use_phase5c:
+                # Chunk size too small for Phase 5c to be efficient
+                logger.warning(
+                    f"Adaptive sizing determined Phase 5c not optimal "
+                    f"(chunk_size={chunk_size:,} < min_viable)"
+                )
+                logger.warning("Fallback to Phase 4 should have been triggered earlier")
+                # Raise exception to trigger fallback in wrapper
+                raise RuntimeError(
+                    f"Chunk size {chunk_size:,} too small for efficient Phase 5c operation"
+                )
 
         # Check if chunking is needed
         needs_chunking = (chunk_size is not None) and (chunk_size < n_cells)
@@ -677,6 +995,281 @@ def compute_overlap_matrix_gpu_bincount(
         logger.warning("Will need to fallback to Phase 4 implementation")
         clear_gpu_memory()
         raise RuntimeError(f"Bincount overlap failed: {e}") from e
+
+
+def compute_overlap_matrix_gpu_bincount_multi_gpu(
+    cell_mask: np.ndarray,
+    nucleus_mask: np.ndarray,
+    chunk_size: int,
+    num_gpus: int = 2,
+) -> Tuple[csr_matrix, np.ndarray, np.ndarray]:
+    """Multi-GPU Phase 5c: Chunked bincount with parallel GPU processing.
+
+    Distributes chunks across multiple GPUs using round-robin assignment and
+    ThreadPoolExecutor for parallel processing. Provides near-linear speedup
+    (~2x for 2 GPUs).
+
+    Algorithm:
+        1. Extract valid pixels and remap labels (same as single-GPU)
+        2. Calculate chunks and distribute round-robin across GPUs
+        3. Each GPU processes its assigned chunks independently
+        4. Combine results on CPU after parallel execution
+
+    Args:
+        cell_mask: 2D cell segmentation mask (H, W) with integer labels
+        nucleus_mask: 2D nucleus segmentation mask (H, W) with integer labels
+        chunk_size: Number of cells to process per chunk
+        num_gpus: Number of GPUs to use (default: 2)
+
+    Returns:
+        Tuple of:
+            - overlap_sparse: scipy.sparse.csr_matrix (n_cells, n_nuclei)
+            - cell_labels: (n_cells,) array of cell label IDs
+            - nucleus_labels: (n_nuclei,) array of nucleus label IDs
+
+    Raises:
+        RuntimeError: If GPU processing fails
+    """
+    from aegle.gpu_utils import is_cupy_available, clear_gpu_memory, log_gpu_memory
+    from concurrent.futures import ThreadPoolExecutor
+    import cupy as cp
+    import time
+
+    if not is_cupy_available():
+        raise RuntimeError("GPU required for multi-GPU bincount overlap")
+
+    try:
+        start_time = time.time()
+        logger.info(f"Phase 5c Multi-GPU: Computing overlap with {num_gpus} GPUs...")
+        log_gpu_memory("GPU memory before multi-GPU bincount overlap")
+
+        # Validate GPU count
+        actual_gpu_count = cp.cuda.runtime.getDeviceCount()
+        if num_gpus > actual_gpu_count:
+            logger.warning(
+                f"Requested {num_gpus} GPUs but only {actual_gpu_count} available, "
+                f"using {actual_gpu_count}"
+            )
+            num_gpus = actual_gpu_count
+
+        # Ensure masks are 2D
+        cell_mask = np.asarray(cell_mask).squeeze()
+        nucleus_mask = np.asarray(nucleus_mask).squeeze()
+
+        if cell_mask.shape != nucleus_mask.shape:
+            raise ValueError(f"Mask shapes must match")
+
+        # STEP 0: Get unique labels (on CPU, will be shared across GPUs)
+        step_start = time.time()
+        cell_labels = np.unique(cell_mask)
+        cell_labels = cell_labels[cell_labels != 0].astype(np.int32)
+        nucleus_labels = np.unique(nucleus_mask)
+        nucleus_labels = nucleus_labels[nucleus_labels != 0].astype(np.int32)
+
+        n_cells = len(cell_labels)
+        n_nuclei = len(nucleus_labels)
+
+        logger.info(
+            f"  Found {n_cells:,} cells × {n_nuclei:,} nuclei ({time.time() - step_start:.2f}s)"
+        )
+
+        if n_cells == 0 or n_nuclei == 0:
+            overlap_sparse = csr_matrix((n_cells, n_nuclei), dtype=np.uint8)
+            return overlap_sparse, cell_labels, nucleus_labels
+
+        # STEP 1: Extract valid pixels (on GPU 0, will transfer to other GPUs)
+        step_start = time.time()
+        cp.cuda.Device(0).use()
+
+        cell_mask_gpu = cp.asarray(cell_mask, dtype=cp.int32)
+        nucleus_mask_gpu = cp.asarray(nucleus_mask, dtype=cp.int32)
+
+        cell_flat = cell_mask_gpu.ravel()
+        nucleus_flat = nucleus_mask_gpu.ravel()
+
+        valid_mask = (cell_flat != 0) & (nucleus_flat != 0)
+        n_valid_pixels = int(cp.sum(valid_mask))
+
+        cell_ids_valid = cell_flat[valid_mask]
+        nucleus_ids_valid = nucleus_flat[valid_mask]
+
+        logger.info(
+            f"  Valid pixels: {n_valid_pixels:,} / {cell_mask.size:,} "
+            f"({100 * n_valid_pixels / cell_mask.size:.1f}%) ({time.time() - step_start:.2f}s)"
+        )
+
+        del cell_mask_gpu, nucleus_mask_gpu, cell_flat, nucleus_flat, valid_mask
+        clear_gpu_memory()
+
+        # STEP 2: Remap labels to indices (on CPU, shared across GPUs)
+        step_start = time.time()
+
+        cell_labels_sorted = np.sort(cell_labels)
+        nucleus_labels_sorted = np.sort(nucleus_labels)
+
+        cell_ids_valid_cpu = cp.asnumpy(cell_ids_valid)
+        nucleus_ids_valid_cpu = cp.asnumpy(nucleus_ids_valid)
+
+        cell_indices_cpu = np.searchsorted(cell_labels_sorted, cell_ids_valid_cpu)
+        nucleus_indices_cpu = np.searchsorted(nucleus_labels_sorted, nucleus_ids_valid_cpu)
+
+        logger.info(
+            f"  Remapped {n_valid_pixels:,} pixels to indices ({time.time() - step_start:.2f}s)"
+        )
+
+        # Clean up GPU 0
+        del cell_ids_valid, nucleus_ids_valid
+        cp.cuda.Device(0).use()
+        clear_gpu_memory()
+
+        # STEP 3: Distribute chunks across GPUs
+        n_chunks = (n_cells + chunk_size - 1) // chunk_size
+        chunk_memory_gb = (chunk_size * n_nuclei * 8) / 1e9
+
+        logger.info(
+            f"  Using {num_gpus} GPUs: {chunk_size:,} cells/chunk, "
+            f"{n_chunks} chunks, {chunk_memory_gb:.2f} GB/chunk"
+        )
+
+        # Round-robin chunk distribution
+        gpu_chunks = [[] for _ in range(num_gpus)]
+        for chunk_idx in range(n_chunks):
+            gpu_id = chunk_idx % num_gpus
+            gpu_chunks[gpu_id].append(chunk_idx)
+
+        for gpu_id in range(num_gpus):
+            logger.info(f"    GPU {gpu_id}: {len(gpu_chunks[gpu_id])} chunks")
+
+        # Worker function for each GPU
+        def process_gpu_chunks(gpu_id, chunk_indices):
+            """Process assigned chunks on a specific GPU."""
+            cp.cuda.Device(gpu_id).use()
+
+            logger.info(f"  [GPU {gpu_id}] Starting with {len(chunk_indices)} chunks")
+
+            # Transfer indices to this GPU
+            cell_indices = cp.asarray(cell_indices_cpu, dtype=cp.int64)
+            nucleus_indices = cp.asarray(nucleus_indices_cpu, dtype=cp.int64)
+
+            results = []
+
+            for local_idx, chunk_idx in enumerate(chunk_indices):
+                chunk_start = chunk_idx * chunk_size
+                chunk_end = min(chunk_start + chunk_size, n_cells)
+                chunk_n_cells = chunk_end - chunk_start
+
+                if local_idx % 2 == 0:
+                    logger.info(
+                        f"  [GPU {gpu_id}] Chunk {chunk_idx+1}/{n_chunks} "
+                        f"({local_idx+1}/{len(chunk_indices)} for this GPU): "
+                        f"cells [{chunk_start:,}, {chunk_end:,})"
+                    )
+
+                # Filter pixels for this chunk
+                chunk_mask = (cell_indices >= chunk_start) & (cell_indices < chunk_end)
+                n_chunk_pixels = int(cp.sum(chunk_mask))
+
+                if n_chunk_pixels == 0:
+                    continue
+
+                # Get indices for this chunk
+                chunk_cell_indices = cell_indices[chunk_mask] - chunk_start
+                chunk_nucleus_indices = nucleus_indices[chunk_mask]
+
+                # Compute linear indices
+                linear_indices = chunk_cell_indices * n_nuclei + chunk_nucleus_indices
+
+                # Bincount for this chunk
+                counts = cp.bincount(linear_indices, minlength=chunk_n_cells * n_nuclei)
+
+                # Reshape and find non-zero entries
+                chunk_dense = counts.reshape(chunk_n_cells, n_nuclei)
+                chunk_rows, chunk_cols = cp.where(chunk_dense > 0)
+
+                # Adjust row indices to global coordinates
+                chunk_rows_global = chunk_rows + chunk_start
+
+                # Store (transfer to CPU)
+                results.append((
+                    chunk_idx,
+                    cp.asnumpy(chunk_rows_global),
+                    cp.asnumpy(chunk_cols)
+                ))
+
+                # Free memory
+                del chunk_cell_indices, chunk_nucleus_indices, linear_indices
+                del counts, chunk_dense, chunk_rows, chunk_cols, chunk_rows_global
+
+            logger.info(f"  [GPU {gpu_id}] Completed all {len(chunk_indices)} chunks")
+
+            # Clean up
+            del cell_indices, nucleus_indices
+            cp.get_default_memory_pool().free_all_blocks()
+
+            return results
+
+        # Execute in parallel
+        parallel_start = time.time()
+
+        with ThreadPoolExecutor(max_workers=num_gpus) as executor:
+            futures = []
+            for gpu_id in range(num_gpus):
+                if len(gpu_chunks[gpu_id]) > 0:
+                    future = executor.submit(process_gpu_chunks, gpu_id, gpu_chunks[gpu_id])
+                    futures.append(future)
+
+            all_results = []
+            for future in futures:
+                all_results.extend(future.result())
+
+        parallel_time = time.time() - parallel_start
+        logger.info(f"  Parallel processing completed in {parallel_time:.2f}s")
+
+        # STEP 4: Combine results
+        step_start = time.time()
+
+        # Sort by chunk index to maintain order
+        all_results.sort(key=lambda x: x[0])
+
+        all_rows = [rows for _, rows, _ in all_results]
+        all_cols = [cols for _, _, cols in all_results]
+
+        all_rows_combined = np.concatenate(all_rows)
+        all_cols_combined = np.concatenate(all_cols)
+        all_data = np.ones(len(all_rows_combined), dtype=np.uint8)
+
+        overlap_sparse = csr_matrix(
+            (all_data, (all_rows_combined, all_cols_combined)),
+            shape=(n_cells, n_nuclei),
+            dtype=np.uint8
+        )
+
+        logger.info(f"  Combined to sparse CSR in {time.time() - step_start:.2f}s")
+
+        # Statistics
+        total_time = time.time() - start_time
+        nnz = overlap_sparse.nnz
+        density = nnz / (n_cells * n_nuclei) if n_cells * n_nuclei > 0 else 0
+        size_mb = (
+            overlap_sparse.data.nbytes
+            + overlap_sparse.indices.nbytes
+            + overlap_sparse.indptr.nbytes
+        ) / 1e6
+
+        logger.info(
+            f"  ✓ Multi-GPU Phase 5c: {nnz:,} overlaps "
+            f"({density * 100:.3f}% density), {size_mb:.2f} MB"
+        )
+        logger.info(
+            f"  Total time: {total_time:.2f}s ({n_cells / total_time:.0f} cells/sec)"
+        )
+
+        return overlap_sparse, cell_labels_sorted, nucleus_labels_sorted
+
+    except Exception as e:
+        logger.error(f"Multi-GPU Phase 5c failed: {e}")
+        clear_gpu_memory()
+        raise RuntimeError(f"Multi-GPU bincount overlap failed: {e}") from e
 
 
 def _compute_overlap_matrix_cpu(

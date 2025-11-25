@@ -20,7 +20,8 @@ def repair_masks_gpu(
     use_gpu: bool = True,
     batch_size: Optional[int] = None,
     use_bincount_overlap: bool = True,
-    bincount_chunk_size: int = 20000,
+    bincount_chunk_size: int = 0,
+    overlap_num_gpus: int = 1,
     mismatch_num_gpus: int = 1,
     fallback_to_cpu: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
@@ -40,6 +41,7 @@ def repair_masks_gpu(
         batch_size: Optional batch size override for overlap computation
         use_bincount_overlap: Use Phase 5c bincount approach (85-90x speedup)
         bincount_chunk_size: Cells per chunk for Phase 5c (default: 20000, 0=auto)
+        overlap_num_gpus: Number of GPUs for overlap computation (default: 1, 2=~2x speedup)
         mismatch_num_gpus: Number of GPUs for mismatch computation (default: 1, 0=auto-detect)
         fallback_to_cpu: Automatically fallback to CPU on GPU errors
 
@@ -95,7 +97,7 @@ def repair_masks_gpu(
 
         cell_repaired, nucleus_repaired, gpu_metadata = _repair_masks_gpu_impl(
             cell_mask, nucleus_mask, batch_size, use_bincount_overlap,
-            bincount_chunk_size, mismatch_num_gpus, fallback_to_cpu
+            bincount_chunk_size, overlap_num_gpus, mismatch_num_gpus, fallback_to_cpu
         )
 
         # Merge GPU metadata
@@ -127,7 +129,8 @@ def _repair_masks_gpu_impl(
     nucleus_mask: np.ndarray,
     batch_size: Optional[int] = None,
     use_bincount_overlap: bool = True,
-    bincount_chunk_size: int = 20000,
+    bincount_chunk_size: int = 0,
+    overlap_num_gpus: int = 1,
     mismatch_num_gpus: int = 1,
     fallback_to_cpu: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
@@ -207,6 +210,7 @@ def _repair_masks_gpu_impl(
         batch_size=batch_size or 0,
         use_bincount=use_bincount_overlap,
         bincount_chunk_size=bincount_chunk_size,
+        overlap_num_gpus=overlap_num_gpus,
         fallback_enabled=fallback_to_cpu,
     )
     stage_timings["overlap_computation"] = time.time() - t0
