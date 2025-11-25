@@ -109,7 +109,7 @@ segmentation:
     # - GPU overlap bincount: 400-540x speedup (Phase 5c, recommended for >100K cells)
     # - GPU mismatch (Phase 3): 100-1000x speedup via vectorized boolean operations
     # Requires CuPy and CUDA-compatible GPU. Falls back to CPU if GPU unavailable.
-    use_gpu: false  # Conservative default for backward compatibility
+    use_gpu: true
 
     # Phase 5c: Use bincount approach for overlap computation (400-540x speedup)
     # When True: tries bincount first, falls back to Phase 4 if needed
@@ -128,6 +128,19 @@ segmentation:
     # Phase 3 feature: controls how many cell-nucleus pairs to process per GPU batch
     # Larger batches = faster but more GPU memory. Typical: 5K-50K pairs per batch.
     gpu_mismatch_batch_size: null
+
+    # Number of GPUs to use for overlap computation (Stage 3)
+    # Set to 2 to distribute work across 2 GPUs in parallel (~2x speedup)
+    # - Phase 5c: distributes chunks across GPUs
+    # - Phase 4: distributes cells across GPUs (cell-level round-robin)
+    # Requires multiple CUDA-compatible GPUs. Falls back to single GPU if unavailable.
+    overlap_num_gpus: 2
+
+    # Number of GPUs to use for mismatch computation (Stage 4)
+    # Set to 2 to distribute batches across 2 GPUs in parallel (1.87x speedup)
+    # Saves ~12 min per sample on large datasets (>150K overlapping pairs)
+    # Requires multiple CUDA-compatible GPUs. Falls back to single GPU if unavailable.
+    mismatch_num_gpus: 2
 
     # Automatically fallback to CPU if GPU errors occur
     # Recommended to keep enabled for robustness
