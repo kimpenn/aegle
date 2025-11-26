@@ -33,6 +33,9 @@ jobs:
             --ignore=tests/test_main_cli.py \
             --ignore=tests/test_analysis_cli.py \
             --ignore=tests/test_analysis_integration_stub.py \
+            --ignore=tests/test_gpu_availability.py \
+            --ignore=tests/test_gpu_integration.py \
+            --ignore=tests/test_gpu_memory.py \
             --ignore=tests/main/ \
             --ignore=tests/examples/ \
             --ignore=tests/exps/ \
