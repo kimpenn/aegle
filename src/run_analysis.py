@@ -16,6 +16,7 @@ sys.path.append(src_path)
 from aegle_analysis.analysis_handler import run_analysis
 from aegle_analysis.analysis_annotator import DEFAULT_TISSUE_DESCRIPTOR
 from aegle_analysis.analysis_annotator import DEFAULT_MODEL as DEFAULT_LLM_MODEL
+from aegle.env_info import log_env_info, save_run_metadata
 
 
 def setup_logging():
@@ -176,6 +177,10 @@ def _resolve_analysis_paths(config: Dict[str, Any], args: argparse.Namespace) ->
 
 def main():
     setup_logging()
+
+    # Log environment info for reproducibility
+    env_info = log_env_info()
+
     logging.info("Starting analysis main function.")
     args = parse_args()
 
@@ -188,6 +193,9 @@ def main():
     logging.info("Running the CODEX/PhenoCycler downstream analysis pipeline.")
     run_analysis(config, args)
     logging.info("Analysis pipeline execution completed.")
+
+    # Save run metadata for reproducibility
+    save_run_metadata(args.output_dir, env_info)
 
 
 if __name__ == "__main__":

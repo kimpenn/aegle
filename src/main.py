@@ -15,6 +15,7 @@ sys.path.append(src_path)
 
 # Import custom modules from the installed 'aegle' package
 from aegle.pipeline import run_pipeline
+from aegle.env_info import log_env_info, save_run_metadata
 
 # from aegle.logging_config import setup_logging
 
@@ -128,7 +129,10 @@ def main():
     # Set log level based on command line argument
     if args.log_level:
         logging.getLogger().setLevel(getattr(logging, args.log_level))
-    
+
+    # Log environment info for reproducibility
+    env_info = log_env_info()
+
     logging.info(f"Starting pipeline with log level: {args.log_level}")
     
     # Load configuration from the YAML file
@@ -146,6 +150,9 @@ def main():
     # Log completion with timing information
     elapsed_time = time.time() - start_time
     logging.info(f"Pipeline execution completed in {elapsed_time:.2f} seconds.")
+
+    # Save run metadata for reproducibility
+    save_run_metadata(args.out_dir, env_info)
 
 
 if __name__ == "__main__":
