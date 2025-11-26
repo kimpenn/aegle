@@ -16,16 +16,20 @@ setup(
         "zstandard",
         "tqdm",
     ],
+    python_requires=">=3.8",
     extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+            "pytest-cov>=4.0.0",
+            "scipy>=1.7.0",
+            "scikit-image>=0.19.0",
+        ],
         "gpu": [
             # CuPy for GPU-accelerated computing
             # Install the appropriate version for your CUDA:
             # - CUDA 11.x: pip install cupy-cuda11x
             # - CUDA 12.x: pip install cupy-cuda12x
             # Note: Will be installed separately based on system CUDA version
-            # Uncomment the appropriate line below:
-            # "cupy-cuda11x>=12.0.0",  # For CUDA 11.x
-            # "cupy-cuda12x>=12.0.0",  # For CUDA 12.x
         ],
     },
     author="Da Kuang",
