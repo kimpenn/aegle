@@ -6,11 +6,20 @@ integrating morphological operations, overlap computation, and cell matching.
 
 import logging
 import numpy as np
+import sys
 import time
 from typing import Tuple, Dict, Optional
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
+
+
+def _is_interactive() -> bool:
+    """Check if stdout is an interactive terminal (TTY).
+
+    Returns False when running under nohup, piped to file, or in non-interactive contexts.
+    """
+    return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
 
 
 def repair_masks_gpu(
@@ -361,33 +370,43 @@ def _match_cells_to_nuclei(
     repaired_num = 0
     total_cells = len(cell_coords)
 
-    # Progress logging
-    log_interval = 5000  # Log every 5000 cells
+    # Progress logging - use higher interval for non-interactive to reduce log noise
+    is_interactive = _is_interactive()
+    log_interval = 25000 if not is_interactive else 5000  # Less frequent for log files
+    log_time_interval = 30.0 if not is_interactive else 10.0  # Less frequent for log files
     last_log_time = time.time()
-    log_time_interval = 10.0  # Log every 10 seconds
     start_time = time.time()
 
     logger.info(f"  Starting cell-nucleus matching for {total_cells:,} cells...")
 
-    # Progress bar for cell matching
+    # Disable tqdm progress bar when not interactive (avoids log spam)
+    # In non-interactive mode, rely on periodic logger.info messages instead
+    use_tqdm = is_interactive
+
     with tqdm(
         total=total_cells,
         desc="Matching cells to nuclei",
         unit="cell",
         mininterval=1.0,
         dynamic_ncols=True,
+        disable=not use_tqdm,  # Disable when running non-interactively
     ) as pbar:
         for i in range(total_cells):
-            # Log progress periodically
-            if (i > 0 and i % log_interval == 0) or (time.time() - last_log_time >= log_time_interval):
-                elapsed = time.time() - start_time
+            # Log progress periodically (only when not using tqdm or at intervals)
+            current_time = time.time()
+            should_log = (
+                (i > 0 and i % log_interval == 0) or
+                (current_time - last_log_time >= log_time_interval)
+            )
+            if should_log:
+                elapsed = current_time - start_time
                 rate = i / elapsed if elapsed > 0 else 0
                 eta = (total_cells - i) / rate if rate > 0 else 0
                 logger.info(
                     f"  Matching progress: {i:,}/{total_cells:,} cells ({i/total_cells*100:.1f}%, "
                     f"{rate:.0f} cells/sec, ETA {eta:.0f}s, {repaired_num} repaired)"
                 )
-                last_log_time = time.time()
+                last_log_time = current_time
             if len(cell_coords[i]) == 0:
                 pbar.update(1)
                 continue

@@ -3,11 +3,20 @@ import gc
 from skimage.segmentation import find_boundaries
 from skimage.measure import regionprops
 import numpy as np
+import sys
 from typing import List, Tuple, Dict, Optional
 import logging
 from scipy.sparse import csr_matrix
 import time
 from tqdm import tqdm
+
+
+def _is_interactive() -> bool:
+    """Check if stdout is an interactive terminal (TTY).
+
+    Returns False when running under nohup, piped to file, or in non-interactive contexts.
+    """
+    return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
 
 from aegle.codex_patches import CodexPatches
 from aegle.visualization import make_outline_overlay
@@ -308,6 +317,17 @@ def get_matched_masks(cell_mask, nucleus_mask):
     repaired_num = 0
     total_cells = len(cell_coords)
 
+    # Disable tqdm progress bar when not interactive (avoids log spam in nohup/file output)
+    use_tqdm = _is_interactive()
+
+    # Progress logging for non-interactive mode
+    log_interval = 25000 if not use_tqdm else 5000
+    log_time_interval = 30.0 if not use_tqdm else 10.0
+    last_log_time = time.time()
+    start_time = time.time()
+
+    logging.info(f"Starting cell-nucleus matching for {total_cells:,} cells...")
+
     # Add progress bar for cell matching loop
     with tqdm(
         total=total_cells,
@@ -315,8 +335,25 @@ def get_matched_masks(cell_mask, nucleus_mask):
         unit="cell",
         mininterval=1.0,
         dynamic_ncols=True,
+        disable=not use_tqdm,
     ) as pbar:
         for i in range(total_cells):
+            # Log progress periodically when not using tqdm
+            current_time = time.time()
+            should_log = (
+                (i > 0 and i % log_interval == 0) or
+                (current_time - last_log_time >= log_time_interval)
+            )
+            if should_log and not use_tqdm:
+                elapsed = current_time - start_time
+                rate = i / elapsed if elapsed > 0 else 0
+                eta = (total_cells - i) / rate if rate > 0 else 0
+                logging.info(
+                    f"  Matching progress: {i:,}/{total_cells:,} cells ({i/total_cells*100:.1f}%, "
+                    f"{rate:.0f} cells/sec, ETA {eta:.0f}s, {repaired_num} repaired)"
+                )
+                last_log_time = current_time
+
             if len(cell_coords[i]) != 0:
                 current_cell_coords = cell_coords[i]
                 # Optimized: Use set instead of np.unique() to avoid O(n log n) sorting
