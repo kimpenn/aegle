@@ -153,3 +153,4 @@ segmentation.log
 *.DS_Store
 d18_benchmark.pid
 *.pid
+notebooks/
