@@ -1,6 +1,5 @@
 # repair_mask.py
 import gc
-from deepcell.applications import Mesmer
 from skimage.segmentation import find_boundaries
 from skimage.measure import regionprops
 import numpy as np

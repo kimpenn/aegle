@@ -23,6 +23,7 @@ setup(
             "pytest-cov>=4.0.0",
             "scipy>=1.7.0",
             "scikit-image>=0.19.0",
+            "opencv-python-headless>=4.5.0",
         ],
         "gpu": [
             # CuPy for GPU-accelerated computing
