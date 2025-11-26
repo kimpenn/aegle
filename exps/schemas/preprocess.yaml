@@ -18,7 +18,13 @@ fields:
     required: true
     allow_relative: false
     path_exists: true
-    description: Absolute path to the raw input image.
+    allowed_extensions:
+      - .tiff
+      - .tif
+      - .ome.tiff
+      - .ome.tif
+      - .qptiff
+    description: Absolute path to the raw input image (TIFF format).
 
   - key: bftools::showinf_path
     type: path

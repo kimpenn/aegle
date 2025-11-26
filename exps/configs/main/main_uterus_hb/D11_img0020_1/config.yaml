@@ -8,7 +8,7 @@ sample_id: 11-131
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
   file_name: 
-    /workspaces/codex-analysis/data/uterus/D11/img0020/processed_hubmap/img0020_manual_11-131_Uterus_Posterior_Wall_Body_Scan1.ome_ch0.jpg
+    /workspaces/codex-analysis/data/uterus/D11/img0020/processed_hubmap/img0020_manual_11-131_Uterus_Posterior_Wall_Body_Scan1.ome.tiff
 
   # Path to the TSV file containing antibody definitions (one row per channel)
   antibodies_file: 
@@ -130,6 +130,13 @@ segmentation:
     # Phase 3 feature: controls how many cell-nucleus pairs to process per GPU batch
     # Larger batches = faster but more GPU memory. Typical: 5K-50K pairs per batch.
     gpu_mismatch_batch_size: NULL
+
+    # Number of GPUs to use for overlap computation (Stage 3)
+    # Set to 2 to distribute work across 2 GPUs in parallel (~2x speedup)
+    # - Phase 5c: distributes chunks across GPUs
+    # - Phase 4: distributes cells across GPUs (cell-level round-robin)
+    # Requires multiple CUDA-compatible GPUs. Falls back to single GPU if unavailable.
+    overlap_num_gpus: 2
 
     # Number of GPUs to use for mismatch computation (Stage 4)
     # Set to 2 to distribute batches across 2 GPUs in parallel (1.87x speedup)

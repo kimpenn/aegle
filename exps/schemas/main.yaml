@@ -24,7 +24,13 @@ fields:
     required: true
     allow_relative: false
     path_exists: true
-    description: Absolute path to the main CODEX image.
+    allowed_extensions:
+      - .tiff
+      - .tif
+      - .ome.tiff
+      - .ome.tif
+      - .qptiff
+    description: Absolute path to the main CODEX image (TIFF format).
 
   - key: data::antibodies_file
     type: path

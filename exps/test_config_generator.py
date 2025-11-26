@@ -297,6 +297,144 @@ def case_analysis_smoke(tmp_dir: Path) -> Path:
     return config_path
 
 
+def case_main_wrong_extension_should_fail(tmp_dir: Path) -> CommandResult:
+    """File with wrong extension (.jpg instead of .tiff) should fail validation."""
+    tmp_dir = tmp_dir.resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create a .jpg file instead of .tiff
+    image = tmp_dir / "image.jpg"
+    antibodies = tmp_dir / "antibodies.tsv"
+    model_dir = tmp_dir / "model"
+    image.touch()
+    antibodies.touch()
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = tmp_dir / "main_design.csv"
+    header = (
+        "exp_id,sample_id,data::file_name,data::antibodies_file,data::image_mpp,"
+        "channels::nuclear_channel,channels::wholecell_channel,"
+        "patching::split_mode,segmentation::model_path"
+    )
+    row = (
+        f"wrong_ext,sample1,{image},{antibodies},0.5,"
+        f"DAPI,\"CD45,CD3\",full_image,{model_dir}"
+    )
+    _write_csv(csv_path, header, [row])
+
+    output_dir = tmp_dir / "out"
+    result = run_generator(
+        analysis_step="main",
+        experiment_set="wrong_extension",
+        csv_path=csv_path,
+        template_path=TEMPLATES_DIR / "main_template.yaml",
+        schema_path=SCHEMAS_DIR / "main.yaml",
+        output_dir=output_dir,
+    )
+
+    if result.returncode == 0:
+        raise SmokeTestError(
+            "Expected .jpg file to fail extension validation"
+        )
+
+    # Verify error message mentions extension
+    if "extension" not in result.output.lower():
+        raise SmokeTestError(
+            f"Expected error message to mention 'extension':\n{result.output}"
+        )
+
+    return result
+
+
+def case_main_ome_tiff_should_pass(tmp_dir: Path) -> Path:
+    """Multi-part extension .ome.tiff should be accepted."""
+    tmp_dir = tmp_dir.resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    image = tmp_dir / "image.ome.tiff"
+    antibodies = tmp_dir / "antibodies.tsv"
+    model_dir = tmp_dir / "model"
+    image.touch()
+    antibodies.touch()
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = tmp_dir / "main_design.csv"
+    header = (
+        "exp_id,sample_id,data::file_name,data::antibodies_file,data::image_mpp,"
+        "channels::nuclear_channel,channels::wholecell_channel,"
+        "patching::split_mode,segmentation::model_path"
+    )
+    row = (
+        f"ome_tiff,sample1,{image},{antibodies},0.5,"
+        f"DAPI,\"CD45,CD3\",full_image,{model_dir}"
+    )
+    _write_csv(csv_path, header, [row])
+
+    output_dir = tmp_dir / "out"
+    result = run_generator(
+        analysis_step="main",
+        experiment_set="ome_tiff_test",
+        csv_path=csv_path,
+        template_path=TEMPLATES_DIR / "main_template.yaml",
+        schema_path=SCHEMAS_DIR / "main.yaml",
+        output_dir=output_dir,
+    )
+
+    if result.returncode != 0:
+        raise SmokeTestError(
+            f"ome_tiff test failed with code {result.returncode}:\n{result.output}"
+        )
+
+    config_path = output_dir / "ome_tiff" / "config.yaml"
+    if not config_path.is_file():
+        raise SmokeTestError(
+            "Expected config.yaml to be created for ome_tiff test"
+        )
+    return config_path
+
+
+def case_main_case_insensitive_extension(tmp_dir: Path) -> Path:
+    """Extension matching should be case-insensitive (.TIFF should work)."""
+    tmp_dir = tmp_dir.resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    image = tmp_dir / "image.TIFF"  # Uppercase extension
+    antibodies = tmp_dir / "antibodies.tsv"
+    model_dir = tmp_dir / "model"
+    image.touch()
+    antibodies.touch()
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = tmp_dir / "main_design.csv"
+    header = (
+        "exp_id,sample_id,data::file_name,data::antibodies_file,data::image_mpp,"
+        "channels::nuclear_channel,channels::wholecell_channel,"
+        "patching::split_mode,segmentation::model_path"
+    )
+    row = (
+        f"case_insensitive,sample1,{image},{antibodies},0.5,"
+        f"DAPI,\"CD45,CD3\",full_image,{model_dir}"
+    )
+    _write_csv(csv_path, header, [row])
+
+    output_dir = tmp_dir / "out"
+    result = run_generator(
+        analysis_step="main",
+        experiment_set="case_insensitive_test",
+        csv_path=csv_path,
+        template_path=TEMPLATES_DIR / "main_template.yaml",
+        schema_path=SCHEMAS_DIR / "main.yaml",
+        output_dir=output_dir,
+    )
+
+    if result.returncode != 0:
+        raise SmokeTestError(
+            f"Case insensitive extension test failed:\n{result.output}"
+        )
+
+    return output_dir / "case_insensitive" / "config.yaml"
+
+
 def run_smoke_tests(tmp_dir: Optional[Path] = None) -> None:
     created_tmp: Optional[tempfile.TemporaryDirectory[str]] = None
     if tmp_dir is None:
@@ -323,6 +461,9 @@ def run_smoke_tests(tmp_dir: Optional[Path] = None) -> None:
     record("preprocess_manual", case_preprocess_manual_mask)
     record("preprocess_missing", case_preprocess_missing_downscale_should_fail)
     record("analysis", case_analysis_smoke)
+    record("main_wrong_extension", case_main_wrong_extension_should_fail)
+    record("main_ome_tiff", case_main_ome_tiff_should_pass)
+    record("main_case_insensitive", case_main_case_insensitive_extension)
 
     if created_tmp is not None:
         created_tmp.cleanup()

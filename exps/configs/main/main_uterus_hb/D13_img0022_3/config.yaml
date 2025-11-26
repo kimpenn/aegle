@@ -131,6 +131,13 @@ segmentation:
     # Larger batches = faster but more GPU memory. Typical: 5K-50K pairs per batch.
     gpu_mismatch_batch_size: NULL
 
+    # Number of GPUs to use for overlap computation (Stage 3)
+    # Set to 2 to distribute work across 2 GPUs in parallel (~2x speedup)
+    # - Phase 5c: distributes chunks across GPUs
+    # - Phase 4: distributes cells across GPUs (cell-level round-robin)
+    # Requires multiple CUDA-compatible GPUs. Falls back to single GPU if unavailable.
+    overlap_num_gpus: 2
+
     # Number of GPUs to use for mismatch computation (Stage 4)
     # Set to 2 to distribute batches across 2 GPUs in parallel (1.87x speedup)
     # Saves ~12 min per sample on large datasets (>150K overlapping pairs)

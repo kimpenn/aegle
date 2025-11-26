@@ -40,6 +40,7 @@ class FieldSpec:
     regex: Optional[str] = None
     path_exists: bool = False
     allow_relative: bool = True
+    allowed_extensions: Optional[List[str]] = None
     description: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -310,6 +311,21 @@ class Schema:
             raise ValueError("expected absolute path")
         if field.path_exists and not os.path.exists(path_value):
             raise ValueError(f"path does not exist: {path_value}")
+
+        # Validate file extension if specified
+        if field.allowed_extensions is not None:
+            path_lower = path_value.lower()
+            # Sort by length (longest first) for multi-part extensions like .ome.tiff
+            sorted_extensions = sorted(field.allowed_extensions, key=len, reverse=True)
+            matched = False
+            for ext in sorted_extensions:
+                if path_lower.endswith(ext.lower()):
+                    matched = True
+                    break
+            if not matched:
+                ext_list = ", ".join(field.allowed_extensions)
+                raise ValueError(f"file extension not allowed; expected one of: {ext_list}")
+
         return path_value
 
     def _convert_list(self, raw_value: Any, field: FieldSpec) -> List[Any]:
