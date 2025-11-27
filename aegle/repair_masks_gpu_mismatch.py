@@ -160,15 +160,29 @@ def compute_mismatch_matrix_gpu(
 
         # Process pairs in batches
         n_batches = (n_pairs + batch_size - 1) // batch_size
-        logger.info(f"  Processing {n_pairs:,} pairs in {n_batches} GPU batches (batch_size={batch_size:,})")
+        logger.debug(f"  Processing {n_pairs:,} pairs in {n_batches} GPU batches (batch_size={batch_size:,})")
+
+        # Milestone tracking for progress reporting
+        logged_milestones = set()
+        milestone_targets = [20, 40, 60, 80]
 
         for batch_start in range(0, n_pairs, batch_size):
             batch_end = min(batch_start + batch_size, n_pairs)
             batch_pairs = overlapping_pairs[batch_start:batch_end]
             batch_num = batch_start // batch_size + 1
 
+            # Milestone-based progress logging at INFO level
+            progress_pct = 100 * batch_num / n_batches
+            for milestone in milestone_targets:
+                if progress_pct >= milestone and milestone not in logged_milestones:
+                    logger.info(
+                        f"  Mismatch: {milestone}% complete ({batch_num}/{n_batches} batches)"
+                    )
+                    logged_milestones.add(milestone)
+                    break
+
             if n_batches > 1:
-                logger.info(
+                logger.debug(
                     f"  Batch {batch_num}/{n_batches}: Processing pairs {batch_start+1:,}-{batch_end:,}"
                 )
 
@@ -349,9 +363,9 @@ def compute_mismatch_matrix_multi_gpu(
             gpu_id = batch_idx % num_gpus
             gpu_batches[gpu_id].append(batch_idx)
 
-        logger.info(f"  Distributing {n_batches} batches across {num_gpus} GPUs:")
+        logger.debug(f"  Distributing {n_batches} batches across {num_gpus} GPUs:")
         for gpu_id in range(num_gpus):
-            logger.info(f"    GPU {gpu_id}: {len(gpu_batches[gpu_id])} batches")
+            logger.debug(f"    GPU {gpu_id}: {len(gpu_batches[gpu_id])} batches")
 
         # Worker function for each GPU
         def process_gpu_batches(gpu_id, batch_indices):
@@ -361,12 +375,17 @@ def compute_mismatch_matrix_multi_gpu(
             # Set this thread to use specific GPU
             cp.cuda.Device(gpu_id).use()
 
-            logger.info(f"  [GPU {gpu_id}] Starting with {len(batch_indices)} batches")
+            logger.debug(f"  [GPU {gpu_id}] Starting with {len(batch_indices)} batches")
 
             # Transfer masks to this GPU
             cell_flat = cp.asarray(cell_mask.ravel(), dtype=cp.int32)
             nucleus_flat = cp.asarray(nucleus_mask.ravel(), dtype=cp.int32)
             membrane_flat = cp.asarray(cell_membrane_mask.ravel(), dtype=cp.int32)
+
+            # Milestone tracking for progress reporting
+            logged_milestones = set()
+            milestone_targets = [20, 40, 60, 80]
+            total_batches_for_gpu = len(batch_indices)
 
             results = []
             for local_idx, batch_idx in enumerate(batch_indices):
@@ -374,9 +393,20 @@ def compute_mismatch_matrix_multi_gpu(
                 batch_end = min(batch_start + batch_size, n_pairs)
                 batch_pairs = overlapping_pairs[batch_start:batch_end]
 
+                # Milestone-based progress logging at INFO level
+                progress_pct = 100 * (local_idx + 1) / total_batches_for_gpu
+                for milestone in milestone_targets:
+                    if progress_pct >= milestone and milestone not in logged_milestones:
+                        logger.info(
+                            f"  [GPU {gpu_id}] Mismatch: {milestone}% complete "
+                            f"({local_idx+1}/{total_batches_for_gpu} batches)"
+                        )
+                        logged_milestones.add(milestone)
+                        break
+
                 # Log progress every 2 batches
                 if local_idx % 2 == 0:
-                    logger.info(
+                    logger.debug(
                         f"  [GPU {gpu_id}] Batch {batch_idx+1}/{n_batches} "
                         f"({local_idx+1}/{len(batch_indices)} for this GPU): "
                         f"Processing pairs {batch_start+1:,}-{batch_end:,}"
@@ -393,7 +423,7 @@ def compute_mismatch_matrix_multi_gpu(
                 )
                 results.append((batch_idx, batch_mismatch))
 
-            logger.info(f"  [GPU {gpu_id}] Completed all {len(batch_indices)} batches")
+            logger.debug(f"  [GPU {gpu_id}] Completed all {len(batch_indices)} batches")
 
             # Clean up GPU memory for this thread
             del cell_flat, nucleus_flat, membrane_flat
@@ -504,7 +534,7 @@ def _gpu_mismatch_kernel(
         if (idx > 0 and idx % log_interval == 0) or (time.time() - last_log_time >= log_time_interval):
             elapsed = time.time() - last_log_time
             rate = log_interval / elapsed if elapsed > 0 else 0
-            logger.info(f"    GPU kernel: {idx:,}/{batch_size:,} pairs ({idx/batch_size*100:.1f}%, {rate:.0f} pairs/sec)")
+            logger.debug(f"    GPU kernel: {idx:,}/{batch_size:,} pairs ({idx/batch_size*100:.1f}%, {rate:.0f} pairs/sec)")
             last_log_time = time.time()
         cell_idx, nucleus_idx = batch_pairs[idx]
         cell_label = cell_labels[cell_idx]

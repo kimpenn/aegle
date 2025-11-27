@@ -451,14 +451,14 @@ def compute_overlap_matrix_gpu_multi_gpu(
             gpu_cell_indices[gpu_id].append(cell_idx)
 
         for gpu_id in range(num_gpus):
-            logger.info(f"  GPU {gpu_id}: {len(gpu_cell_indices[gpu_id]):,} cells")
+            logger.debug(f"  GPU {gpu_id}: {len(gpu_cell_indices[gpu_id]):,} cells")
 
         # Worker function
         def process_gpu_cells(gpu_id, cell_indices_list):
             """Process assigned cells on a specific GPU."""
             cp.cuda.Device(gpu_id).use()
 
-            logger.info(f"  [GPU {gpu_id}] Starting with {len(cell_indices_list):,} cells")
+            logger.debug(f"  [GPU {gpu_id}] Starting with {len(cell_indices_list):,} cells")
 
             # Transfer masks
             cell_flat = cp.asarray(cell_mask.ravel(), dtype=cp.int32)
@@ -484,12 +484,12 @@ def compute_overlap_matrix_gpu_multi_gpu(
 
                 if (local_idx + 1) % progress_interval == 0:
                     pct = 100 * (local_idx + 1) / len(cell_indices_list)
-                    logger.info(
+                    logger.debug(
                         f"  [GPU {gpu_id}] Progress: {local_idx+1:,}/{len(cell_indices_list):,} "
                         f"({pct:.1f}%)"
                     )
 
-            logger.info(f"  [GPU {gpu_id}] Completed all {len(cell_indices_list):,} cells")
+            logger.debug(f"  [GPU {gpu_id}] Completed all {len(cell_indices_list):,} cells")
 
             del cell_flat, nucleus_flat
             cp.get_default_memory_pool().free_all_blocks()
@@ -1138,14 +1138,14 @@ def compute_overlap_matrix_gpu_bincount_multi_gpu(
             gpu_chunks[gpu_id].append(chunk_idx)
 
         for gpu_id in range(num_gpus):
-            logger.info(f"    GPU {gpu_id}: {len(gpu_chunks[gpu_id])} chunks")
+            logger.debug(f"    GPU {gpu_id}: {len(gpu_chunks[gpu_id])} chunks")
 
         # Worker function for each GPU
         def process_gpu_chunks(gpu_id, chunk_indices):
             """Process assigned chunks on a specific GPU."""
             cp.cuda.Device(gpu_id).use()
 
-            logger.info(f"  [GPU {gpu_id}] Starting with {len(chunk_indices)} chunks")
+            logger.debug(f"  [GPU {gpu_id}] Starting with {len(chunk_indices)} chunks")
 
             # Transfer indices to this GPU
             cell_indices = cp.asarray(cell_indices_cpu, dtype=cp.int64)
@@ -1153,13 +1153,29 @@ def compute_overlap_matrix_gpu_bincount_multi_gpu(
 
             results = []
 
+            # Milestone tracking for progress reporting
+            logged_milestones = set()
+            milestone_targets = [20, 40, 60, 80]
+            total_chunks_for_gpu = len(chunk_indices)
+
             for local_idx, chunk_idx in enumerate(chunk_indices):
                 chunk_start = chunk_idx * chunk_size
                 chunk_end = min(chunk_start + chunk_size, n_cells)
                 chunk_n_cells = chunk_end - chunk_start
 
+                # Milestone-based progress logging at INFO level
+                progress_pct = 100 * (local_idx + 1) / total_chunks_for_gpu
+                for milestone in milestone_targets:
+                    if progress_pct >= milestone and milestone not in logged_milestones:
+                        logger.info(
+                            f"  [GPU {gpu_id}] Overlap: {milestone}% complete "
+                            f"({local_idx+1}/{total_chunks_for_gpu} chunks)"
+                        )
+                        logged_milestones.add(milestone)
+                        break
+
                 if local_idx % 2 == 0:
-                    logger.info(
+                    logger.debug(
                         f"  [GPU {gpu_id}] Chunk {chunk_idx+1}/{n_chunks} "
                         f"({local_idx+1}/{len(chunk_indices)} for this GPU): "
                         f"cells [{chunk_start:,}, {chunk_end:,})"
@@ -1200,7 +1216,7 @@ def compute_overlap_matrix_gpu_bincount_multi_gpu(
                 del chunk_cell_indices, chunk_nucleus_indices, linear_indices
                 del counts, chunk_dense, chunk_rows, chunk_cols, chunk_rows_global
 
-            logger.info(f"  [GPU {gpu_id}] Completed all {len(chunk_indices)} chunks")
+            logger.debug(f"  [GPU {gpu_id}] Completed all {len(chunk_indices)} chunks")
 
             # Clean up
             del cell_indices, nucleus_indices

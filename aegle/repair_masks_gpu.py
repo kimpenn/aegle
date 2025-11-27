@@ -377,6 +377,10 @@ def _match_cells_to_nuclei(
     last_log_time = time.time()
     start_time = time.time()
 
+    # Milestone tracking for progress reporting at INFO level
+    logged_milestones = set()
+    milestone_targets = [20, 40, 60, 80]
+
     logger.info(f"  Starting cell-nucleus matching for {total_cells:,} cells...")
 
     # Disable tqdm progress bar when not interactive (avoids log spam)
@@ -402,11 +406,25 @@ def _match_cells_to_nuclei(
                 elapsed = current_time - start_time
                 rate = i / elapsed if elapsed > 0 else 0
                 eta = (total_cells - i) / rate if rate > 0 else 0
-                logger.info(
+                logger.debug(
                     f"  Matching progress: {i:,}/{total_cells:,} cells ({i/total_cells*100:.1f}%, "
                     f"{rate:.0f} cells/sec, ETA {eta:.0f}s, {repaired_num} repaired)"
                 )
                 last_log_time = current_time
+
+            # Milestone-based progress logging at INFO level
+            progress_pct = 100 * (i + 1) / total_cells
+            for milestone in milestone_targets:
+                if progress_pct >= milestone and milestone not in logged_milestones:
+                    elapsed = current_time - start_time
+                    rate = (i + 1) / elapsed if elapsed > 0 else 0
+                    eta = (total_cells - i - 1) / rate if rate > 0 else 0
+                    logger.info(
+                        f"  Matching: {milestone}% complete ({i+1:,}/{total_cells:,} cells, "
+                        f"{rate:.0f} cells/sec, ETA {eta:.0f}s)"
+                    )
+                    logged_milestones.add(milestone)
+                    break
             if len(cell_coords[i]) == 0:
                 pbar.update(1)
                 continue
