@@ -1,5 +1,9 @@
 #!/usr/bin/env python
-"""Generate downsampled overview JPEGs from manual OME-TIFF annotations."""
+"""Generate downsampled overview JPEGs from manual OME-TIFF annotations.
+
+Uses VIPS for efficient tile-based processing of large images, avoiding
+Bio-Formats' 2GB memory limit for single-plane extraction.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ import yaml
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, help="Path to experiment config YAML")
-    parser.add_argument("--root_dir", required=True, help="Repository root directory")
+    parser.add_argument("--root_dir", help="Repository root directory (deprecated, no longer required)")
     parser.add_argument("--downscale", type=float, default=0.5, help="Resize factor applied when generating overview JPEG")
     parser.add_argument("--quality", type=int, default=85, help="JPEG quality percentage (0-100)")
     parser.add_argument("--channel", type=int, default=0, help="Channel index to export from the OME-TIFF")
@@ -60,52 +64,41 @@ def run_command(cmd: list[str], env: Optional[Dict[str, str]] = None) -> None:
     subprocess.run(cmd, check=True, env=env)
 
 
-def ensure_java_heap(env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    env = {} if env is None else dict(env)
-    env.setdefault("_JAVA_OPTIONS", "-Xmx32g")
-    return env
+def convert_single_vips(
+    ome_path: Path, channel: int, downscale: float, quality: int, overwrite: bool
+) -> None:
+    """Convert OME-TIFF channel to downsampled JPEG using VIPS.
 
+    VIPS processes images tile-by-tile in streaming mode, avoiding the 2GB
+    memory limit that affects Bio-Formats bfconvert for large images.
 
-def convert_single(ome_path: Path, bfconvert_path: Path, channel: int, downscale: float, quality: int, overwrite: bool) -> None:
+    In OME-TIFF files, each channel is stored as a separate page (IFD).
+    """
     stem = ome_path.with_suffix("")
-    png_path = Path(f"{stem}.png")
     jpg_path = Path(f"{stem}_ch{channel}.jpg")
 
     if jpg_path.exists() and not overwrite:
         logging.info("Skipping existing JPEG: %s", jpg_path)
         return
 
-    if png_path.exists():
-        png_path.unlink()
+    logging.info(
+        "Converting channel %d from %s -> %s (scale=%.2f, Q=%d)",
+        channel,
+        ome_path.name,
+        jpg_path.name,
+        downscale,
+        quality,
+    )
 
-    logging.info("Exporting channel %s from %s", channel, ome_path.name)
-    env = ensure_java_heap()
-    run_command([
-        str(bfconvert_path),
-        "-overwrite",
-        "-series",
-        "0",
-        "-z",
-        "0",
-        "-timepoint",
-        "0",
-        "-channel",
-        str(channel),
-        str(ome_path),
-        str(png_path),
-    ], env=env)
-
-    logging.info("Resizing %s -> %s (factor=%s, quality=%s)", png_path.name, jpg_path.name, downscale, quality)
+    # VIPS pipeline: load specific page (channel) -> resize -> save as JPEG
+    # Using sequential access for efficient streaming of large images
     run_command([
         "vips",
         "resize",
-        str(png_path),
-        f"{jpg_path}[Q={quality}]",
+        f"{ome_path}[page={channel},access=sequential]",
+        f"{jpg_path}[Q={quality},strip]",
         str(downscale),
     ])
-
-    if png_path.exists():
-        png_path.unlink()
 
 
 def main() -> None:
@@ -113,11 +106,6 @@ def main() -> None:
     args = parse_args()
 
     config_path = Path(args.config)
-    root_dir = Path(args.root_dir)
-    bfconvert_path = root_dir / "bftools" / "bfconvert"
-
-    if not bfconvert_path.exists():
-        raise FileNotFoundError(f"bfconvert not found at expected path: {bfconvert_path}")
 
     config = load_config(config_path)
     data_path, output_dir = build_paths(config)
@@ -132,9 +120,8 @@ def main() -> None:
 
     for ome_path in ome_files:
         try:
-            convert_single(
+            convert_single_vips(
                 ome_path=ome_path,
-                bfconvert_path=bfconvert_path,
                 channel=args.channel,
                 downscale=args.downscale,
                 quality=args.quality,
