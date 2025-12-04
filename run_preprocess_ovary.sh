@@ -1,7 +1,7 @@
 #!/bin/bash
-
+# nohup bash /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/run_preprocess_ovary.sh > logs/run_preprocess_ovary_$(date +%Y%m%d_%H%M%S).log 2>&1 &
 # Define the maximum number of concurrent experiments (default: 2)
-MAX_CONCURRENT=${1:-2}
+MAX_CONCURRENT=${1:-1}
 
 # Define the experiment set name (same logic as in the main script)
 EXP_SET_NAME="preprocess/preprocess_ovary_hb"
@@ -27,10 +27,10 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names (or ID's)
 declare -a EXPERIMENTS=(
-  # "D11_13"
-  # "D14_15"
+  "D11_13"
+  "D14_15"
   "D16"
-  # "D17_18"
+  "D17_18"
 )
 
 echo "Starting processing with maximum $MAX_CONCURRENT concurrent experiments"
