@@ -6,6 +6,7 @@ Memory-efficient tissue region extraction for very large TIFF / QPTIFF.
 Author: Da Kuang & ChatGPT (May-2025)
 """
 
+import gc
 import os
 import sys
 import argparse
@@ -392,6 +393,8 @@ def stream_crops_by_polygon(
             )
             logging.warning(f"[Skip] {msg}")
             print(f"⚠ {msg}")
+            del mask_full
+            gc.collect()
             continue
 
         region = regionprops(label(mask_full.astype(np.uint8)))[0]
@@ -406,6 +409,8 @@ def stream_crops_by_polygon(
             )
             logging.warning(f"[Skip] {msg}")
             print(f"⚠ {msg}")
+            del mask_full
+            gc.collect()
             continue
 
         bbox = (minr, maxr, minc, maxc)
@@ -425,6 +430,8 @@ def stream_crops_by_polygon(
             )
             logging.warning(f"[Skip] {msg}")
             print(f"⚠ {msg}")
+            del crop, mask_full, mask_crop
+            gc.collect()
             continue
         crop[~mask_crop, :] = 0  # broadcast to all channels
 
@@ -443,8 +450,14 @@ def stream_crops_by_polygon(
         )
         print(f"✅ [Progress] Completed polygon {i+1}/{total_polygons}")
 
+        # Explicit memory cleanup to prevent OOM when processing multiple large polygons
+        del crop
+        del mask_full
+        del mask_crop
+        gc.collect()
+
     print(f"🎉 [Progress] All {total_polygons} polygons processed successfully!")
-    # 关闭 zarr（防止文件句柄泄漏）
+    # Close zarr store to prevent file handle leaks
     zarr_img.store.close()
 
 
@@ -462,7 +475,7 @@ def automatic_rois_from_preview(
     """
     H_full, W_full = zarr_img.shape[-2:]  # works for 2-D or 3-D (C,Y,X)
 
-    # preview （单通道 or mean of few channels）——避免读全部通道
+    # Preview using single channel (avoid reading all channels into memory)
     if zarr_img.ndim == 3:
         preview_gray = np.asarray(zarr_img[0, ::down_factor, ::down_factor])
     else:
