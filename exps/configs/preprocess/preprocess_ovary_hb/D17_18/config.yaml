@@ -10,6 +10,7 @@ tissue_extraction:
   downscale_factor: 64
   min_area: -1
   visualize: true
-  output_dir: /workspaces/codex-analysis/data/Ovary/D17_18/processed_hubmap
+  output_dir: 
+    /workspaces/codex-analysis/data/Ovary/D17_18/redo_Scan1/processed_hubmap
   manual_mask_json: 
     /workspaces/codex-analysis/data/Ovary/D17_18/redo_Scan1/processed_hubmap/hubmap_annotations

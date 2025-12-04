@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# nohup bash /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/run_main_ft.sh > logs/run_main_ft_$(date +%Y%m%d_%H%M%S).log 2>&1 &
 # Define the experiment set name
 EXP_SET_NAME="main_ft_hb"  # 
 

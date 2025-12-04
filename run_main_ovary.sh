@@ -1,5 +1,5 @@
 #!/bin/bash
-# nohup bash /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/run_main_ovary.sh > run_main_ovary.log 2>&1 &
+# nohup bash /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/run_main_ovary.sh > logs/run_main_ovary_$(date +%Y%m%d_%H%M%S).log 2>&1 &
 # Define the experiment set name
 EXP_SET_NAME="main_ovary_hb"  
 
@@ -23,8 +23,20 @@ mkdir -p "${LOG_DIR}"
 
 # Define an array of experiment names
 declare -a EXPERIMENTS=(
-  # "D17_0"
-  "D18_0"
+  "D11_13_0"
+  "D11_13_1"
+  "D11_13_2"
+  "D11_13_3"
+  "D11_13_4"
+  "D11_13_5"
+  "D11_13_6"
+  "D11_13_7"
+  "D14_15_0"
+  "D14_15_1"
+  "D14_15_2"
+  "D16_0"
+  "D17_18_0"
+  "D17_18_1"
 )
 
 # Count total experiments
