@@ -367,12 +367,29 @@ class CodexImage:
             self.antibody_df["antibody_name"].isin(wholecell_channels)
         ].index.tolist()
 
-        # Ensure we actually found the nucleus channel and at least one wholecell channel
-        if len(nucleus_idx) != 1 or len(wcell_idx) < 1:
+        # Find which wholecell channels were found vs missing
+        found_wcell_channels = self.antibody_df.loc[wcell_idx, "antibody_name"].tolist()
+        missing_wcell_channels = [ch for ch in wholecell_channels if ch not in found_wcell_channels]
+
+        # Log the channel matching results
+        self.logger.info(
+            f"Wholecell channel matching: {len(found_wcell_channels)}/{len(wholecell_channels)} "
+            f"channels found in image. Found: {found_wcell_channels}"
+        )
+
+        # Ensure we actually found the nucleus channel and ALL wholecell channels
+        if len(nucleus_idx) != 1:
             self.logger.error(
-                f"Could not find all target channels. "
-                f"nucleus: {nucleus_channel} (found {len(nucleus_idx)}) | "
-                f"Wholecell: {wholecell_channels} (found {len(wcell_idx)})"
+                f"Could not find nucleus channel '{nucleus_channel}' in image. "
+                f"Available channels: {self.antibody_df['antibody_name'].tolist()}"
+            )
+            sys.exit(1)
+
+        if len(wcell_idx) != len(wholecell_channels):
+            self.logger.error(
+                f"Could not find all wholecell channels in image. "
+                f"Requested: {wholecell_channels} | Found: {found_wcell_channels} | "
+                f"Missing: {missing_wcell_channels}"
             )
             sys.exit(1)
 
