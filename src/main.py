@@ -105,9 +105,9 @@ def parse_args():
     parser.add_argument(
         "--resume_stage",
         type=str,
-        choices=["cell_profiling"],
+        choices=["cell_profiling", "visualization"],
         default=None,
-        help="Resume the pipeline from a downstream stage (e.g., cell_profiling).",
+        help="Resume the pipeline from a specific stage. Options: cell_profiling (re-run profiling), visualization (skip to post-profiling visualization/report).",
     )
     return parser.parse_args()
 

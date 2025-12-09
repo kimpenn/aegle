@@ -370,6 +370,14 @@ def run_pipeline(config, args):
         run_cell_profiling(codex_patches, config, args)
         logging.info("Cell profiling completed (resume mode).")
         # Continue to post-profiling stages (visualization, analysis, report) instead of returning
+    elif resume_stage == "visualization":
+        logging.info(
+            "Skipping to visualization/report; loading existing outputs from %s",
+            args.out_dir,
+        )
+        codex_patches = CodexPatches.load_from_outputs(config, args)
+        logging.info("Loaded existing outputs. Proceeding to visualization and report generation.")
+        # Continue to post-profiling stages (visualization, analysis, report)
     else:
         # ---------------------------------
         # (A) Load Image and Antibodies Data
