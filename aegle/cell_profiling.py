@@ -196,6 +196,9 @@ def run_cell_profiling(codex_patches, config, args):
                 metadata_df["global_cell_id"] = metadata_df.index.astype(str) + f"_patch_{patch_idx}"
             
             # For merge modes, transform coordinates from patch-local to global coordinates
+            # Coordinate System: Standard image convention (TIFF/scikit-image)
+            # - Origin (0,0) at top-left corner
+            # - x (column) increases rightward, y (row) increases downward
             if should_merge and len(metadata_df) > 0:
                 # Get patch coordinate information
                 if isinstance(patches_metadata_df, pd.DataFrame):

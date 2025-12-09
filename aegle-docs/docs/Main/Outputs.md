@@ -65,7 +65,7 @@ The `cell_profiling/` directory contains the primary analytical outputs for sing
 |----------------|---------|------|-------------|
 | **Identity** | `cell_id` | integer | Unique cell identifier matching marker data |
 | **Basic Morphology** | `area` | float | Cell area in pixels |
-| | `centroid_x`, `centroid_y` | float | Cell center coordinates |
+| | `centroid_x`, `centroid_y` | float | Cell center coordinates (see coordinate convention below) |
 | | `perimeter` | float | Cell boundary length in pixels |
 | | `convex_area` | float | Area of convex hull around cell |
 | | `axis_major_length`, `axis_minor_length` | float | Major/minor axis lengths |
@@ -76,6 +76,11 @@ The `cell_profiling/` directory contains the primary analytical outputs for sing
 
 **File Size**: Typically 100KB - 10MB per patch
 **Usage**: Quality filtering, morphological analysis, spatial analysis
+
+> **Coordinate System Convention**: All coordinates follow the standard image coordinate convention (TIFF/scikit-image):
+> - Origin (0, 0) is at the **top-left** corner of the image
+> - X-axis (column) increases **rightward**
+> - Y-axis (row) increases **downward**
 
 ### Image and Processing Data
 

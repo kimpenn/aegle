@@ -22,7 +22,17 @@ def extract_features_v2_optimized(
     compute_cov=False,
     channel_dtype=np.float32,
 ):
-    """Compute marker intensities and morphology statistics for matched cells."""
+    """Compute marker intensities and morphology statistics for matched cells.
+
+    Coordinate System:
+        All centroid coordinates follow the standard image coordinate convention:
+        - Origin (0, 0) at the top-left corner
+        - centroid_x: column index (increases rightward)
+        - centroid_y: row index (increases downward)
+
+        This mapping is derived from scikit-image regionprops which returns
+        centroids as (row, col), aliased here as (y, x).
+    """
     logger = logging.getLogger(__name__)
     # Log optimization flags
     logger.info(
