@@ -797,6 +797,9 @@ class CodexPatches:
 
     def finalize_all_channel_cache(self) -> None:
         """Remove cached all-channel patches when they are not meant to persist."""
+        # Always clean up the memmap cache (it can be regenerated from .zst)
+        self.cleanup_memmap_cache()
+
         if self.save_all_channel_patches_flag:
             return
 
@@ -811,6 +814,27 @@ class CodexPatches:
                     f"Failed to remove cached all_channel_patches {self.all_channel_patches_path}: {exc}"
                 )
         self.all_channel_patches_path = None
+
+    def cleanup_memmap_cache(self) -> None:
+        """Remove the decompressed memmap cache file to free disk space.
+
+        The memmap file is a decompression cache that can be regenerated from
+        the compressed .npy.zst file if needed. It's safe to remove after
+        cell profiling completes.
+        """
+        if self.all_channel_memmap_path and os.path.exists(self.all_channel_memmap_path):
+            try:
+                os.remove(self.all_channel_memmap_path)
+                self.logger.info(
+                    f"Removed memmap cache at {self.all_channel_memmap_path}"
+                )
+            except OSError as exc:
+                self.logger.warning(
+                    f"Failed to remove memmap cache {self.all_channel_memmap_path}: {exc}"
+                )
+        self.all_channel_memmap_path = None
+        # Also clear the in-memory reference since it's now invalid
+        self.all_channel_patches = None
 
     def add_disruptions(self, disruption_type, disruption_level):
         """
