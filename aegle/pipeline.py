@@ -355,6 +355,8 @@ def run_pipeline(config, args):
 
     cell_metadata_df: Optional[pd.DataFrame] = None
     resume_stage = getattr(args, "resume_stage", None)
+    # Extract split_mode early so it's available in all code paths (including resume mode)
+    split_mode = config.get("patching", {}).get("split_mode", "patches")
     if resume_stage:
         logging.info("Resume mode detected. Stage: %s", resume_stage)
 
@@ -407,9 +409,6 @@ def run_pipeline(config, args):
         codex_patches.save_patches()
         codex_patches.save_metadata()
         logging.info("Patches generated and metadata saved successfully.")
-
-        # Extract split_mode for use in patch visualization and segmentation logic
-        split_mode = config.get("patching", {}).get("split_mode", "patches")
 
         # Optional: Add disruptions to patches for testing
         # Extract distruption type and level from config
