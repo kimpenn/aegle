@@ -540,7 +540,8 @@ def run_pipeline(config, args):
         informative_mask = patches_metadata_df["is_informative"] == True
         informative_indices = patches_metadata_df[informative_mask].index.tolist()
 
-        extended_image = getattr(codex_patches.codex_image, "extended_extracted_channel_image", None)
+        # Get extended image for visualization (works in both normal and resume modes)
+        extended_image = codex_patches.get_extended_image_for_visualization()
         if extended_image is not None:
             image_height, image_width = extended_image.shape[:2]
         else:

@@ -787,6 +787,48 @@ class CodexPatches:
         """Return the full all-channel patch tensor, loading it if needed."""
         return self._ensure_all_channel_patches_loaded()
 
+    def get_extended_image_for_visualization(self) -> np.ndarray:
+        """Load and return the extended extracted channel image for visualization.
+
+        This method loads the extracted_channel_patches from disk and returns it
+        in a format suitable for visualization overlays. For full_image mode,
+        this returns the single patch (which is the entire image).
+
+        Returns:
+            np.ndarray: The extended image with shape (height, width, channels)
+                       or None if not available.
+        """
+        # First check if we have it in memory via codex_image
+        if getattr(self, "codex_image", None) is not None:
+            extended = getattr(self.codex_image, "extended_extracted_channel_image", None)
+            if extended is not None:
+                return extended
+
+        # Try to load from extracted_channel_patches on disk
+        if self.extracted_channel_patches is not None and self.extracted_channel_patches.size > 0:
+            # Already loaded in memory
+            if self.extracted_channel_patches.ndim == 4 and self.extracted_channel_patches.shape[0] == 1:
+                return self.extracted_channel_patches[0]
+            return self.extracted_channel_patches
+
+        if self.extracted_channel_patches_path and os.path.exists(self.extracted_channel_patches_path):
+            self.logger.info(
+                "Loading extracted_channel_patches for visualization from %s",
+                self.extracted_channel_patches_path
+            )
+            self.extracted_channel_patches = self._read_array_zstd(self.extracted_channel_patches_path)
+            self.logger.info(
+                "Loaded extracted_channel_patches with shape %s",
+                self.extracted_channel_patches.shape
+            )
+            # For full_image mode, shape is (1, H, W, C) - return (H, W, C)
+            if self.extracted_channel_patches.ndim == 4 and self.extracted_channel_patches.shape[0] == 1:
+                return self.extracted_channel_patches[0]
+            return self.extracted_channel_patches
+
+        self.logger.warning("No extracted channel patches available for visualization")
+        return None
+
     def get_all_channel_patch(self, patch_index: int):
         """Return a single all-channel patch regardless of storage strategy."""
         if self.is_using_disk_based_patches():
