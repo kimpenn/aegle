@@ -296,7 +296,7 @@ def segment(
     segmentation_predictions = model.predict(
         valid_patches, image_mpp=image_mpp, compartment="both"
     )
-    
+
     memory_monitor.log_memory_usage("After model.predict")
     memory_monitor.log_array_info(segmentation_predictions, "segmentation_predictions")
     

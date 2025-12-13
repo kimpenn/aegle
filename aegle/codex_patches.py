@@ -124,6 +124,11 @@ class CodexPatches:
         instance.all_channel_patches = None
         instance.extracted_channel_patches = None
 
+        # Check for disk-based patches in intermediate_patches/ directory
+        # These are used for halves/quarters/full_image modes to avoid loading
+        # the entire image into memory during cell profiling
+        instance.patch_files = cls._load_disk_based_patches(args.out_dir, config, instance.logger)
+
         instance.segmentation_manifest = cls._load_segmentation_manifest(args.out_dir)
 
         instance.logger.info(
@@ -193,6 +198,75 @@ class CodexPatches:
                 "Failed to read segmentation_manifest.json from %s", manifest_path
             )
             return None
+
+    @staticmethod
+    def _load_disk_based_patches(out_dir: str, config: Dict, logger) -> List[Dict]:
+        """
+        Detect and load disk-based patches from intermediate_patches/ directory.
+
+        These patches are created during halves/quarters/full_image split modes
+        to avoid loading the entire image into memory. During resume, we need to
+        reconstruct the patch_files list so that get_all_channel_patch() uses
+        these disk-based patches instead of the full image memmap.
+
+        Returns:
+            List of dicts with 'extracted' and 'all' paths for each patch,
+            or empty list if no disk-based patches exist.
+        """
+        # Determine split mode from config
+        patching_config = config.get("patching", {})
+        split_mode = patching_config.get("split_mode", "patches")
+
+        # Only halves/quarters use disk-based patches in intermediate_patches/
+        # - full_image: stores in-memory, saves to all_channel_patches.npy.zst
+        # - patches: stores in-memory, saves to all_channel_patches.npy.zst
+        if split_mode not in ("halves", "quarters"):
+            logger.debug(f"split_mode={split_mode} does not use disk-based patches")
+            return []
+
+        patches_dir = os.path.join(out_dir, "intermediate_patches")
+        if not os.path.isdir(patches_dir):
+            logger.debug("No intermediate_patches directory found, using memmap loading")
+            return []
+
+        # Look for patch files matching the pattern: patch_{idx}_{split_mode}_all.npy
+        patch_files = []
+        patch_idx = 0
+
+        while True:
+            all_filename = f"patch_{patch_idx}_{split_mode}_all.npy"
+            extracted_filename = f"patch_{patch_idx}_{split_mode}_extracted.npy"
+
+            all_path = os.path.join(patches_dir, all_filename)
+            extracted_path = os.path.join(patches_dir, extracted_filename)
+
+            if not os.path.exists(all_path):
+                break
+
+            # Get shape from the file without loading it fully
+            all_shape = np.load(all_path, mmap_mode='r').shape
+            extracted_shape = None
+            if os.path.exists(extracted_path):
+                extracted_shape = np.load(extracted_path, mmap_mode='r').shape
+
+            patch_files.append({
+                "extracted": extracted_path if os.path.exists(extracted_path) else None,
+                "all": all_path,
+                "shape_extracted": extracted_shape,
+                "shape_all": all_shape,
+            })
+
+            patch_idx += 1
+
+        if patch_files:
+            logger.info(
+                f"Found {len(patch_files)} disk-based patches in intermediate_patches/ "
+                f"(split_mode={split_mode})"
+            )
+            for i, pf in enumerate(patch_files):
+                logger.debug(f"  Patch {i}: shape={pf['shape_all']}")
+
+        return patch_files
 
     def get_patches(self):
         if self.noisy_extracted_channel_patches is not None:

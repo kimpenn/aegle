@@ -35,10 +35,12 @@ channels:
     - Vimentin
 patching:
   # Split mode can be "full_image", "halves", "quarters", or "patches"
-  split_mode: full_image
+  # Using halves to avoid OOM during watershed (full_image requires ~77GB for h_maxima)
+  split_mode: halves
 
   # Split direction can be "vertical" or "horizontal"
-  split_direction: NULL
+  # Using horizontal to split the taller dimension (43219 → ~21600 per half)
+  split_direction: horizontal
 
   # Size (height, width) of each patch (in pixels)
   patch_height: NULL
