@@ -26,6 +26,11 @@ analysis:
   clustering_resolution: 0.2
   norm_method: rank_fraction
 
+  # GPU acceleration for clustering (k-NN graph construction via FAISS-GPU)
+  # Provides 10-50x speedup on large datasets (>10K cells)
+  use_gpu: true
+  gpu_id: 0
+
   # Optional overrides for analysis output structure
   output_subdir: null
   plots_subdir: plots

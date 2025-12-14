@@ -32,6 +32,11 @@ def plot_segmentation_masks(
         figsize: Figure size as (width, height)
         output_path: Path to save the figure (if None, figure is not saved)
     """
+    # Squeeze extra dimensions (e.g., (1, H, W) -> (H, W))
+    cell_mask = np.squeeze(cell_mask)
+    if nuc_mask is not None:
+        nuc_mask = np.squeeze(nuc_mask)
+
     if nuc_mask is not None:
         # Plot both cell and nuclear masks
         fig, axes = plt.subplots(1, 2, figsize=figsize)
@@ -113,6 +118,9 @@ def plot_clustering_on_mask(
         Dictionary mapping cluster IDs to RGB colors          
     """
     logging.info("Starting clustering visualization...")
+
+    # Squeeze extra dimensions (e.g., (1, H, W) -> (H, W))
+    cell_mask = np.squeeze(cell_mask)
 
     # Ensure cell_mask is integer type
     if not np.issubdtype(cell_mask.dtype, np.integer):
@@ -221,6 +229,9 @@ def plot_marker_expression_on_mask(
         figsize: Figure size as (width, height)
         output_path: Path to save the figure (if None, figure is not saved)
     """
+    # Squeeze extra dimensions (e.g., (1, H, W) -> (H, W))
+    cell_mask = np.squeeze(cell_mask)
+
     # Get the maximum cell ID in the mask
     max_cell_id = int(cell_mask.max())
 
