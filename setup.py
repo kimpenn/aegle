@@ -32,6 +32,7 @@ setup(
             "seaborn>=0.12.0",
             "statsmodels>=0.13.0",
             "scipy>=1.7.0",
+            "leidenalg>=0.9.0",  # Required for Leiden clustering in scanpy
         ],
         "gpu": [
             # CuPy for GPU-accelerated computing
