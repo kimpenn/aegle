@@ -87,7 +87,7 @@ class PipelineReportGenerator:
         self._collect_sample_preview()
         self._collect_segmentation_visualization()
         self._collect_segmentation_channel_info()
-        # self._collect_quality_metrics()
+        self._collect_quality_metrics()
         self._collect_segmentation_stats()
         self._collect_mask_repair_stats()
         self._collect_expression_stats()
@@ -115,6 +115,7 @@ class PipelineReportGenerator:
         self.report_data['metadata'] = {
             'report_generated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'experiment_id': self.config.get('exp_id', 'Unknown'),
+            'sample_id': self.config.get('sample_id', 'Unknown'),
             'output_directory': str(self.output_dir),
             'pipeline_version': '0.1',  # TODO: Get from version file
         }
@@ -1669,6 +1670,10 @@ class PipelineReportGenerator:
             <div class="metric">
                 <div class="metric-value">{{ metadata.experiment_id }}</div>
                 <div class="metric-label">Experiment ID</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">{{ metadata.sample_id }}</div>
+                <div class="metric-label">Sample ID</div>
             </div>
             <div class="metric">
                 <div class="metric-value">{{ segmentation_stats.total_cells|default(0) }}</div>
