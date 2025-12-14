@@ -12,7 +12,7 @@
 #   --no_upload   Collect reports locally without uploading to Box
 #
 # =============================================================================
-
+# bash /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/launcher/run_datasink_ft.sh --no_upload
 set -e
 
 # Configuration

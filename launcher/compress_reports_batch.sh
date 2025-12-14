@@ -1,7 +1,7 @@
 #!/bin/bash
 # Batch compress HTML reports for multiple output directories
 # Renames original to .raw.html and saves compressed as pipeline_report.html
-
+# bash /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/launcher/compress_reports_batch.sh
 set -e
 
 REPO_ROOT="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline"
