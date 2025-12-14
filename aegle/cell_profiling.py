@@ -48,11 +48,21 @@ def run_cell_profiling(codex_patches, config, args):
     # GPU configuration
     use_gpu = features_config.get("use_gpu", False)
     gpu_batch_size = features_config.get("gpu_batch_size", 0)
+    gpu_image_mode = features_config.get("gpu_image_mode", "auto")
     gpu_available = is_cupy_available()
 
     if use_gpu and not gpu_available:
         logger.warning("GPU requested but not available, using CPU version")
         use_gpu = False
+
+    # Regionprops caching configuration
+    cache_regionprops = features_config.get("cache_regionprops", False)
+    cache_dir = None
+    if cache_regionprops:
+        cache_dir = features_config.get("regionprops_cache_dir")
+        if cache_dir is None:
+            cache_dir = os.path.join(args.out_dir, "cache", "regionprops")
+        logger.info(f"Regionprops caching enabled, cache_dir: {cache_dir}")
 
     logger.info(
         "Profiling features: compute_laplacian=%s, compute_cov=%s, channel_dtype=%s, use_gpu=%s",
@@ -127,17 +137,11 @@ def run_cell_profiling(codex_patches, config, args):
                 f"Loaded patch {patch_idx} from disk for profiling with shape: {patch_img.shape}"
             )
 
-        # Build the image_dict for extract_features_v2
-        # Each entry is {antibody_name: 2D image}
-        image_dict = {}
-        for channel_idx, ab in enumerate(antibodies):
-            image_dict[ab] = patch_img[:, :, channel_idx]
-
         # Extract features (exp_df: cell-by-marker, metadata_df: cell metadata)
         if use_gpu:
-            # GPU mode
+            # GPU mode - pass raw patch for optimal full_gpu or chw_cpu processing
             exp_df, metadata_df = extract_features_v2_gpu(
-                image_dict,
+                patch_img,  # Raw (H, W, C) array for optimal GPU processing
                 nucleus_mask,
                 antibodies,
                 cell_masks=cell_mask,
@@ -145,9 +149,15 @@ def run_cell_profiling(codex_patches, config, args):
                 compute_cov=compute_cov,
                 channel_dtype=channel_dtype,
                 gpu_batch_size=gpu_batch_size,
+                gpu_image_mode=gpu_image_mode,
+                cache_dir=cache_dir,
             )
         else:
-            # CPU mode
+            # CPU mode - build image_dict
+            image_dict = {}
+            for channel_idx, ab in enumerate(antibodies):
+                image_dict[ab] = patch_img[:, :, channel_idx]
+
             exp_df, metadata_df = extract_features_v2_optimized(
                 image_dict,
                 nucleus_mask,
@@ -157,6 +167,9 @@ def run_cell_profiling(codex_patches, config, args):
                 compute_cov=compute_cov,
                 channel_dtype=channel_dtype,
             )
+
+            # Clean up image_dict after CPU extraction
+            del image_dict
         logger.info(f"Extracted features for patch {patch_idx} with shape: {exp_df.shape}")
         logger.info(f"Metadata for patch {patch_idx} with shape: {metadata_df.shape}")
         logger.info(f"Exp DataFrame: {exp_df.head()}")
@@ -306,8 +319,6 @@ def run_cell_profiling(codex_patches, config, args):
                 next_progress_fraction += 0.05
         
         # Memory cleanup after feature extraction
-        # Clean up image_dict to release channel slice references
-        del image_dict
         if codex_patches.is_using_disk_based_patches():
             del patch_img
         gc.collect()

@@ -187,6 +187,91 @@ def get_gpu_count():
         return 0
 
 
+def estimate_full_image_vram_gb(image_shape, n_cells, dtype=np.float32, safety_factor=1.2):
+    """Estimate VRAM needed for full-image GPU mode.
+
+    In full-image mode, the entire (H, W, C) image is transferred to GPU once,
+    allowing fast GPU-side slicing instead of slow CPU-side contiguous copies.
+
+    Args:
+        image_shape: Shape of the image as (height, width, channels) or (height, width)
+        n_cells: Number of cells (max label value)
+        dtype: Data type for image processing (default: np.float32)
+        safety_factor: Multiply estimated memory by this factor (default: 1.2 = 20% margin)
+
+    Returns:
+        float: Estimated VRAM requirement in GB
+
+    Components:
+        - Full image: H * W * C * dtype_size
+        - Masks: H * W * 8 * 2 (two int64 masks for cell and nucleus)
+        - Flattened labels: H * W * 8 * 2 (flattened versions of masks)
+        - Per-channel intermediates: H * W * dtype_size * 2
+        - Bincount outputs: n_cells * dtype_size * 4
+    """
+    if len(image_shape) == 3:
+        h, w, c = image_shape
+    else:
+        h, w = image_shape
+        c = 1
+
+    pixels = h * w
+    dtype_size = np.dtype(dtype).itemsize
+
+    vram_gb = (
+        pixels * c * dtype_size / 1e9 +      # Full image on GPU
+        pixels * 8 * 2 / 1e9 +               # Cell + nucleus masks (int64)
+        pixels * 8 * 2 / 1e9 +               # Flattened label arrays
+        pixels * dtype_size * 2 / 1e9 +      # Per-channel intermediates
+        n_cells * dtype_size * 4 / 1e9       # Bincount output arrays
+    )
+
+    return vram_gb * safety_factor
+
+
+def can_fit_full_image_on_gpu(image_shape, n_cells, dtype=np.float32, device_id=0):
+    """Check if full-image GPU mode is feasible with current free memory.
+
+    This function estimates whether the GPU has sufficient VRAM to hold
+    the entire image plus masks and intermediate arrays needed for processing.
+
+    Args:
+        image_shape: Shape of the image as (height, width, channels)
+        n_cells: Number of cells (max label value)
+        dtype: Data type for image processing (default: np.float32)
+        device_id: GPU device ID to check (default: 0)
+
+    Returns:
+        tuple: (can_fit, required_gb, available_gb)
+            - can_fit: True if full image mode is feasible
+            - required_gb: Estimated VRAM requirement in GB
+            - available_gb: Currently available VRAM in GB
+
+    Example:
+        >>> can_fit, required, available = can_fit_full_image_on_gpu(
+        ...     (21609, 27840, 45), n_cells=634000
+        ... )
+        >>> if can_fit:
+        ...     # Use full GPU mode
+        ...     pass
+        ... else:
+        ...     # Fall back to CHW pre-conversion
+        ...     pass
+    """
+    required_gb = estimate_full_image_vram_gb(image_shape, n_cells, dtype)
+
+    mem_info = get_gpu_memory_info(device_id)
+    if mem_info is None:
+        logger.warning("Could not query GPU memory - assuming full image mode not feasible")
+        return False, required_gb, 0.0
+
+    # Use 90% of free memory as threshold
+    available_gb = mem_info['free_gb'] * 0.9
+    can_fit = required_gb <= available_gb
+
+    return can_fit, required_gb, available_gb
+
+
 def clear_gpu_memory():
     """Clear GPU memory pool.
 

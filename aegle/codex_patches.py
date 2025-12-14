@@ -358,6 +358,128 @@ class CodexPatches:
         """Check if this instance is using disk-based patches."""
         return hasattr(self, 'patch_files') and bool(self.patch_files)
 
+    def _get_total_image_dimensions(self) -> Tuple[int, int, int]:
+        """Determine total image dimensions for stitching disk-based patches.
+
+        Returns:
+            Tuple of (height, width, n_channels)
+        """
+        # Try segmentation manifest first (has image_shape from original run)
+        if hasattr(self, 'segmentation_manifest') and self.segmentation_manifest:
+            image_shape = self.segmentation_manifest.get("image_shape")
+            if image_shape and len(image_shape) >= 2:
+                height = image_shape[0]
+                width = image_shape[1]
+                n_channels = image_shape[2] if len(image_shape) > 2 else 2
+                return (height, width, n_channels)
+
+        # Fallback: calculate from patch metadata
+        metadata_df = self.get_patches_metadata()
+        if metadata_df is None or (hasattr(metadata_df, 'empty') and metadata_df.empty):
+            return (0, 0, 0)
+
+        # Calculate max extents from patch positions + dimensions
+        total_height = 0
+        total_width = 0
+        for _, row in metadata_df.iterrows():
+            y_end = int(row.get("y_start", 0)) + int(row.get("patch_height", row.get("height", 0)))
+            x_end = int(row.get("x_start", 0)) + int(row.get("patch_width", row.get("width", 0)))
+            total_height = max(total_height, y_end)
+            total_width = max(total_width, x_end)
+
+        # Get number of channels from first patch file shape
+        n_channels = 2  # Default for extracted channels (DAPI + membrane)
+        if self.patch_files and self.patch_files[0].get("shape_extracted"):
+            shape = self.patch_files[0]["shape_extracted"]
+            if len(shape) > 2:
+                n_channels = shape[2]
+
+        return (total_height, total_width, n_channels)
+
+    def _stitch_extracted_patches_for_visualization(self) -> Optional[np.ndarray]:
+        """Stitch disk-based extracted channel patches into a unified image.
+
+        This method is used for halves/quarters mode where patches are stored
+        on disk to avoid loading the full image into memory. For visualization,
+        we only need the extracted channels (typically 2 channels: DAPI + membrane),
+        which is much smaller than the full all-channel image.
+
+        Returns:
+            np.ndarray: Stitched image with shape (H, W, C) or None if unavailable.
+        """
+        if not self.patch_files:
+            self.logger.warning("No disk-based patches available for stitching")
+            return None
+
+        # Determine total image dimensions
+        total_height, total_width, n_channels = self._get_total_image_dimensions()
+        if total_height == 0 or total_width == 0:
+            self.logger.warning("Could not determine total image dimensions for stitching")
+            return None
+
+        self.logger.info(
+            "Stitching %d disk-based extracted patches into %dx%d image with %d channels",
+            len(self.patch_files), total_width, total_height, n_channels
+        )
+
+        # Get dtype from first patch
+        first_patch = self.load_patch_from_disk(0, "extracted")
+        if first_patch is None:
+            self.logger.warning("Could not load first patch for stitching")
+            return None
+        dtype = first_patch.dtype
+
+        # Allocate output array
+        stitched = np.zeros((total_height, total_width, n_channels), dtype=dtype)
+
+        # Get patches metadata
+        metadata_df = self.get_patches_metadata()
+
+        # Stitch each patch into position
+        for patch_idx in range(len(self.patch_files)):
+            patch_info = self.patch_files[patch_idx]
+            if patch_info.get("extracted") is None:
+                self.logger.warning("Patch %d has no extracted file; skipping", patch_idx)
+                continue
+
+            # Load patch from disk (reuse first patch if idx == 0)
+            if patch_idx == 0:
+                patch = first_patch
+            else:
+                patch = self.load_patch_from_disk(patch_idx, "extracted")
+
+            if patch is None:
+                self.logger.warning("Could not load patch %d for stitching; skipping", patch_idx)
+                continue
+
+            # Get position from metadata
+            row = metadata_df.iloc[patch_idx]
+            x_start = int(row.get("x_start", 0))
+            y_start = int(row.get("y_start", 0))
+
+            patch_height, patch_width = patch.shape[:2]
+
+            # Place patch into stitched image
+            y_end = min(y_start + patch_height, total_height)
+            x_end = min(x_start + patch_width, total_width)
+
+            stitched[y_start:y_end, x_start:x_end, :] = patch[:y_end - y_start, :x_end - x_start, :]
+
+            self.logger.debug(
+                "Placed patch %d at (%d, %d) with size %dx%d",
+                patch_idx, x_start, y_start, patch_width, patch_height
+            )
+
+            # Free memory after placing
+            del patch
+
+        # Clean up first_patch reference
+        del first_patch
+        gc.collect()
+
+        self.logger.info("Successfully stitched extracted patches into visualization image")
+        return stitched
+
     def get_patches_metadata(self):
         return self.patches_metadata
 
@@ -755,15 +877,22 @@ class CodexPatches:
         else:
             self.logger.info("Compressing patches with %d Zstandard threads.", threads)
 
-        extracted_path = os.path.join(self.args.out_dir, "extracted_channel_patches.npy.zst")
-        self._write_array_zstd(self.extracted_channel_patches, extracted_path, threads)
-        self.extracted_channel_patches_path = extracted_path
-        self.logger.info(
-            f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}"
-        )
-        self.logger.info(
-            f"Saved extracted_channel_patches to {extracted_path} using Zstandard compression"
-        )
+        # Skip saving extracted_channel_patches if it's empty (disk-based patches mode)
+        if self.extracted_channel_patches is None or self.extracted_channel_patches.size == 0:
+            self.logger.info(
+                "Skipping extracted_channel_patches export because data is unavailable "
+                "(this is expected for disk-based patches mode: halves/quarters)"
+            )
+        else:
+            extracted_path = os.path.join(self.args.out_dir, "extracted_channel_patches.npy.zst")
+            self._write_array_zstd(self.extracted_channel_patches, extracted_path, threads)
+            self.extracted_channel_patches_path = extracted_path
+            self.logger.info(
+                f"Shape of extracted_channel_patches: {self.extracted_channel_patches.shape}"
+            )
+            self.logger.info(
+                f"Saved extracted_channel_patches to {extracted_path} using Zstandard compression"
+            )
 
         write_all_channel = self.cache_all_channel_patches or self.save_all_channel_patches_flag
         if not write_all_channel:
@@ -866,7 +995,8 @@ class CodexPatches:
 
         This method loads the extracted_channel_patches from disk and returns it
         in a format suitable for visualization overlays. For full_image mode,
-        this returns the single patch (which is the entire image).
+        this returns the single patch (which is the entire image). For disk-based
+        patches (halves/quarters mode), this stitches the individual patches together.
 
         Returns:
             np.ndarray: The extended image with shape (height, width, channels)
@@ -878,7 +1008,11 @@ class CodexPatches:
             if extended is not None:
                 return extended
 
-        # Try to load from extracted_channel_patches on disk
+        # For disk-based patches (halves/quarters), stitch patches together
+        if self.is_using_disk_based_patches():
+            return self._stitch_extracted_patches_for_visualization()
+
+        # Try to load from extracted_channel_patches in memory
         if self.extracted_channel_patches is not None and self.extracted_channel_patches.size > 0:
             # Already loaded in memory
             if self.extracted_channel_patches.ndim == 4 and self.extracted_channel_patches.shape[0] == 1:
@@ -895,6 +1029,17 @@ class CodexPatches:
                 "Loaded extracted_channel_patches with shape %s",
                 self.extracted_channel_patches.shape
             )
+
+            # Validate loaded array has valid shape (at least 2D with non-zero dimensions)
+            # For disk-based patches mode (halves/quarters), this may be an empty array
+            if self.extracted_channel_patches.ndim < 2 or self.extracted_channel_patches.size == 0:
+                self.logger.warning(
+                    "Loaded extracted_channel_patches has invalid shape %s for visualization; "
+                    "this is expected for disk-based patches mode (halves/quarters)",
+                    self.extracted_channel_patches.shape
+                )
+                return None
+
             # For full_image mode, shape is (1, H, W, C) - return (H, W, C)
             if self.extracted_channel_patches.ndim == 4 and self.extracted_channel_patches.shape[0] == 1:
                 return self.extracted_channel_patches[0]

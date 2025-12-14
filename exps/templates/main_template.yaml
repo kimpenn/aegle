@@ -199,3 +199,27 @@ profiling:
     # Set to 0 for automatic detection based on available VRAM
     # Larger batches are faster but require more GPU memory
     gpu_batch_size: 0
+
+    # GPU image processing mode for cell profiling (NEW)
+    # Controls how image data is transferred to GPU for channel intensity computation
+    # - "auto": Select based on available VRAM (recommended)
+    #   If >40GB free: uses full_gpu mode (fastest)
+    #   Otherwise: uses chw_cpu mode (still 100x faster than legacy)
+    # - "full_gpu": Transfer entire (H,W,C) image to GPU once (~60s)
+    #   GPU slicing is ~100x faster than CPU slicing
+    #   Requires ~40GB VRAM for typical large samples
+    # - "chw_cpu": Pre-convert to channel-first format in RAM (~45s)
+    #   Slices are contiguous, enabling fast GPU transfer
+    #   Requires ~54GB peak RAM during conversion
+    # - "legacy": Per-channel transfer with image_dict (slowest)
+    #   Use only for backward compatibility testing
+    gpu_image_mode: auto
+
+    # Regionprops caching for faster testing/development (NEW)
+    # Caches nucleus and cell morphology properties to Parquet files
+    # Saves ~16 min per sample (6 min nucleus + 10 min cell regionprops)
+    # Cache key includes mask dimensions and content hash for invalidation
+    cache_regionprops: false
+
+    # Custom cache directory for regionprops (null = out_dir/cache/regionprops)
+    regionprops_cache_dir: null
