@@ -103,25 +103,25 @@ class TestGPUConfigPropagation(unittest.TestCase):
                 run_cell_profiling(codex_patches, config, args)
 
                 # GPU function should have been called
-                self.assertTrue(mock_gpu.called,
+                self.assertTrue(gpu_mock.called,
                               "GPU function should be called when use_gpu=True")
 
     def test_gpu_config_disabled_uses_cpu_path(self):
         """use_gpu=False in config should use CPU code path."""
         # Create synthetic patch
-        patch = make_single_cell_patch(
+        synthetic_patch = make_single_cell_patch(
             shape=(64, 64),
             channels=("chan0",),
             nucleus_intensity={"chan0": 50.0},
             cytoplasm_intensity={"chan0": 5.0},
         )
 
-        antibodies = list(patch.channels)
-        patch_img = np.stack([patch.image_dict[ch] for ch in antibodies], axis=2)
+        antibodies = list(synthetic_patch.channels)
+        patch_img = np.stack([synthetic_patch.image_dict[ch] for ch in antibodies], axis=2)
         patches = [patch_img]
         seg_results = [{
-            "nucleus_matched_mask": patch.nucleus_mask,
-            "cell_matched_mask": patch.cell_mask,
+            "nucleus_matched_mask": synthetic_patch.nucleus_mask,
+            "cell_matched_mask": synthetic_patch.cell_mask,
         }]
 
         codex_patches = FakeCodexPatchesForGPU(antibodies, patches, seg_results)
@@ -144,7 +144,7 @@ class TestGPUConfigPropagation(unittest.TestCase):
 
             # Patch the CPU function to track if it was called
             from aegle.extract_features import extract_features_v2_optimized
-            with patch('aegle.cell_profiling.extract_features_v2_optimized',
+            with mock_patch('aegle.cell_profiling.extract_features_v2_optimized',
                       wraps=extract_features_v2_optimized) as mock_cpu:
                 run_cell_profiling(codex_patches, config, args)
 
@@ -155,19 +155,19 @@ class TestGPUConfigPropagation(unittest.TestCase):
     @requires_gpu()
     def test_gpu_batch_size_config_propagates(self):
         """gpu_batch_size config should propagate to GPU function."""
-        patch = make_single_cell_patch(
+        synthetic_patch = make_single_cell_patch(
             shape=(64, 64),
             channels=("c1", "c2", "c3", "c4", "c5"),
             nucleus_intensity={f"c{i}": float(i * 10) for i in range(1, 6)},
             cytoplasm_intensity={f"c{i}": float(i * 2) for i in range(1, 6)},
         )
 
-        antibodies = list(patch.channels)
-        patch_img = np.stack([patch.image_dict[ch] for ch in antibodies], axis=2)
+        antibodies = list(synthetic_patch.channels)
+        patch_img = np.stack([synthetic_patch.image_dict[ch] for ch in antibodies], axis=2)
         patches = [patch_img]
         seg_results = [{
-            "nucleus_matched_mask": patch.nucleus_mask,
-            "cell_matched_mask": patch.cell_mask,
+            "nucleus_matched_mask": synthetic_patch.nucleus_mask,
+            "cell_matched_mask": synthetic_patch.cell_mask,
         }]
 
         codex_patches = FakeCodexPatchesForGPU(antibodies, patches, seg_results)
@@ -187,7 +187,7 @@ class TestGPUConfigPropagation(unittest.TestCase):
             args = SimpleNamespace(out_dir=tmpdir)
 
             from aegle.extract_features_gpu import extract_features_v2_gpu
-            with patch('aegle.cell_profiling.extract_features_v2_gpu',
+            with mock_patch('aegle.cell_profiling.extract_features_v2_gpu',
                       wraps=extract_features_v2_gpu) as mock_gpu:
                 run_cell_profiling(codex_patches, config, args)
 
@@ -205,32 +205,47 @@ class TestGPUFullPipelineIntegration(unittest.TestCase):
         # Create synthetic patch with multiple cells
         from tests.utils.synthetic_data_factory import make_disk_cells_patch
 
-        patch = make_disk_cells_patch(
+        synthetic_patch = make_disk_cells_patch(
             shape=(128, 128),
             channels=("CD3", "CD8", "CD45"),
-            cell_positions=[(32, 32), (32, 96), (96, 32), (96, 96)],
-            cell_radius=12,
-            nucleus_radius=6,
-            nucleus_intensities=[
-                {"CD3": 100, "CD8": 50, "CD45": 200},
-                {"CD3": 80, "CD8": 120, "CD45": 150},
-                {"CD3": 90, "CD8": 70, "CD45": 180},
-                {"CD3": 110, "CD8": 90, "CD45": 160},
-            ],
-            cytoplasm_intensities=[
-                {"CD3": 20, "CD8": 10, "CD45": 40},
-                {"CD3": 15, "CD8": 25, "CD45": 30},
-                {"CD3": 18, "CD8": 12, "CD45": 35},
-                {"CD3": 22, "CD8": 18, "CD45": 38},
+            cells=[
+                {
+                    "center": (32, 32),
+                    "nucleus_radius": 6,
+                    "cell_radius": 12,
+                    "nucleus_intensity": {"CD3": 100, "CD8": 50, "CD45": 200},
+                    "cytoplasm_intensity": {"CD3": 20, "CD8": 10, "CD45": 40},
+                },
+                {
+                    "center": (32, 96),
+                    "nucleus_radius": 6,
+                    "cell_radius": 12,
+                    "nucleus_intensity": {"CD3": 80, "CD8": 120, "CD45": 150},
+                    "cytoplasm_intensity": {"CD3": 15, "CD8": 25, "CD45": 30},
+                },
+                {
+                    "center": (96, 32),
+                    "nucleus_radius": 6,
+                    "cell_radius": 12,
+                    "nucleus_intensity": {"CD3": 90, "CD8": 70, "CD45": 180},
+                    "cytoplasm_intensity": {"CD3": 18, "CD8": 12, "CD45": 35},
+                },
+                {
+                    "center": (96, 96),
+                    "nucleus_radius": 6,
+                    "cell_radius": 12,
+                    "nucleus_intensity": {"CD3": 110, "CD8": 90, "CD45": 160},
+                    "cytoplasm_intensity": {"CD3": 22, "CD8": 18, "CD45": 38},
+                },
             ],
         )
 
-        antibodies = list(patch.channels)
-        patch_img = np.stack([patch.image_dict[ch] for ch in antibodies], axis=2)
+        antibodies = list(synthetic_patch.channels)
+        patch_img = np.stack([synthetic_patch.image_dict[ch] for ch in antibodies], axis=2)
         patches = [patch_img]
         seg_results = [{
-            "nucleus_matched_mask": patch.nucleus_mask,
-            "cell_matched_mask": patch.cell_mask,
+            "nucleus_matched_mask": synthetic_patch.nucleus_mask,
+            "cell_matched_mask": synthetic_patch.cell_mask,
         }]
 
         codex_patches = FakeCodexPatchesForGPU(antibodies, patches, seg_results)
@@ -255,7 +270,7 @@ class TestGPUFullPipelineIntegration(unittest.TestCase):
             run_cell_profiling(codex_patches, cpu_config, args_cpu)
 
             # Load CPU results
-            cpu_markers = pd.read_csv(os.path.join(cpu_dir, "cell_profiling", "markers.csv"))
+            cpu_markers = pd.read_csv(os.path.join(cpu_dir, "cell_profiling", "cell_by_marker.csv"))
             cpu_overview = pd.read_csv(os.path.join(cpu_dir, "cell_profiling", "cell_overview.csv"))
 
         # Run with GPU
@@ -267,15 +282,17 @@ class TestGPUFullPipelineIntegration(unittest.TestCase):
             run_cell_profiling(codex_patches, gpu_config, args_gpu)
 
             # Load GPU results
-            gpu_markers = pd.read_csv(os.path.join(gpu_dir, "cell_profiling", "markers.csv"))
+            gpu_markers = pd.read_csv(os.path.join(gpu_dir, "cell_profiling", "cell_by_marker.csv"))
             gpu_overview = pd.read_csv(os.path.join(gpu_dir, "cell_profiling", "cell_overview.csv"))
 
         # Results should match
-        # Sort by global_cell_id for consistent comparison
-        cpu_markers = cpu_markers.sort_values("global_cell_id").reset_index(drop=True)
-        gpu_markers = gpu_markers.sort_values("global_cell_id").reset_index(drop=True)
-        cpu_overview = cpu_overview.sort_values("global_cell_id").reset_index(drop=True)
-        gpu_overview = gpu_overview.sort_values("global_cell_id").reset_index(drop=True)
+        # Sort by global_cell_id for consistent comparison (if column exists)
+        sort_col = "global_cell_id" if "global_cell_id" in cpu_markers.columns else cpu_markers.columns[0]
+        cpu_markers = cpu_markers.sort_values(sort_col).reset_index(drop=True)
+        gpu_markers = gpu_markers.sort_values(sort_col).reset_index(drop=True)
+        overview_sort_col = "global_cell_id" if "global_cell_id" in cpu_overview.columns else cpu_overview.columns[0]
+        cpu_overview = cpu_overview.sort_values(overview_sort_col).reset_index(drop=True)
+        gpu_overview = gpu_overview.sort_values(overview_sort_col).reset_index(drop=True)
 
         # Compare numerical columns only
         marker_cols = [col for col in cpu_markers.columns
@@ -329,7 +346,7 @@ class TestGPUFullPipelineIntegration(unittest.TestCase):
             run_cell_profiling(codex_patches, config, args)
 
             # Check outputs exist
-            markers_path = os.path.join(tmpdir, "cell_profiling", "markers.csv")
+            markers_path = os.path.join(tmpdir, "cell_profiling", "cell_by_marker.csv")
             self.assertTrue(os.path.exists(markers_path))
 
             markers = pd.read_csv(markers_path)
@@ -342,19 +359,19 @@ class TestGPUFallbackBehavior(unittest.TestCase):
 
     def test_gpu_requested_but_unavailable_falls_back(self):
         """Pipeline should fall back to CPU when GPU requested but unavailable."""
-        patch = make_single_cell_patch(
+        synthetic_patch = make_single_cell_patch(
             shape=(64, 64),
             channels=("chan0",),
             nucleus_intensity={"chan0": 50.0},
             cytoplasm_intensity={"chan0": 5.0},
         )
 
-        antibodies = list(patch.channels)
-        patch_img = np.stack([patch.image_dict[ch] for ch in antibodies], axis=2)
+        antibodies = list(synthetic_patch.channels)
+        patch_img = np.stack([synthetic_patch.image_dict[ch] for ch in antibodies], axis=2)
         patches = [patch_img]
         seg_results = [{
-            "nucleus_matched_mask": patch.nucleus_mask,
-            "cell_matched_mask": patch.cell_mask,
+            "nucleus_matched_mask": synthetic_patch.nucleus_mask,
+            "cell_matched_mask": synthetic_patch.cell_mask,
         }]
 
         codex_patches = FakeCodexPatchesForGPU(antibodies, patches, seg_results)
@@ -369,7 +386,7 @@ class TestGPUFallbackBehavior(unittest.TestCase):
         }
 
         # Mock GPU as unavailable
-        with patch('aegle.cell_profiling.is_cupy_available', return_value=False):
+        with mock_patch('aegle.cell_profiling.is_cupy_available', return_value=False):
             with tempfile.TemporaryDirectory() as tmpdir:
                 args = SimpleNamespace(out_dir=tmpdir)
 
@@ -377,7 +394,7 @@ class TestGPUFallbackBehavior(unittest.TestCase):
                 run_cell_profiling(codex_patches, config, args)
 
                 # Outputs should exist
-                markers_path = os.path.join(tmpdir, "cell_profiling", "markers.csv")
+                markers_path = os.path.join(tmpdir, "cell_profiling", "cell_by_marker.csv")
                 self.assertTrue(os.path.exists(markers_path))
 
 

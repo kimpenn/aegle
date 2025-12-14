@@ -191,7 +191,7 @@ class TestRunCellProfilingWithGPU(unittest.TestCase):
 
         # Check outputs exist
         profiling_dir = os.path.join(self.out_dir, "cell_profiling")
-        markers_path = os.path.join(profiling_dir, "markers.csv")
+        markers_path = os.path.join(profiling_dir, "cell_by_marker.csv")
         overview_path = os.path.join(profiling_dir, "cell_overview.csv")
 
         self.assertTrue(os.path.exists(markers_path))
@@ -242,7 +242,7 @@ class TestRunCellProfilingWithGPU(unittest.TestCase):
         args_cpu = SimpleNamespace(out_dir=cpu_tmpdir.name, data_dir=".")
         run_cell_profiling(codex, cpu_config, args_cpu)
 
-        cpu_markers = pd.read_csv(os.path.join(cpu_tmpdir.name, "cell_profiling", "markers.csv"))
+        cpu_markers = pd.read_csv(os.path.join(cpu_tmpdir.name, "cell_profiling", "cell_by_marker.csv"))
 
         # Run with GPU
         gpu_config = base_config.copy()
@@ -253,7 +253,7 @@ class TestRunCellProfilingWithGPU(unittest.TestCase):
         args_gpu = SimpleNamespace(out_dir=gpu_tmpdir.name, data_dir=".")
         run_cell_profiling(codex, gpu_config, args_gpu)
 
-        gpu_markers = pd.read_csv(os.path.join(gpu_tmpdir.name, "cell_profiling", "markers.csv"))
+        gpu_markers = pd.read_csv(os.path.join(gpu_tmpdir.name, "cell_profiling", "cell_by_marker.csv"))
 
         # Compare numerical columns
         for channel in ["chan0", "chan1"]:

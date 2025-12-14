@@ -113,7 +113,6 @@ class TestGPURepairSuite:
 
         # Verify correctness
         assert cell_matched is not None
-        assert cell_matched is not None_gpu
 
         # Check reasonable match rate
         n_matched = len(np.unique(cell_matched)) - 1
@@ -181,7 +180,6 @@ class TestGPURepairSuite:
 
         # Verify no errors and basic correctness
         assert cell_matched is not None
-        assert cell_matched is not None_gpu
 
         # CPU version for comparison
         result_cpu = get_matched_masks(
