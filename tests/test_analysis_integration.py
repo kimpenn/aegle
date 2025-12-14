@@ -26,6 +26,7 @@ from tests.utils.integration_helpers import (
 )
 
 
+@pytest.mark.slow
 class TestFullPipelineSmall(unittest.TestCase):
     """Integration tests using small dataset (1K cells, fast execution)."""
 
@@ -180,6 +181,7 @@ class TestFullPipelineSmall(unittest.TestCase):
         )
 
 
+@pytest.mark.slow
 class TestFullPipelineMedium(unittest.TestCase):
     """Integration tests using medium dataset (10K cells, ~2 min runtime)."""
 
@@ -281,6 +283,7 @@ class TestFullPipelineMedium(unittest.TestCase):
         )
 
 
+@pytest.mark.slow
 class TestFullPipelineReproducibility(unittest.TestCase):
     """Test pipeline reproducibility (same seed = same results)."""
 

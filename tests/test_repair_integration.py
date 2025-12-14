@@ -9,6 +9,7 @@ from tests.utils.repair_test_fixtures import (
 )
 
 
+@pytest.mark.slow
 class TestRepairIntegration:
     """Test all optimizations working together."""
 
