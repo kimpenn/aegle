@@ -134,8 +134,9 @@ out/
 output/
 pipeline_output/
 
-# Data directories
+# Data directories (exclude aegle_analysis/data which contains source code)
 data/
+!aegle_analysis/data/
 segmentations/
 sprm_outputs/
 

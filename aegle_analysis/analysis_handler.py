@@ -426,7 +426,11 @@ def run_analysis(config, args):
         "clustering_resolution", args.clustering_resolution
     )
     norm_method = config.get("analysis", {}).get("norm_method", "log1p")
-    
+
+    # GPU acceleration settings
+    use_gpu = config.get("analysis", {}).get("use_gpu", False)
+    gpu_id = config.get("analysis", {}).get("gpu_id", 0)
+
     # Create output directory
     output_dir = args.output_dir
     logging.info(f"Resolved output_dir: {output_dir}")
@@ -488,9 +492,16 @@ def run_analysis(config, args):
     logging.info(f"log1p_data_df: {log1p_data_df}")
 
     # ================= 4. CLUSTERING =================
-    logging.info("Running clustering analysis...")
+    logging.info(f"Running clustering analysis (use_gpu={use_gpu})...")
     adata = create_anndata(data_df, meta_df)
-    adata = run_clustering(adata, resolution=clustering_resolution, random_state=42)
+    adata = run_clustering(
+        adata,
+        resolution=clustering_resolution,
+        random_state=42,
+        use_gpu=use_gpu,
+        gpu_id=gpu_id,
+        fallback_to_cpu=True,
+    )
 
     # ================= 4. CLUSTER LEVEL STATISTICS =================
     logging.info("Calculating cluster-level statistics...")

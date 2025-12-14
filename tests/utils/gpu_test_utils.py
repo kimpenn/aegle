@@ -31,6 +31,21 @@ def requires_gpu():
     )
 
 
+def skip_if_no_gpu():
+    """
+    Pytest decorator to skip tests when GPU is not available.
+
+    Alias for requires_gpu() for consistency with task requirements.
+
+    Usage:
+        @skip_if_no_gpu()
+        def test_gpu_feature():
+            # Test that requires GPU
+            pass
+    """
+    return requires_gpu()
+
+
 def assert_gpu_cpu_equal(gpu_result, cpu_result, rtol=1e-5, atol=1e-6,
                          err_msg="GPU and CPU results differ"):
     """
@@ -86,6 +101,64 @@ def assert_gpu_cpu_equal(gpu_result, cpu_result, rtol=1e-5, atol=1e-6,
         raise TypeError(
             f"Unsupported types for comparison: {type(gpu_result)}, {type(cpu_result)}"
         )
+
+
+def compare_cpu_gpu_results(cpu_result, gpu_result, rtol=1e-5, atol=1e-6):
+    """
+    Compare CPU and GPU results with numerical tolerance.
+
+    This is a wrapper around assert_gpu_cpu_equal with swapped argument order
+    to match the task requirements (cpu_result first, gpu_result second).
+
+    Args:
+        cpu_result: Result from CPU computation (pandas DataFrame or numpy array)
+        gpu_result: Result from GPU computation (pandas DataFrame or numpy array)
+        rtol: Relative tolerance (default: 1e-5)
+        atol: Absolute tolerance (default: 1e-6)
+
+    Returns:
+        bool: True if results match within tolerance
+
+    Raises:
+        AssertionError: If results differ beyond tolerance
+    """
+    assert_gpu_cpu_equal(
+        gpu_result=gpu_result,
+        cpu_result=cpu_result,
+        rtol=rtol,
+        atol=atol,
+        err_msg="GPU and CPU results differ"
+    )
+    return True
+
+
+def assert_arrays_close(arr1, arr2, rtol=1e-5, atol=1e-6, err_msg="Arrays differ"):
+    """
+    Assert that two arrays are numerically close.
+
+    This is a convenience wrapper around numpy.testing.assert_allclose.
+
+    Args:
+        arr1: First array
+        arr2: Second array
+        rtol: Relative tolerance (default: 1e-5)
+        atol: Absolute tolerance (default: 1e-6)
+        err_msg: Error message to display if assertion fails
+
+    Raises:
+        AssertionError: If arrays differ beyond tolerance
+
+    Example:
+        >>> arr1 = np.array([1.0, 2.0, 3.0])
+        >>> arr2 = np.array([1.0000001, 2.0000001, 3.0000001])
+        >>> assert_arrays_close(arr1, arr2, rtol=1e-5)
+    """
+    np.testing.assert_allclose(
+        arr1, arr2,
+        rtol=rtol,
+        atol=atol,
+        err_msg=err_msg
+    )
 
 
 @contextmanager
