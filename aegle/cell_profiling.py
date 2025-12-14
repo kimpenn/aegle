@@ -1,3 +1,4 @@
+import gc
 import os
 import logging
 import pandas as pd
@@ -134,6 +135,7 @@ def run_cell_profiling(codex_patches, config, args):
 
         # Extract features (exp_df: cell-by-marker, metadata_df: cell metadata)
         if use_gpu:
+            # GPU mode
             exp_df, metadata_df = extract_features_v2_gpu(
                 image_dict,
                 nucleus_mask,
@@ -145,6 +147,7 @@ def run_cell_profiling(codex_patches, config, args):
                 gpu_batch_size=gpu_batch_size,
             )
         else:
+            # CPU mode
             exp_df, metadata_df = extract_features_v2_optimized(
                 image_dict,
                 nucleus_mask,
@@ -302,12 +305,13 @@ def run_cell_profiling(codex_patches, config, args):
                 )
                 next_progress_fraction += 0.05
         
-        # Memory cleanup for disk-based patches
+        # Memory cleanup after feature extraction
+        # Clean up image_dict to release channel slice references
+        del image_dict
         if codex_patches.is_using_disk_based_patches():
-            # Clear patch from memory
             del patch_img
-            import gc
-            gc.collect()
+        gc.collect()
+        # Note: GPU memory is already cleared inside extract_features_v2_gpu()
 
         if patch_max_label > 0:
             global_cell_offset += patch_max_label

@@ -394,8 +394,8 @@ def extract_features_v2_gpu(
                 del chan_data_gpu, chan_data_flat
                 del cell_sum_per_label_gpu, nucleus_sum_per_label_gpu
 
-            # Clear memory after each batch
-            clear_gpu_memory()
+            # Note: Don't clear GPU memory pool here - masks stay on GPU for all batches
+            # Memory cleanup happens once after all batches complete (line ~435)
 
         except cp.cuda.memory.OutOfMemoryError as e:
             logger.error(f"GPU OOM in batch {batch_num}: {e}")

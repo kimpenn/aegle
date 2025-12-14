@@ -170,6 +170,23 @@ def estimate_gpu_batch_size(
     return batch_size
 
 
+def get_gpu_count():
+    """Get the number of available CUDA GPUs.
+
+    Returns:
+        int: Number of GPUs detected (0 if none or CuPy unavailable)
+    """
+    if not is_cupy_available():
+        return 0
+
+    try:
+        import cupy as cp
+        return cp.cuda.runtime.getDeviceCount()
+    except Exception as e:
+        logger.warning(f"Failed to get GPU count: {e}")
+        return 0
+
+
 def clear_gpu_memory():
     """Clear GPU memory pool.
 
