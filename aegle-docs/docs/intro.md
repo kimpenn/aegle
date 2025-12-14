@@ -44,7 +44,7 @@ Preprocessing transforms raw QPTIFF files into analysis-ready data:
 
 **Execution:**
 ```bash
-./run_preprocess_ft.sh
+./launcher/run_preprocess_ft.sh
 ```
 
 ## Main Processing

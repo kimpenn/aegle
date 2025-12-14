@@ -11,7 +11,7 @@ This module handles the essential preprocessing steps for multiplex imaging data
 It can be executed by modifying and running the main shell script:
 
 ```bash
-run_preprocess_ft.sh
+launcher/run_preprocess_ft.sh
 ```
 
 ## Processing Pipeline Architecture
@@ -23,7 +23,7 @@ run_preprocess_ft.sh
 The preprocessing workflow is orchestrated by the main entry script:
 
 ```bash
-run_preprocess_ft.sh [MAX_CONCURRENT]
+launcher/run_preprocess_ft.sh [MAX_CONCURRENT]
 ```
 
 ### Key Features
@@ -120,7 +120,7 @@ Key configuration parameters include:
 
 ## Execution Workflow
 
-1. The main script (`run_preprocess_ft.sh`) defines experiment set name, data directories, and experiment IDs
+1. The main script (`launcher/run_preprocess_ft.sh`) defines experiment set name, data directories, and experiment IDs
 2. For each experiment ID:
    - Calls `run_extract_tissue.sh` to identify and extract tissue regions
    - Then calls `run_extract_antibody.sh` to extract antibody marker information

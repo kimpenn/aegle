@@ -52,10 +52,10 @@ experiments=(
 )
 ```
 
-This text can be copied to the bash script to run the downstream experiments. Example bash scripts can be found in:
-- `run_preprocess_ft.sh` - For preprocessing experiments
-- `run_main_ft.sh` - For main analysis experiments  
-- `run_analysis_ft.sh` - For downstream analysis experiments
+This text can be copied to the bash script to run the downstream experiments. Example bash scripts can be found in the `launcher/` directory:
+- `launcher/run_preprocess_ft.sh` - For preprocessing experiments
+- `launcher/run_main_ft.sh` - For main analysis experiments
+- `launcher/run_analysis_ft.sh` - For downstream analysis experiments
 
 ## Generated Configuration Files
 
