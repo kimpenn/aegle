@@ -1,10 +1,12 @@
 # /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/aegle_analysis/analysis.py
 
+import base64
 import logging
 import os
 import json
 import html
 import re
+from io import BytesIO
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -13,6 +15,12 @@ import matplotlib.pyplot as plt
 import anndata
 import shutil
 from typing import List, Optional
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 # Import modules from the package
 from aegle_analysis.data import (
@@ -147,6 +155,63 @@ def _extract_style_block(html_text: str) -> str:
     return match.group(0) if match else ""
 
 
+def _load_and_compress_image(
+    image_path: Path,
+    max_width: int = 1200,
+    jpeg_quality: int = 85,
+) -> Optional[str]:
+    """
+    Load an image file, compress it, and return as base64 data URI.
+
+    Args:
+        image_path: Path to the image file
+        max_width: Maximum width in pixels (maintains aspect ratio)
+        jpeg_quality: JPEG compression quality (1-100)
+
+    Returns:
+        Base64 data URI string (e.g., "data:image/jpeg;base64,...") or None if failed
+    """
+    if not PIL_AVAILABLE:
+        LOGGER.warning("PIL not available; cannot embed image as base64: %s", image_path)
+        return None
+
+    if not image_path.is_file():
+        LOGGER.warning("Image file not found: %s", image_path)
+        return None
+
+    try:
+        with Image.open(image_path) as img:
+            # Convert to RGB if needed (JPEG doesn't support alpha)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                if img.mode in ('RGBA', 'LA'):
+                    background.paste(img, mask=img.split()[-1])
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+
+            # Resize if wider than max_width
+            if img.width > max_width:
+                ratio = max_width / img.width
+                new_height = int(img.height * ratio)
+                img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
+
+            # Save as JPEG to buffer
+            buffer = BytesIO()
+            img.save(buffer, format='JPEG', quality=jpeg_quality, optimize=True)
+            buffer.seek(0)
+
+            # Encode as base64
+            base64_data = base64.b64encode(buffer.read()).decode('ascii')
+            return f"data:image/jpeg;base64,{base64_data}"
+
+    except Exception as exc:
+        LOGGER.error("Failed to load and compress image %s: %s", image_path, exc)
+        return None
+
+
 def _build_analysis_highlights_section(
     output_dir: Path,
     de_dir: Path,
@@ -252,7 +317,7 @@ def _build_analysis_highlights_section(
             '<div class="analysis-card"><h3>LLM Annotation</h3><p>No annotation text is available.</p></div>'
         )
 
-    # Key figures
+    # Key figures - embed as base64 for self-contained HTML
     figure_specs = [
         ("Cluster Heatmap (log2 Fold Change Top 5)", plots_dir / "cluster_heatmap_log2fc_top5.png"),
         ("Spatial Clustering Overlay", plots_dir / "spatial" / "clustering_on_mask.png"),
@@ -260,11 +325,21 @@ def _build_analysis_highlights_section(
     figure_blocks: List[str] = []
     for title, figure_path in figure_specs:
         if figure_path.is_file():
-            rel_path = os.path.relpath(figure_path, output_dir).replace(os.sep, "/")
-            figure_blocks.append(
-                f'<figure class="analysis-figure"><img src="{rel_path}" alt="{html.escape(title)}" />'
-                f'<figcaption>{html.escape(title)}</figcaption></figure>'
-            )
+            # Embed image as compressed base64 for self-contained HTML
+            base64_src = _load_and_compress_image(figure_path, max_width=1200, jpeg_quality=85)
+            if base64_src:
+                figure_blocks.append(
+                    f'<figure class="analysis-figure"><img src="{base64_src}" alt="{html.escape(title)}" />'
+                    f'<figcaption>{html.escape(title)}</figcaption></figure>'
+                )
+            else:
+                # Fallback to relative path if compression failed
+                rel_path = os.path.relpath(figure_path, output_dir).replace(os.sep, "/")
+                figure_blocks.append(
+                    f'<figure class="analysis-figure"><img src="{rel_path}" alt="{html.escape(title)}" />'
+                    f'<figcaption>{html.escape(title)}</figcaption></figure>'
+                )
+                LOGGER.warning("Failed to embed image as base64, using relative path: %s", figure_path)
         else:
             LOGGER.info("Key figure not found: %s", figure_path)
 

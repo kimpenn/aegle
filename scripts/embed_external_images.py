@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-Compress HTML reports by resizing and converting embedded images to JPEG.
+Embed external image references as base64 in HTML reports.
 
-This script processes existing pipeline HTML reports to reduce file size
-by converting embedded base64 PNG images to compressed JPEG format.
+This script processes HTML files to convert external image references
+(e.g., <img src="plots/image.png">) into self-contained base64 data URIs.
+This makes the HTML file fully portable for sharing with collaborators.
 
 Usage:
     # Single file
-    python scripts/compress_html_reports.py /path/to/pipeline_report.html
+    python scripts/embed_external_images.py /path/to/report.html
 
     # Directory (batch)
-    python scripts/compress_html_reports.py /path/to/out/main/main_ft_hb/ --recursive
+    python scripts/embed_external_images.py /path/to/out/analysis/ --recursive
 
     # Options
     --max-width 1200     # Max image width (default: 1200)
     --quality 85         # JPEG quality 1-100 (default: 85)
-    --in-place           # Overwrite originals (no .raw.html backup)
-    --dry-run            # Show expected size reduction without modifying files
+    --dry-run            # Show expected changes without modifying files
 
 By default, the script renames the original to .raw.html and saves the
-compressed version as the original filename (e.g., pipeline_report.html).
+modified version as the original filename.
 """
 
 import argparse
@@ -43,11 +43,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Regex pattern to match base64-encoded images in HTML
-# Matches: data:image/png;base64,... or data:image/jpeg;base64,...
-IMAGE_PATTERN = re.compile(
-    r'data:image/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)',
-    re.IGNORECASE
+# Regex pattern to match external image src attributes (not base64)
+# Matches: src="path/to/image.png" or src='path/to/image.jpg'
+# Does NOT match: src="data:image/..." (already base64)
+EXTERNAL_IMG_PATTERN = re.compile(
+    r'<img\s+([^>]*?)src=["\'](?!data:)([^"\']+)["\']([^>]*?)>',
+    re.IGNORECASE | re.DOTALL
 )
 
 
@@ -70,11 +71,11 @@ def compress_image(
     with Image.open(BytesIO(image_data)) as img:
         # Convert RGBA to RGB (JPEG doesn't support alpha)
         if img.mode in ('RGBA', 'LA', 'P'):
-            # Create white background
             background = Image.new('RGB', img.size, (255, 255, 255))
             if img.mode == 'P':
                 img = img.convert('RGBA')
-            background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+            if img.mode in ('RGBA', 'LA'):
+                background.paste(img, mask=img.split()[-1])
             img = background
         elif img.mode != 'RGB':
             img = img.convert('RGB')
@@ -93,25 +94,58 @@ def compress_image(
         return buffer.read(), 'jpeg'
 
 
+def load_and_embed_image(
+    image_path: Path,
+    max_width: int = 1200,
+    jpeg_quality: int = 85
+) -> Optional[str]:
+    """
+    Load an image file and return as base64 data URI.
+
+    Args:
+        image_path: Path to the image file
+        max_width: Maximum width in pixels
+        jpeg_quality: JPEG quality (1-100)
+
+    Returns:
+        Base64 data URI string or None if failed
+    """
+    if not image_path.is_file():
+        logger.warning(f"Image file not found: {image_path}")
+        return None
+
+    try:
+        with open(image_path, 'rb') as f:
+            image_data = f.read()
+
+        compressed_bytes, mime_type = compress_image(image_data, max_width, jpeg_quality)
+        base64_data = base64.b64encode(compressed_bytes).decode('ascii')
+        return f"data:image/{mime_type};base64,{base64_data}"
+
+    except Exception as e:
+        logger.warning(f"Failed to process image {image_path}: {e}")
+        return None
+
+
 def process_html_file(
     input_path: Path,
     output_path: Optional[Path] = None,
     max_width: int = 1200,
     jpeg_quality: int = 85,
     dry_run: bool = False
-) -> Tuple[int, int, int]:
+) -> Tuple[int, int]:
     """
-    Process a single HTML file, compressing embedded images.
+    Process a single HTML file, embedding external images as base64.
 
     Args:
         input_path: Path to input HTML file
-        output_path: Path to output file (if None, uses input_path with .compressed suffix)
+        output_path: Path to output file (if None, renames original to .raw.html)
         max_width: Maximum image width
         jpeg_quality: JPEG quality
-        dry_run: If True, only calculate size reduction without saving
+        dry_run: If True, only count images without modifying
 
     Returns:
-        Tuple of (original_size, new_size, images_processed)
+        Tuple of (images_found, images_embedded)
     """
     logger.info(f"Processing: {input_path}")
 
@@ -119,63 +153,69 @@ def process_html_file(
     with open(input_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    original_size = len(content.encode('utf-8'))
-    images_processed = 0
+    html_dir = input_path.parent
+    images_found = 0
+    images_embedded = 0
 
-    def replace_image(match):
-        nonlocal images_processed
+    def replace_external_image(match):
+        nonlocal images_found, images_embedded
 
-        image_type = match.group(1).lower()
-        base64_data = match.group(2)
+        prefix_attrs = match.group(1)
+        src_path = match.group(2)
+        suffix_attrs = match.group(3)
 
-        try:
-            # Decode base64
-            image_bytes = base64.b64decode(base64_data)
-            original_img_size = len(image_bytes)
+        images_found += 1
 
-            # Compress
-            compressed_bytes, new_type = compress_image(
-                image_bytes, max_width, jpeg_quality
-            )
-            compressed_size = len(compressed_bytes)
-
-            # Only replace if we achieved compression
-            if compressed_size < original_img_size:
-                images_processed += 1
-                new_base64 = base64.b64encode(compressed_bytes).decode('ascii')
-                reduction = (1 - compressed_size / original_img_size) * 100
-                logger.debug(
-                    f"  Image {images_processed}: {original_img_size/1024:.0f}KB -> "
-                    f"{compressed_size/1024:.0f}KB ({reduction:.0f}% reduction)"
-                )
-                return f"data:image/{new_type};base64,{new_base64}"
-            else:
-                # Keep original if compression didn't help
-                return match.group(0)
-
-        except Exception as e:
-            logger.warning(f"Failed to process image: {e}")
+        # Skip if already a URL (http/https)
+        if src_path.startswith(('http://', 'https://')):
+            logger.debug(f"  Skipping URL: {src_path}")
             return match.group(0)
 
-    # Replace all images
-    new_content = IMAGE_PATTERN.sub(replace_image, content)
-    new_size = len(new_content.encode('utf-8'))
+        # Resolve path relative to HTML file
+        image_path = (html_dir / src_path).resolve()
 
-    # Save if not dry run
-    if not dry_run and images_processed > 0:
+        if dry_run:
+            if image_path.is_file():
+                logger.info(f"  Would embed: {src_path}")
+                images_embedded += 1
+            else:
+                logger.warning(f"  Image not found: {src_path} -> {image_path}")
+            return match.group(0)
+
+        # Load and embed image
+        base64_uri = load_and_embed_image(image_path, max_width, jpeg_quality)
+
+        if base64_uri:
+            images_embedded += 1
+            original_size = image_path.stat().st_size if image_path.is_file() else 0
+            new_size = len(base64_uri.split(',')[1]) * 3 // 4  # Approximate decoded size
+            logger.debug(
+                f"  Embedded: {src_path} ({original_size/1024:.0f}KB -> {new_size/1024:.0f}KB)"
+            )
+            return f'<img {prefix_attrs}src="{base64_uri}"{suffix_attrs}>'
+        else:
+            logger.warning(f"  Failed to embed: {src_path}")
+            return match.group(0)
+
+    # Replace all external images
+    new_content = EXTERNAL_IMG_PATTERN.sub(replace_external_image, content)
+
+    # Save if not dry run and we made changes
+    if not dry_run and images_embedded > 0:
         if output_path is None:
-            # Rename original to .raw.html, save compressed as original name
+            # Rename original to .raw.html, save modified as original name
             raw_path = input_path.with_suffix('.raw.html')
-            input_path.rename(raw_path)
-            logger.info(f"  Renamed original to: {raw_path}")
-            output_path = input_path  # Use original filename for compressed
+            if not raw_path.exists():  # Don't overwrite existing backup
+                input_path.rename(raw_path)
+                logger.info(f"  Renamed original to: {raw_path}")
+            output_path = input_path
 
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
 
         logger.info(f"  Saved to: {output_path}")
 
-    return original_size, new_size, images_processed
+    return images_found, images_embedded
 
 
 def find_html_files(path: Path, recursive: bool = False) -> List[Path]:
@@ -185,17 +225,13 @@ def find_html_files(path: Path, recursive: bool = False) -> List[Path]:
             return [path]
         return []
 
-    # Main pipeline reports
-    pattern = '**/pipeline_report.html' if recursive else '*/pipeline_report.html'
+    # Analysis pipeline combined reports
+    pattern = '**/pipeline_report_with_analysis.html' if recursive else '*/pipeline_report_with_analysis.html'
     files = list(path.glob(pattern))
 
-    # Also check for report.html
-    pattern2 = '**/report.html' if recursive else '*/report.html'
+    # Also check for analysis_highlights.html
+    pattern2 = '**/analysis_highlights.html' if recursive else '*/analysis_highlights.html'
     files.extend(path.glob(pattern2))
-
-    # Analysis pipeline combined reports
-    pattern3 = '**/pipeline_report_with_analysis.html' if recursive else '*/pipeline_report_with_analysis.html'
-    files.extend(path.glob(pattern3))
 
     # Filter out already processed raw files
     files = [f for f in files if not f.stem.endswith('.raw')]
@@ -203,18 +239,9 @@ def find_html_files(path: Path, recursive: bool = False) -> List[Path]:
     return sorted(set(files))
 
 
-def format_size(size_bytes: int) -> str:
-    """Format size in human-readable format."""
-    if size_bytes >= 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.1f} MB"
-    elif size_bytes >= 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    return f"{size_bytes} B"
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description='Compress HTML reports by converting embedded images to JPEG',
+        description='Embed external images as base64 in HTML reports',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
@@ -241,14 +268,9 @@ def main():
         help='Search directories recursively'
     )
     parser.add_argument(
-        '--in-place', '-i',
-        action='store_true',
-        help='Overwrite original files instead of creating .compressed.html'
-    )
-    parser.add_argument(
         '--dry-run', '-n',
         action='store_true',
-        help='Show expected size reduction without modifying files'
+        help='Show expected changes without modifying files'
     )
     parser.add_argument(
         '--verbose', '-v',
@@ -291,31 +313,23 @@ def main():
         logger.info("DRY RUN - no files will be modified")
 
     # Process files
-    total_original = 0
-    total_new = 0
-    total_images = 0
+    total_found = 0
+    total_embedded = 0
 
     for html_file in files:
-        output_path = html_file if args.in_place else None
-
         try:
-            orig_size, new_size, img_count = process_html_file(
+            found, embedded = process_html_file(
                 html_file,
-                output_path,
+                None,
                 args.max_width,
                 args.quality,
                 args.dry_run
             )
 
-            total_original += orig_size
-            total_new += new_size
-            total_images += img_count
+            total_found += found
+            total_embedded += embedded
 
-            reduction = (1 - new_size / orig_size) * 100 if orig_size > 0 else 0
-            logger.info(
-                f"  {format_size(orig_size)} -> {format_size(new_size)} "
-                f"({reduction:.0f}% reduction, {img_count} images)"
-            )
+            logger.info(f"  Found {found} external images, embedded {embedded}")
 
         except Exception as e:
             logger.error(f"Failed to process {html_file}: {e}")
@@ -324,18 +338,13 @@ def main():
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
-    print(f"Files processed:     {len(files)}")
-    print(f"Images compressed:   {total_images}")
-    print(f"Original total size: {format_size(total_original)}")
-    print(f"New total size:      {format_size(total_new)}")
-    if total_original > 0:
-        reduction = (1 - total_new / total_original) * 100
-        saved = total_original - total_new
-        print(f"Space saved:         {format_size(saved)} ({reduction:.0f}%)")
+    print(f"Files processed:      {len(files)}")
+    print(f"External images found: {total_found}")
+    print(f"Images embedded:       {total_embedded}")
 
     if args.dry_run:
         print("\nDRY RUN - no files were modified")
-        print("Run without --dry-run to apply compression")
+        print("Run without --dry-run to apply changes")
 
 
 if __name__ == '__main__':
