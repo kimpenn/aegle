@@ -545,8 +545,19 @@ def run_pipeline(config, args):
         if extended_image is not None:
             image_height, image_width = extended_image.shape[:2]
         else:
-            image_height = int(patches_metadata_df.get("height", 0))
-            image_width = int(patches_metadata_df.get("width", 0))
+            # For disk-based patches (halves/quarters), calculate total image dimensions
+            # from patch metadata by finding the maximum extent of all patches
+            image_height = 0
+            image_width = 0
+            for _, row in patches_metadata_df.iterrows():
+                y_end = int(row.get("y_start", 0)) + int(row.get("patch_height", row.get("height", 0)))
+                x_end = int(row.get("x_start", 0)) + int(row.get("patch_width", row.get("width", 0)))
+                image_height = max(image_height, y_end)
+                image_width = max(image_width, x_end)
+            logging.info(
+                "Calculated image dimensions from patch metadata: %dx%d",
+                image_width, image_height
+            )
 
         total_pixels = max(1, int(image_height) * int(image_width))
         is_large_sample = total_pixels > LARGE_SAMPLE_PIXEL_THRESHOLD
