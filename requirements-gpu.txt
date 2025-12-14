@@ -44,6 +44,9 @@ cupy-cuda12x>=12.0.0  # For CUDA 12.x/13.x (RECOMMENDED for this system)
 # Optional: cupyx for additional GPU-accelerated scipy functions
 # (Already included with CuPy)
 
+# PyArrow for Parquet format support (used by regionprops caching)
+pyarrow>=10.0.0
+
 # CURRENT SYSTEM STATUS:
 # ----------------------
 # ✅ CuPy 12.3.0 is already installed and working!
