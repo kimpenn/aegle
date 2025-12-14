@@ -104,6 +104,7 @@ class TestBaselineNormalizationPerformance:
         assert elapsed < 5.0, f"Normalization too slow: {elapsed:.3f}s"
 
 
+@pytest.mark.slow
 class TestBaselineClusteringPerformance:
     """Benchmark clustering performance on CPU."""
 
@@ -253,6 +254,7 @@ class TestBaselineDifferentialPerformance:
         assert elapsed < 5.0, f"Differential analysis too slow: {elapsed:.3f}s"
 
 
+@pytest.mark.slow
 class TestBaselineFullPipeline:
     """Benchmark complete analysis pipeline on CPU."""
 
@@ -309,6 +311,7 @@ class TestBaselineFullPipeline:
 # =============================================================================
 
 
+@pytest.mark.slow
 class TestCPUPerformanceRegression:
     """Detect if CPU performance has regressed compared to baseline."""
 

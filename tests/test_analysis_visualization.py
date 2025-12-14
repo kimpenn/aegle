@@ -291,6 +291,7 @@ class TestSpatialPlots:
         except Exception as e:
             pytest.fail(f"plot_marker_expression_on_mask raised exception: {e}")
 
+    @pytest.mark.slow
     def test_plot_umap_basic(self):
         """Test UMAP plotting runs without error."""
         synth_data = get_small_dataset(random_seed=42)
@@ -305,6 +306,7 @@ class TestSpatialPlots:
         except Exception as e:
             pytest.fail(f"plot_umap raised exception: {e}")
 
+    @pytest.mark.slow
     def test_plot_umap_multiple_colors(self):
         """Test UMAP plotting with multiple color variables."""
         synth_data = get_small_dataset(random_seed=42)
@@ -319,6 +321,7 @@ class TestSpatialPlots:
         except Exception as e:
             pytest.fail(f"plot_umap (multiple colors) raised exception: {e}")
 
+    @pytest.mark.slow
     def test_plot_umap_continuous_variable(self):
         """Test UMAP plotting with continuous variable."""
         synth_data = get_small_dataset(random_seed=42)
@@ -334,6 +337,7 @@ class TestSpatialPlots:
         except Exception as e:
             pytest.fail(f"plot_umap (continuous variable) raised exception: {e}")
 
+    @pytest.mark.slow
     def test_plot_umap_save(self):
         """Test UMAP plot saving."""
         synth_data = get_small_dataset(random_seed=42)
