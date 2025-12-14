@@ -84,7 +84,7 @@ Experiment sets align with pipeline stages:
 - **main** – segmentation, patch extraction, cell profiling
 - **analysis** – downstream analytics (differential expression, plots, etc.)
 
-Generated configs in `exps/configs/<analysis_step>/<experiment_set>/` are picked up by the corresponding run scripts (e.g. `run_preprocess_ft.sh`, `run_main_ft.sh`).
+Generated configs in `exps/configs/<analysis_step>/<experiment_set>/` are picked up by the corresponding run scripts (e.g. `launcher/run_preprocess_ft.sh`, `launcher/run_main_ft.sh`).
 
 ## Additional Resources
 

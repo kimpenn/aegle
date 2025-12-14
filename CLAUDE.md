@@ -79,7 +79,7 @@ python src/main.py \
   --resume_stage cell_profiling
 
 # Using shell wrapper scripts (for specific cohorts)
-bash run_main_ft.sh <EXP_SET_NAME> <EXP_ID> <ROOT_DIR> <DATA_DIR> <CONFIG_DIR> <OUT_DIR> [LOG_LEVEL]
+bash launcher/run_main_ft.sh <EXP_SET_NAME> <EXP_ID> <ROOT_DIR> <DATA_DIR> <CONFIG_DIR> <OUT_DIR> [LOG_LEVEL]
 ```
 
 ### Preprocessing
