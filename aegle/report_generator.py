@@ -43,7 +43,7 @@ class PipelineReportGenerator:
     def __init__(self, output_dir: str, config: Dict, codex_patches=None):
         """
         Initialize report generator.
-        
+
         Args:
             output_dir: Pipeline output directory
             config: Pipeline configuration dictionary
@@ -55,6 +55,12 @@ class PipelineReportGenerator:
         self.report_data = {}
         self.figures = {}
         self.patch_quality_df = None
+
+        # Report image compression settings
+        report_config = config.get('report', {})
+        self.image_max_width = report_config.get('image_max_width', 1200)
+        self.image_jpeg_quality = report_config.get('image_jpeg_quality', 85)
+        self.compress_images = report_config.get('compress_images', True)
         
     def generate_report(self, report_path: Optional[str] = None) -> str:
         """
@@ -246,8 +252,25 @@ class PipelineReportGenerator:
                     if img.mode == "L":
                         img = ImageOps.equalize(img)
 
+                    # Convert to RGB for JPEG
+                    img = img.convert("RGB")
+
+                    # Resize if wider than max_width (use configured setting)
+                    if self.compress_images and img.width > self.image_max_width:
+                        ratio = self.image_max_width / img.width
+                        new_height = int(img.height * ratio)
+                        img = img.resize(
+                            (self.image_max_width, new_height),
+                            Image.Resampling.LANCZOS
+                        )
+
                     buffer = BytesIO()
-                    img.convert("RGB").save(buffer, format='JPEG', quality=90)
+                    img.save(
+                        buffer,
+                        format='JPEG',
+                        quality=self.image_jpeg_quality,
+                        optimize=True
+                    )
                     buffer.seek(0)
                     img_data = base64.b64encode(buffer.read()).decode()
                     return f"data:image/jpeg;base64,{img_data}"
@@ -394,11 +417,49 @@ class PipelineReportGenerator:
 
         def _load_image_data(path: Path) -> Optional[str]:
             try:
-                with open(path, 'rb') as img_file:
-                    encoded = base64.b64encode(img_file.read()).decode()
-                suffix = path.suffix.lower()
-                mime = 'image/png' if suffix == '.png' else 'image/jpeg'
-                return f"data:{mime};base64,{encoded}"
+                # Use PIL to compress images if available and enabled
+                if PIL_AVAILABLE and self.compress_images:
+                    with Image.open(path) as img:
+                        # Convert RGBA to RGB (JPEG doesn't support alpha)
+                        if img.mode in ('RGBA', 'LA', 'P'):
+                            background = Image.new('RGB', img.size, (255, 255, 255))
+                            if img.mode == 'P':
+                                img = img.convert('RGBA')
+                            if img.mode in ('RGBA', 'LA'):
+                                background.paste(img, mask=img.split()[-1])
+                            else:
+                                background.paste(img)
+                            img = background
+                        elif img.mode != 'RGB':
+                            img = img.convert('RGB')
+
+                        # Resize if wider than max_width
+                        if img.width > self.image_max_width:
+                            ratio = self.image_max_width / img.width
+                            new_height = int(img.height * ratio)
+                            img = img.resize(
+                                (self.image_max_width, new_height),
+                                Image.Resampling.LANCZOS
+                            )
+
+                        # Save as JPEG with compression
+                        buffer = BytesIO()
+                        img.save(
+                            buffer,
+                            format='JPEG',
+                            quality=self.image_jpeg_quality,
+                            optimize=True
+                        )
+                        buffer.seek(0)
+                        encoded = base64.b64encode(buffer.read()).decode()
+                        return f"data:image/jpeg;base64,{encoded}"
+                else:
+                    # Fallback: read file as-is without compression
+                    with open(path, 'rb') as img_file:
+                        encoded = base64.b64encode(img_file.read()).decode()
+                    suffix = path.suffix.lower()
+                    mime = 'image/png' if suffix == '.png' else 'image/jpeg'
+                    return f"data:{mime};base64,{encoded}"
             except FileNotFoundError:
                 logger.debug(f"Visualization image missing: {path}")
             except Exception as exc:
@@ -1322,10 +1383,43 @@ class PipelineReportGenerator:
     def _fig_to_base64(self, fig) -> str:
         """Convert matplotlib figure to base64 string for embedding in HTML."""
         buffer = BytesIO()
-        fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
-        buffer.seek(0)
-        img_str = base64.b64encode(buffer.read()).decode()
-        return f"data:image/png;base64,{img_str}"
+
+        if self.compress_images and PIL_AVAILABLE:
+            # Save to PNG first, then convert to compressed JPEG
+            fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+            buffer.seek(0)
+
+            with Image.open(buffer) as img:
+                # Convert to RGB if needed
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+
+                # Resize if wider than max_width
+                if img.width > self.image_max_width:
+                    ratio = self.image_max_width / img.width
+                    new_height = int(img.height * ratio)
+                    img = img.resize(
+                        (self.image_max_width, new_height),
+                        Image.Resampling.LANCZOS
+                    )
+
+                # Save as compressed JPEG
+                jpeg_buffer = BytesIO()
+                img.save(
+                    jpeg_buffer,
+                    format='JPEG',
+                    quality=self.image_jpeg_quality,
+                    optimize=True
+                )
+                jpeg_buffer.seek(0)
+                img_str = base64.b64encode(jpeg_buffer.read()).decode()
+                return f"data:image/jpeg;base64,{img_str}"
+        else:
+            # Fallback: save as PNG without compression
+            fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+            buffer.seek(0)
+            img_str = base64.b64encode(buffer.read()).decode()
+            return f"data:image/png;base64,{img_str}"
         
     def _render_html_report(self) -> str:
         """Render HTML report using template."""

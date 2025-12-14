@@ -66,6 +66,26 @@ visualization:
   visualize_segmentation: True
 
 # -----------------------------------------------------------------------------
+# (D.2) HTML Report Settings
+# -----------------------------------------------------------------------------
+report:
+  # Whether to compress images in the HTML report (resize and convert to JPEG)
+  # Reduces typical report size from ~100MB to ~15-20MB
+  compress_images: True
+
+  # Maximum width in pixels for embedded images (maintains aspect ratio)
+  # Smaller values = smaller file size but lower resolution
+  image_max_width: 1200
+
+  # JPEG quality for embedded images (1-100, higher = better quality but larger)
+  # 85 is a good balance of quality and file size
+  image_jpeg_quality: 85
+
+  # Whether to include pre-repair comparison images (before/after segmentation repair)
+  # Set to False to reduce report size by ~40% (loses repair diagnostics)
+  include_pre_repair_images: True
+
+# -----------------------------------------------------------------------------
 # (E) QC (Patch-Level Quality Control)
 # -----------------------------------------------------------------------------
 patch_qc:
