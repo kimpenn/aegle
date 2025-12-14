@@ -17,6 +17,7 @@ from aegle_analysis.analysis.differential import (
 from tests.utils.synthetic_analysis_data import get_small_dataset
 
 
+@pytest.mark.slow
 class TestDifferentialExpression:
     """Test suite for differential expression analysis."""
 
@@ -197,6 +198,7 @@ class TestDifferentialExpression:
             assert n_significant >= 0, "Negative count of significant markers"
 
 
+@pytest.mark.slow
 class TestFoldChangeMatrix:
     """Test suite for fold change matrix building functions."""
 

@@ -12,6 +12,7 @@ from aegle_analysis.analysis.clustering import run_clustering, create_anndata
 from tests.utils.synthetic_analysis_data import get_small_dataset, get_medium_dataset
 
 
+@pytest.mark.slow
 class TestClustering:
     """Test suite for clustering functions."""
 
