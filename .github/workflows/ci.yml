@@ -22,7 +22,7 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,analysis]"
 
       - name: Run unit tests
         run: |

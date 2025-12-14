@@ -25,6 +25,14 @@ setup(
             "scikit-image>=0.19.0",
             "opencv-python-headless>=4.5.0",
         ],
+        "analysis": [
+            # Dependencies for aegle_analysis module
+            "scanpy>=1.9.0",
+            "anndata>=0.8.0",
+            "seaborn>=0.12.0",
+            "statsmodels>=0.13.0",
+            "scipy>=1.7.0",
+        ],
         "gpu": [
             # CuPy for GPU-accelerated computing
             # Install the appropriate version for your CUDA:
