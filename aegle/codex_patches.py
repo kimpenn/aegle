@@ -309,7 +309,7 @@ class CodexPatches:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Patch file not found: {file_path}")
             
-        self.logger.info(f"Loading patch {patch_index} ({patch_type}) from disk: {os.path.basename(file_path)}")
+        self.logger.info(f"Loading patch {patch_index} ({patch_type} channels) from disk: {os.path.basename(file_path)}")
         patch = np.load(file_path)
         self.logger.info(f"Loaded patch {patch_index} with shape: {patch.shape}")
         
