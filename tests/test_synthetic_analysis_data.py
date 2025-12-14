@@ -285,6 +285,7 @@ class TestPredefinedDatasets:
         assert data.adata.uns["n_clusters"] == 3
         assert data.cell_mask.shape == (256, 256)
 
+    @pytest.mark.slow
     def test_medium_dataset(self):
         """Test medium dataset generator."""
         data = get_medium_dataset(random_seed=42)
@@ -294,6 +295,7 @@ class TestPredefinedDatasets:
         assert data.adata.uns["n_clusters"] == 5
         assert data.cell_mask.shape == (512, 512)
 
+    @pytest.mark.slow
     def test_large_dataset(self):
         """Test large dataset generator."""
         data = get_large_dataset(random_seed=42)
