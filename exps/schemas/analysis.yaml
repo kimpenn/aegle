@@ -16,6 +16,8 @@ defaults:
   analysis::llm_temperature: 1
   analysis::llm_max_tokens: 10000
   analysis::tissue_descriptor: fallopian tube
+  analysis::use_gpu: true
+  analysis::gpu_id: 0
 
 fields:
   - key: exp_id
@@ -94,6 +96,19 @@ fields:
       - rank_gaussian
       - none
     description: Expression normalization method applied before clustering.
+
+  - key: analysis::use_gpu
+    type: bool
+    required: false
+    default: true
+    description: Enable GPU acceleration for clustering (FAISS-GPU k-NN).
+
+  - key: analysis::gpu_id
+    type: int
+    required: false
+    default: 0
+    min: 0
+    description: GPU device ID to use for accelerated clustering.
 
   - key: analysis::output_subdir
     type: str
