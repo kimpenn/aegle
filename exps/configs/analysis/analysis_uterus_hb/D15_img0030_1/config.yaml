@@ -1,0 +1,51 @@
+# /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/templates/analysis_template.yaml
+exp_id: D15_img0030_1
+
+analysis:
+  # Path relative to DATA_DIR pointing at the main pipeline outputs for this experiment
+  data_dir: D15_img0030_1
+
+  # Subdirectory containing cell profiling outputs
+  cell_profiling_dir: cell_profiling
+
+  # Filenames for the cell-level metadata and expression matrices
+  metadata_file: cell_metadata.csv
+  expression_file: cell_by_marker.csv
+
+  # Segmentation artifact produced by the main pipeline (optional)
+  segmentation_file: matched_seg_res_batch.pickle.zst
+  segmentation_format: pickle.zst
+
+  # Patch index to analyse when data were exported in patch mode
+  patch_index: 0
+
+  # Toggle heavy visualisations
+  skip_viz: false
+
+  # Clustering behaviour and data normalisation
+  clustering_resolution: 0.2
+  norm_method: rank_fraction
+
+  # GPU acceleration for clustering (k-NN graph construction via FAISS-GPU)
+  # Provides 10-50x speedup on large datasets (>10K cells)
+  use_gpu: true
+  gpu_id: 1
+
+  # Optional overrides for analysis output structure
+  output_subdir: NULL
+  plots_subdir: plots
+  de_subdir: differential_expression
+
+  # Optional LLM-assisted cluster annotation
+  annotate_cell_types: true
+  llm_prior_path: /workspaces/codex-analysis/data/uterus/cell_type_markers.json # Absolute path to prior knowledge JSON
+  llm_model: gpt-5.2-2025-12-11
+  llm_temperature: 1
+  llm_max_tokens: 10000
+  llm_system_prompt: NULL
+  llm_output_file: NULL
+  llm_summary_system_prompt: NULL
+  llm_summary_output_file: NULL
+  summarize_annotation: true
+  tissue_descriptor: uterus
+  generate_pipeline_report: true
