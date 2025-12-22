@@ -5,8 +5,8 @@ set -euo pipefail
 # Custom configuration for this run
 # ---------------------------------------------------------------------------
 ANALYSIS_STEP="analysis"
-# analysis_ft_hb, analysis_ovary_hb
-EXPERIMENT_SET="analysis_FHPR_PRE"
+# analysis_ft_hb, analysis_ovary_hb, analysis_FHPR_PRE, analysis_uterus_hb
+EXPERIMENT_SET="analysis_ovary_hb"
 
 CSV_PATH="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/csvs/${EXPERIMENT_SET}.csv"
 OUTPUT_DIR="/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline/exps/configs/${ANALYSIS_STEP}/${EXPERIMENT_SET}"
