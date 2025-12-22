@@ -1,7 +1,7 @@
 {
   "normalization_log1p_small": {
-    "time_seconds": 0.002330792136490345,
-    "timestamp": "2025-11-23T12:40:08.417262",
+    "time_seconds": 0.002200113609433174,
+    "timestamp": "2025-12-14T15:22:36.817199",
     "system_info": {
       "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
       "processor": "x86_64",
@@ -14,8 +14,8 @@
     }
   },
   "normalization_log1p_medium": {
-    "time_seconds": 0.007387775927782059,
-    "timestamp": "2025-11-23T12:41:25.645892",
+    "time_seconds": 0.0070377252995967865,
+    "timestamp": "2025-12-14T15:23:53.586667",
     "system_info": {
       "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
       "processor": "x86_64",
@@ -28,8 +28,8 @@
     }
   },
   "clustering_full_small": {
-    "time_seconds": 0.8041013916954398,
-    "timestamp": "2025-11-23T12:41:29.152940",
+    "time_seconds": 0.8307674750685692,
+    "timestamp": "2025-12-14T15:24:02.295298",
     "system_info": {
       "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
       "processor": "x86_64",
@@ -43,8 +43,8 @@
     }
   },
   "clustering_knn_small": {
-    "time_seconds": 0.07490034215152264,
-    "timestamp": "2025-11-23T12:41:31.219585",
+    "time_seconds": 0.07743531093001366,
+    "timestamp": "2025-12-14T15:24:04.329315",
     "system_info": {
       "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
       "processor": "x86_64",
@@ -56,8 +56,8 @@
     }
   },
   "clustering_leiden_small": {
-    "time_seconds": 0.05147739965468645,
-    "timestamp": "2025-11-23T12:41:33.333210",
+    "time_seconds": 0.051447754725813866,
+    "timestamp": "2025-12-14T15:24:06.404702",
     "system_info": {
       "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
       "processor": "x86_64",
@@ -69,8 +69,8 @@
     }
   },
   "clustering_umap_small": {
-    "time_seconds": 0.66040407307446,
-    "timestamp": "2025-11-23T12:41:36.654705",
+    "time_seconds": 0.6575745418667793,
+    "timestamp": "2025-12-14T15:24:09.680320",
     "system_info": {
       "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
       "processor": "x86_64",
@@ -81,8 +81,8 @@
     }
   },
   "differential_wilcoxon_small": {
-    "time_seconds": 0.026471884921193123,
-    "timestamp": "2025-11-23T12:41:38.627843",
+    "time_seconds": 0.02704542502760887,
+    "timestamp": "2025-12-14T15:24:11.619176",
     "system_info": {
       "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
       "processor": "x86_64",
@@ -95,8 +95,8 @@
     }
   },
   "full_pipeline_small": {
-    "time_seconds": 0.8313834462314844,
-    "timestamp": "2025-11-23T12:41:42.210397",
+    "time_seconds": 0.8641310892999172,
+    "timestamp": "2025-12-14T15:24:15.191624",
     "system_info": {
       "platform": "Linux-6.6.6-76060606-generic-x86_64-with-glibc2.29",
       "processor": "x86_64",
