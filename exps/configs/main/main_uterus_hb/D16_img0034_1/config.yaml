@@ -1,6 +1,6 @@
 # Top-level configuration for CODEX pipeline
 exp_id: D16_img0034_1
-sample_id: 16-57
+sample_id: 16-56
 
 # -----------------------------------------------------------------------------
 # (A) Data Source and Basic Image Settings
@@ -8,7 +8,7 @@ sample_id: 16-57
 data:
   # Path to the main .qptiff or .tiff file for the CODEX image
   file_name: 
-    /workspaces/codex-analysis/data/uterus/D16/img0034/processed_hubmap/img0034_manual_16-57_Uterus_Endocervix_Scan1.ome.tiff
+    /workspaces/codex-analysis/data/uterus/D16/img0034/processed_hubmap/img0034_manual_16-56_Uterus_Endocervix_Scan1.ome.tiff
 
   # Path to the TSV file containing antibody definitions (one row per channel)
   antibodies_file: 
