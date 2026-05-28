@@ -171,6 +171,40 @@ def run_cell_profiling(codex_patches, config, args):
             # Clean up image_dict after CPU extraction
             del image_dict
         logger.info(f"Extracted features for patch {patch_idx} with shape: {exp_df.shape}")
+        
+        # Calculate per-cell retained fraction after segmentation repair
+        try:
+            orig_seg_result = codex_patches.original_seg_res_batch[seg_batch_idx]
+            orig_nucleus_mask = orig_seg_result.get("nucleus")
+            orig_cell_mask = orig_seg_result.get("cell")
+            
+            cell_ids = metadata_df.index.values.astype(int)
+            orig_nuc_areas = np.bincount(orig_nucleus_mask.ravel()) if orig_nucleus_mask is not None else np.array([])
+            orig_cell_areas = np.bincount(orig_cell_mask.ravel()) if orig_cell_mask is not None else np.array([])
+            
+            def map_areas(area_array, ids):
+                out = np.zeros(len(ids), dtype=float)
+                valid_mask = ids < len(area_array)
+                out[valid_mask] = area_array[ids[valid_mask]]
+                return out
+            # add to metadata_df
+            metadata_df["nucleus_area_before"] = map_areas(orig_nuc_areas, cell_ids)
+            metadata_df["nucleus_retained_fraction"] = (
+                metadata_df["nucleus_area"] / metadata_df["nucleus_area_before"].clip(lower=1e-6)
+            ).fillna(0)
+            
+            metadata_df["cell_area_before"] = map_areas(orig_cell_areas, cell_ids)
+            metadata_df["cell_retained_fraction"] = (
+                metadata_df.get("cell_area", metadata_df.get("area", 0)) / 
+                metadata_df["cell_area_before"].clip(lower=1e-6)
+            ).fillna(0)
+            
+            # Optional flags
+            metadata_df["nucleus_was_trimmed"] = metadata_df["nucleus_retained_fraction"] < 0.99
+            
+        except Exception as e:
+            logger.warning(f"Failed to calculate cell-level repair QC metrics: {e}")
+
         logger.info(f"Metadata for patch {patch_idx} with shape: {metadata_df.shape}")
         logger.info(f"Exp DataFrame: {exp_df.head()}")
         logger.info(f"Metadata DataFrame: {metadata_df.head()}")
