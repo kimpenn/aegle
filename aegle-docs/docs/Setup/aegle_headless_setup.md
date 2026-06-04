@@ -30,25 +30,7 @@ This folder will contain your raw data, pipeline repositories, supporting tools,
 
 ---
 
-### 2) Import the Docker image with Enroot
-Use `enroot import` to download the prepackaged Docker image from GitHub Container Registry (GHCR):
-```bash
-enroot import -o ~/project/codex-analysis/aegle.sqsh docker://ghcr.io/seungyubh/aegle:latest
-```
-
-> **Tip:** If you do not specify the `-o` option, `enroot import` will download the image and create a squash file named `seungyubh+aegle+latest.sqsh` in your current working directory. You can rename it afterwards or specify it directly in the next step.
-
----
-
-### 3) Create the Enroot container
-Create an Enroot container named `aegle` from the squash file:
-```bash
-enroot create --name aegle ~/project/codex-analysis/aegle.sqsh
-```
-
----
-
-### 4) Clone the Aegle repository
+### 2) Clone the Aegle repository
 Create a subfolder in your working directory and clone the Aegle repository into it:
 ```bash
 mkdir -p ~/project/codex-analysis/0-phenocycler-penntmc-pipeline
@@ -58,7 +40,7 @@ git clone git@github.com:kimpenn/aegle.git .
 
 ---
 
-### 5) Add supporting pipeline folders
+### 3) Add supporting pipeline folders
 Copy the `deepcell-pipeline` and `bftools` folders into your working directory:
 ```bash
 cp -r /path/to/deepcell-pipeline ~/project/codex-analysis/
@@ -78,6 +60,25 @@ Also confirm that the following files have good permission (755):
 
 ---
 
+### 4) Import the Docker image with Enroot
+Use `enroot import` to download the prepackaged Docker image from GitHub Container Registry (GHCR):
+```bash
+enroot import -o ~/project/codex-analysis/aegle.sqsh docker://ghcr.io/seungyubh/aegle:latest
+```
+
+> **Tip:** If you do not specify the `-o` option, `enroot import` will download the image and create a squash file named `seungyubh+aegle+latest.sqsh` in your current working directory. You can rename it afterwards or specify it directly in the next step.
+
+---
+
+### 5) Create the Enroot container
+Create an Enroot container named `aegle` from the squash file:
+```bash
+enroot create --name aegle ~/project/codex-analysis/aegle.sqsh
+```
+
+---
+
+
 ### 6) Create the data folder structure
 Create the data directories needed by the pipeline stages:
 ```bash
@@ -95,6 +96,16 @@ enroot start --rw --mount ~/project/codex-analysis/:/workspaces/codex-analysis a
 ```
 
 > **Note:** Mounting to `/workspaces/codex-analysis` matches the standard workspace path used in the Dev Containers configuration. If you choose to mount to another path (e.g., `/workspaces`), adjust any paths in your pipeline configuration files accordingly.
+
+---
+
+### 8) Install Aegle in editable mode
+Install the Aegle package within the container workspace by running:
+```bash
+cd /workspaces/codex-analysis/0-phenocycler-penntmc-pipeline
+python -m pip install -e .
+```
+---
 
 ## Method B: Slurm Cluster (via Pyxis)
 If your HPC cluster runs Slurm and has the Pyxis plugin configured, you can launch jobs directly using the container image or your squash file without manually creating an Enroot container.
