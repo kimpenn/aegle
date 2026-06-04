@@ -15,8 +15,6 @@ setup(
         "pyyaml",
         "zstandard",
         "tqdm",
-        "pyvips",
-        "torch"
     ],
     python_requires=">=3.8",
     extras_require={
@@ -42,6 +40,18 @@ setup(
             # - CUDA 11.x: pip install cupy-cuda11x
             # - CUDA 12.x: pip install cupy-cuda12x
             # Note: Will be installed separately based on system CUDA version
+        ],
+        "parcc": [
+            "torch",
+            "torchvision",
+            "torchmetrics",
+            "scikit-learn",
+            "lightning-utilities",
+            "imagecodecs",
+            "networkx",
+            "joblib",
+            "threadpoolctl",
+            "sympy",
         ],
     },
     author="Da Kuang",
