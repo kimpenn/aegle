@@ -15,6 +15,8 @@ setup(
         "pyyaml",
         "zstandard",
         "tqdm",
+        "pyvips"
+        "torch"
     ],
     python_requires=">=3.8",
     extras_require={
