@@ -41,7 +41,7 @@ setup(
             # - CUDA 12.x: pip install cupy-cuda12x
             # Note: Will be installed separately based on system CUDA version
         ],
-        "parcc": [
+        "artifact_classifier": [
             "torch",
             "torchvision",
             "torchmetrics",
