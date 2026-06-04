@@ -15,6 +15,7 @@ setup(
         "pyyaml",
         "zstandard",
         "tqdm",
+        "pyvips"
     ],
     python_requires=">=3.8",
     extras_require={
