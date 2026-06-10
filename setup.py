@@ -14,7 +14,6 @@ setup(
         "zstandard",
         "tqdm",
         "pyvips",
-        "torch"
         "torch",
         "zarr",
         "shapely",
