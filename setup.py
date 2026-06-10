@@ -1,7 +1,5 @@
 # setup.py
-
 from setuptools import setup, find_packages
-
 setup(
     name="aegle",
     version="0.1",
@@ -15,7 +13,12 @@ setup(
         "pyyaml",
         "zstandard",
         "tqdm",
-        "pyvips"
+        "pyvips",
+        "torch"
+        "torch",
+        "zarr",
+        "shapely",
+        "imagecodecs"
     ],
     python_requires=">=3.8",
     extras_require={
@@ -41,18 +44,6 @@ setup(
             # - CUDA 11.x: pip install cupy-cuda11x
             # - CUDA 12.x: pip install cupy-cuda12x
             # Note: Will be installed separately based on system CUDA version
-        ],
-        "artifact_classifier": [
-            "torch",
-            "torchvision",
-            "torchmetrics",
-            "scikit-learn",
-            "lightning-utilities",
-            "imagecodecs",
-            "networkx",
-            "joblib",
-            "threadpoolctl",
-            "sympy",
         ],
     },
     author="Da Kuang",
