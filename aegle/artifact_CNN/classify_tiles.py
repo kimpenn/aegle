@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 
 matplotlib.use("Agg")  # Non-interactive backend
-from deep_sets_model import DeepSetsCNN
-from metadata_utils import build_vocabulary, load_metadata
-from tiff_dataloader import build_dataloaders, deep_sets_collate_fn
+from aegle.artifact_CNN.deep_sets_model import DeepSetsCNN
+from aegle.artifact_CNN.metadata_utils import build_vocabulary, load_metadata
+from aegle.artifact_CNN.tiff_dataloader import build_dataloaders, deep_sets_collate_fn
 
 
 def infer_model(

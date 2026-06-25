@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-from resnet_adapter import inject_adapter
+from aegle.artifact_CNN.resnet_adapter import inject_adapter
 
 
 class DeepSetsCNN(nn.Module):

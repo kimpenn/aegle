@@ -36,7 +36,7 @@ from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
 # Import metadata utils
 try:
-    from metadata_utils import load_metadata, build_vocabulary, build_metadata_map, get_antibody_ids, UNK_TOKEN
+    from aegle.artifact_CNN.metadata_utils import load_metadata, build_vocabulary, build_metadata_map, get_antibody_ids, UNK_TOKEN
 except ImportError:
     # Fallback if running from a different directory or not yet set up
     print("Warning: metadata_utils not found. Deep Sets features will be disabled.")
