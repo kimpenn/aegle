@@ -254,7 +254,8 @@ def _open_zarr_array_for_series(series, preferred_level: Optional[int]):
 
 # -------------------- region utils (GeoJSON) --------------------
 
-LabelGeomMap = dict[str, "shapely.geometry.base.BaseGeometry"]
+from typing import Dict
+LabelGeomMap = Dict[str, "shapely.geometry.base.BaseGeometry"]
 
 
 def _extract_label(props: dict) -> str | None:
@@ -442,7 +443,7 @@ def _tile_with_tifffile(
                     label = "Unlabeled"
                 out_dir = output_dir / label
                 out_dir.mkdir(parents=True, exist_ok=True)
-                _save_tile(arr, out_dir, r, c)
+                _save_tile(arr, out_dir, r, c, input_path.stem)
         total = n_rows * n_cols
         return n_rows, n_cols, total
 
@@ -450,13 +451,13 @@ def _tile_with_tifffile(
 # -------------------- common save --------------------
 
 
-def _save_tile(arr: np.ndarray, output_dir: Path, r: int, c: int):
+def _save_tile(arr: np.ndarray, output_dir: Path, r: int, c: int, image_stem: str):
     """Save a tile as TIFF with correct channel semantics.
-
+    
     - Writes standard TIFF with correct SamplesPerPixel and planar config (no OME-XML)
       to avoid shape/axes mismatches. Keeps all channels & dtype.
     """
-    stem = f"tile_r{r:05d}_c{c:05d}"
+    stem = f"{image_stem}_tile_{r}_{c}"
     out_path = output_dir / f"{stem}.tiff"
 
     # Ensure channel-last for multi-channel

@@ -47,18 +47,18 @@ TILE_DIR="${CODEX_DIR}/${CODEX_NAME}_tiles"
 echo "==================================="
 echo "1. Tiling Image"
 echo "==================================="
-python aegle/artifact_CNN/qptiff_tiler.py \
-    --input "$CODEX_IMAGE" \
-    --output_dir "$TILE_DIR" \
-    --geojson "$TISSUE_REGIONS" \
-    --level 0 \
-    --tile_w 960 --tile_h 720
+# python aegle/artifact_CNN/qptiff_tiler.py \
+#     --input "$CODEX_IMAGE" \
+#     --output_dir "$TILE_DIR" \
+#     --geojson "$TISSUE_REGIONS" \
+#     --level 0 \
+#     --tile_w 960 --tile_h 720
 
 echo "==================================="
 echo "2. Classifying Tiles"
 echo "==================================="
 # Update PYTHONPATH so that local imports in classify_tiles.py work correctly
-PYTHONPATH="aegle/artifact_CNN:$PYTHONPATH" python aegle/artifact_CNN/classify_tiles.py \
+PYTHONPATH="aegle/artifact_CNN:$PYTHONPATH" python aegle/artifact_CNN/classify_tiles_cpu.py \
     --data_dir "$TILE_DIR/Unlabeled" \
     --metadata_path "$ANTIBODY_NAMES" \
     --model_path "$MODEL_PATH" \

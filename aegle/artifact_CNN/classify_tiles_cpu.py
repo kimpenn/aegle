@@ -19,9 +19,7 @@ def infer_model(
     device: str = "cuda",
     csv_path: str = None,
 ):
-    device_t = torch.device(
-        device if torch.cuda.is_available() and device.startswith("cuda") else "cpu"
-    )
+    device_t = "cpu"
     model.to(device_t)
     model.eval()
 

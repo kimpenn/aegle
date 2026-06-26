@@ -62,8 +62,14 @@ IMG_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp"}
 
 def _list_images(root: Path) -> List[Tuple[Path, int]]:
     classes = sorted([d.name for d in root.iterdir() if d.is_dir()])
+    
     if not classes:
-        raise RuntimeError(f"No class subfolders found under {root}")
+        # Check if there are images directly in the root
+        images_in_root = [p for p in root.iterdir() if p.is_file() and p.suffix.lower() in IMG_EXTS]
+        if images_in_root:
+            return [(p, 0) for p in images_in_root]
+        raise RuntimeError(f"No class subfolders or images found under {root}. Running inference mode.")
+
     class_to_idx = {c: i for i, c in enumerate(classes)}
     items: List[Tuple[Path, int]] = []
     for cls in classes:
@@ -373,7 +379,7 @@ def build_dataloaders(
         drop_last=False,
         persistent_workers=(num_workers > 0),
         collate_fn=collate_fn
-    )
+    ) if len(train_ds) > 0 else None
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
@@ -383,7 +389,7 @@ def build_dataloaders(
         drop_last=False,
         persistent_workers=(num_workers > 0),
         collate_fn=collate_fn
-    )
+    ) if len(val_ds) > 0 else None
     test_loader = None
     if test_ds is not None:
         test_loader = DataLoader(
