@@ -1,0 +1,52 @@
+[
+  {
+    "image_id": "img0011",
+    "Metadata": {
+      "Donor_ID": "Doner_X",
+      "Organ": "Fallopian_Tube"
+    },
+    "CHANNELS": {
+      "Channel:0:0": "DAPI",
+      "Channel:0:1": "CD44",
+      "Channel:0:2": "CD20",
+      "Channel:0:3": "E-cadherin",
+      "Channel:0:4": "Beta-actin",
+      "Channel:0:5": "b-Catenin1",
+      "Channel:0:6": "Pan-Cytokeratin",
+      "Channel:0:7": "Collagen IV",
+      "Channel:0:8": "CD8",
+      "Channel:0:9": "HLA-DR",
+      "Channel:0:10": "CD3e",
+      "Channel:0:11": "Podoplanin",
+      "Channel:0:12": "Caveolin",
+      "Channel:0:13": "CD45RO",
+      "Channel:0:14": "CD31",
+      "Channel:0:15": "Ki67",
+      "Channel:0:16": "CD34",
+      "Channel:0:17": "CD45",
+      "Channel:0:18": "CD11b",
+      "Channel:0:19": "CD4",
+      "Channel:0:20": "CD14",
+      "Channel:0:21": "SMA",
+      "Channel:0:22": "CD68",
+      "Channel:0:23": "HLA-A",
+      "Channel:0:24": "EPCAM",
+      "Channel:0:25": "CD146",
+      "Channel:0:26": "CD105",
+      "Channel:0:27": "PAX8",
+      "Channel:0:28": "LGALS14",
+      "Channel:0:29": "RUNX3",
+      "Channel:0:30": "ACTA2",
+      "Channel:0:31": "CDKN2A",
+      "Channel:0:32": "FOXJ1",
+      "Channel:0:33": "VWF",
+      "Channel:0:34": "PGR",
+      "Channel:0:35": "NKG2A",
+      "Channel:0:36": "Keratin 8/18",
+      "Channel:0:37": "HIF1A",
+      "Channel:0:38": "CADPS",
+      "Channel:0:39": "DNALI1",
+      "Channel:0:40": "FUT4"
+    }
+  }
+]
