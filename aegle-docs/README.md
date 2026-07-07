@@ -92,3 +92,4 @@ It is important to distinguish between these two commands, as they are used in d
 - Use `npm start` during **development**.  
 - Use `npm run build && npm run serve` to test the **final production build** locally before deployment.
 - When you make changes to file names, you need to run `npm run build` to update the site.
+- Note: Documentation source changes should still be committed and pushed to the main branch separately; `npm run deploy` primarily builds the static site and pushes it to the `gh-pages` branch
