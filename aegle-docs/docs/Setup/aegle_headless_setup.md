@@ -14,7 +14,7 @@ This guide describes how to run **Aegle** in an environment where **Visual Studi
 - (For Slurm clusters) **Pyxis** plugin enabled (optional for Enroot, but recommended for Slurm integration)
 - **Git** installed and access to GitHub (usually via SSH)
 - The raw image datasets
-- Download **deepcell-pipeline**, **bftools** folders
+- Download zip file that contains `deepcell-pipeline` folder, `data` folder, and `bftools` folder from `https://kim.bio.upenn.edu/software/aegle/aegle_supplementary.zip` and unzip it to your project folder. You may discard `Dockerfile`, `devcontainer.json` files from the zip file as they are not used in the headless setup.
 
 > Example working directory used below: `~/project/codex-analysis`
 
@@ -41,10 +41,11 @@ git clone git@github.com:kimpenn/aegle.git .
 ---
 
 ### 3) Add supporting pipeline folders
-Copy the `deepcell-pipeline` and `bftools` folders into your working directory:
+Copy the `deepcell-pipeline`, `bftools`, `data` folders into your working directory:
 ```bash
 cp -r /path/to/deepcell-pipeline ~/project/codex-analysis/
 cp -r /path/to/bftools ~/project/codex-analysis/
+cp -r /path/to/data ~/project/codex-analysis/
 ```
 
 Confirm that the Bio-Formats tools are executable:

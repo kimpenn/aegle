@@ -18,6 +18,8 @@ Given an input `.qptiff` image, the script expects image tiles to be generated (
 
 The output is a detailed CSV report (`classification_report.csv`) that lists the path of each tile, its predicted label, and the raw model logits for every class.
 
+Pretrained CNN model is available at `https://kim.bio.upenn.edu/software/aegle/aegle_supplementary.zip` along with supplementary files for running the pipeline.
+
 ## Usage
 
 ### 1. Using the Shell Wrapper (Recommended)

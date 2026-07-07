@@ -15,7 +15,7 @@ sidebar_position: 1
 - (If using GPU) **NVIDIA drivers** and **NVIDIA Container Toolkit** installed
 - **Visual Studio Code** with the **Dev Containers** extension on your local machine to connect to the workstation
 - **Git** installed and access to GitHub via **SSH**
-- Download `Dockerfile`, `devcontainer.json`, `deepcell-pipeline` folder, and `bftools` folder
+- Download zip file that contains `Dockerfile`, `devcontainer.json`, `deepcell-pipeline` folder, `data` folder, and `bftools` folder from `https://kim.bio.upenn.edu/software/aegle/aegle_supplementary.zip` and unzip it to your project folder.
 
 > Example working directory used below: `~/project/codex-analysis`
 
@@ -37,7 +37,7 @@ mkdir -p ~/project/codex-analysis/.devcontainer
 cd ~/project/codex-analysis/.devcontainer
 ```
 
-Download and Copy the following two files into the `.devcontainer` folder:
+Copy the following two files into the `.devcontainer` folder:
 - `Dockerfile`
 - `devcontainer.json`
 
@@ -56,6 +56,10 @@ Edit both files so paths and hardware options match your setup. Typical edits in
 From your source location, copy the `deepcell-pipeline` folder into the working directory:
 ```bash
 cp -r /path/to/deepcell-pipeline ~/project/codex-analysis/
+```
+copy over data folder that contains deepcell model into the directory:
+```bash
+cp -r /path/to/data ~/project/codex-analysis/
 ```
 
 ---
