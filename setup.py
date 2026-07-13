@@ -37,6 +37,10 @@ setup(
             "scipy>=1.7.0",
             "leidenalg>=0.9.0",  # Required for Leiden clustering in scanpy
         ],
+        "oocyte": [
+            "scipy>=1.7.0",
+            "scikit-image>=0.19.0",
+        ],
         "gpu": [
             # CuPy for GPU-accelerated computing
             # Install the appropriate version for your CUDA:

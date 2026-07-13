@@ -11,6 +11,8 @@ aegle_patch_viewer/
 debug_synthetic_previews
 *.pkl
 *.csv
+!exps/templates/oocyte_samples_template.csv
+!exps/configs/oocyte_d11_d13_panel1/samples.csv
 notebooks
 # Ignore specific files
 NW_1_Scan1 copy.qptiff

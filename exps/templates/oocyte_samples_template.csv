@@ -1,0 +1,2 @@
+sample_id,image_path,antibodies_path,channel_name,channel_index,pixel_size_um,enabled,profile
+13-23,/path/to/13-23.ome.tiff,/path/to/antibodies.tsv,UCHL1,,0.5,true,donor13_v6

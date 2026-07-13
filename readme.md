@@ -19,6 +19,14 @@ This pipeline is developed as part of the PennTMC project.
 - **Cell Segmentation**  
   - Run segmentation with *Mesmer* using `scripts/run_main.sh` and do cell profiling to generate a cell x antibody matrix.
 
+- **Standalone Oocyte Segmentation**
+  - Detect and segment ovary oocytes directly from registered raw UCHL1 without
+    DeepCell masks, then complete identity-bound Precision/Recall review,
+    expression profiling, and immutable release packaging. See
+    [`docs/oocyte_detection.md`](docs/oocyte_detection.md). For Codex-assisted
+    operation, start with
+    [`aegle/oocyte/AGENTS.md`](aegle/oocyte/AGENTS.md).
+
 - **Downstream Analysis**  
   - Perform pixel-level quality control (QC), cell-level QC, clustering, maker test using `scripts/run_analysis.sh`.  
 
