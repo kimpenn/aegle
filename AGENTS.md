@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The Git repo root is `/workspaces/codex-analysis/0-phenocycler-penntmc-pipeline`, so assume all relative paths start there unless otherwise noted. Core Python modules that drive preprocessing, segmentation, and reporting live in `aegle/`, while downstream analytics sit in `aegle_analysis/`. Command-line entry points (e.g., `src/main.py`, `src/run_analysis.py`, `src/extract_tissue_regions.py`) wrap the package functions so agents can wire configs without editing the package. Shell harnesses such as `launcher/run_main_ft.sh`, `launcher/run_preprocess_ft.sh`, and the helper scripts under `scripts/` orchestrate typical PennTMC scenarios. Images, masks, and experiment outputs are staged in `data/`, `out/`, and `logs/`, and reusable YAML configurations reside in `exps/configs/` with templates under `exps/templates/`. Unit and integration tests are grouped under `tests/`, mirroring the pipeline stages (`tests/preprocess`, `tests/main`, `tests/analysis`, plus shared helpers in `tests/utils`). Keep notebooks and scratch analyses inside `notebooks/` or `debug/` to avoid mixing exploratory code with shipping modules.
+The Git repo root is the directory containing this `AGENTS.md`; assume all relative paths start there unless otherwise noted. Core Python modules that drive preprocessing, segmentation, and reporting live in `aegle/`, while downstream analytics sit in `aegle_analysis/`. Command-line entry points (e.g., `src/main.py`, `src/run_analysis.py`, `src/extract_tissue_regions.py`) wrap the package functions so agents can wire configs without editing the package. Shell harnesses such as `launcher/run_main_ft.sh`, `launcher/run_preprocess_ft.sh`, and the helper scripts under `scripts/` orchestrate typical PennTMC scenarios. Images, masks, and experiment outputs are staged in `data/`, `out/`, and `logs/`, and reusable YAML configurations reside in `exps/configs/` with templates under `exps/templates/`. Unit and integration tests are grouped under `tests/`, mirroring the pipeline stages (`tests/preprocess`, `tests/main`, `tests/analysis`, plus shared helpers in `tests/utils`). Keep notebooks and scratch analyses inside `notebooks/` or `debug/` to avoid mixing exploratory code with shipping modules.
 
 ## Build, Test, and Development Commands
 - `python -m pip install -e .` — install the `aegle` package in editable mode so module imports (e.g., `from aegle.pipeline import run_pipeline`) resolve consistently.
@@ -20,6 +20,15 @@ Follow the short imperative commit style already in `git log` (e.g., “Added nu
 
 ## Data & Configuration Tips
 Treat `exps/templates/*.yaml` as the canonical starting point, copying them into `exps/configs/<stage>/<cohort>/<scan>/config.yaml` when onboarding a new sample. Keep raw PhenoCycler deliveries in `data/` and ensure derived artifacts (`out/`, `debug/`, `logs/`) stay git-ignored—share reproducibility details via config diffs rather than uploading binary tiles. Scripts assume relative paths inside the repo root; when building new orchestrators, echo both `--data_dir` and `--out_dir` so automated agents can rediscover the run context. Launcher scripts (e.g., `launcher/run_main_ft.sh`) provide cohort-specific wrappers. Verify that secrets (API tokens for optional LLM-assisted annotation in `src/run_analysis.py`) are provided through environment variables or `.env` files listed in `.gitignore`, never in tracked configs.
+
+## Oocyte Agent Workflow
+Before detecting, reviewing, profiling, or releasing raw-UCHL1 oocytes, read
+`aegle/oocyte/AGENTS.md` and `docs/oocyte_detection.md`. The nested guide is the
+Codex orchestration contract for this human-in-the-loop workflow. It defines
+which actions Codex may perform, which decisions require a biologist, durable
+review JSON requirements, immutable output rules, the reference panel1 run, and
+the handoff prompt for a new Codex session. Do not substitute DeepCell masks for
+the raw-UCHL1 input or describe unreviewed detector accepts as final oocytes.
 
 ## Runtime Defaults
 Most production runs use `patching.split_mode: full_image`; prefer optimizations that keep the single-patch path efficient and avoid per-patch chatter that adds little value in that mode.

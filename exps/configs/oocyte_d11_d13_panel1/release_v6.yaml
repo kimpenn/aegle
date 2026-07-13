@@ -1,0 +1,131 @@
+release_name: d11_d13_panel1_reviewed_v6
+algorithm_document: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/oocyte_detection_algorithm.html
+
+samples:
+  - sample_id: 11-21
+    role: negative_control
+    image: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/processed_hubmap/D11_13_Scan1.er_manual_11-21_Ovary_Central_Superior_Mesenteric_Scan1.ome.tiff
+    antibodies: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/extras/antibodies.tsv
+    final_labels: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-21/oocyte_labels.ome.tiff
+    final_mapping: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-21/oocyte_labels.csv
+    final_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-21/oocyte_labels.csv
+    profiling_dir: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-21/profiling_negative_control_v1
+    detector_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-21/candidates.csv
+    rescue_diagnostics: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1_rescue_v1_delta/11-21/rescue_diagnostics.csv
+    provenance_files:
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-21/run_manifest.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-21/summary.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-21/profiling_negative_control_v1/profiling_manifest.json
+
+  - sample_id: 11-22
+    role: negative_control
+    image: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/processed_hubmap/D11_13_Scan1.er_manual_11-22_Ovary_Central_Inferior_Mesenteric_Scan1.ome.tiff
+    antibodies: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/extras/antibodies.tsv
+    final_labels: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-22/oocyte_labels.ome.tiff
+    final_mapping: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-22/oocyte_labels.csv
+    final_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-22/oocyte_labels.csv
+    profiling_dir: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-22/profiling_negative_control_v1
+    detector_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-22/candidates.csv
+    rescue_diagnostics: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1_rescue_v1_delta/11-22/rescue_diagnostics.csv
+    provenance_files:
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-22/run_manifest.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-22/summary.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-22/profiling_negative_control_v1/profiling_manifest.json
+
+  - sample_id: 11-23
+    role: negative_control
+    image: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/processed_hubmap/D11_13_Scan1.er_manual_11-23_Ovary_Central_Inferior_Antimesenteric_Scan1.ome.tiff
+    antibodies: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/extras/antibodies.tsv
+    final_labels: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-23/oocyte_labels.ome.tiff
+    final_mapping: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-23/oocyte_labels.csv
+    final_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-23/oocyte_labels.csv
+    profiling_dir: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-23/profiling_negative_control_v1
+    detector_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-23/candidates.csv
+    rescue_diagnostics: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1_rescue_v1_delta/11-23/rescue_diagnostics.csv
+    provenance_files:
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-23/run_manifest.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-23/summary.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-23/profiling_negative_control_v1/profiling_manifest.json
+
+  - sample_id: 11-24
+    role: negative_control
+    image: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/processed_hubmap/D11_13_Scan1.er_manual_11-24_Ovary_Central_Superior_Antimesenteric_Scan1.ome.tiff
+    antibodies: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/extras/antibodies.tsv
+    final_labels: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-24/oocyte_labels.ome.tiff
+    final_mapping: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-24/oocyte_labels.csv
+    final_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-24/oocyte_labels.csv
+    profiling_dir: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-24/profiling_negative_control_v1
+    detector_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-24/candidates.csv
+    rescue_diagnostics: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1_rescue_v1_delta/11-24/rescue_diagnostics.csv
+    provenance_files:
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-24/run_manifest.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-24/summary.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/11-24/profiling_negative_control_v1/profiling_manifest.json
+
+  - sample_id: 13-21
+    role: positive
+    image: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/processed_hubmap/D11_13_Scan1.er_manual_13-21_Ovary_Central_Inferior_Mesenteric_Scan1.ome.tiff
+    antibodies: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/extras/antibodies.tsv
+    final_labels: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-21/reviewed_manual_seed_delta_v2/oocyte_labels_reviewed_manual_seed_v2.ome.tiff
+    final_mapping: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-21/reviewed_manual_seed_delta_v2/oocyte_labels_reviewed_manual_seed_v2_mapping.csv
+    final_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-21/reviewed_manual_seed_delta_v2/oocyte_candidates_reviewed_manual_seed_v2.csv
+    profiling_dir: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-21/profiling_reviewed_v2
+    review_exports:
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-21_oocyte_review_1.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-21_precision_boundary_review.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-21_precision_manual_boundary_review.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-21_recall_review.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-21_manual_seed_mask_review.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-21_recall_manual_boundary_review.json
+    provenance_files:
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-21/reviewed_manual_seed_delta_v2/recall_manual_boundary_finalize_manifest.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-21/profiling_reviewed_v2/profiling_manifest.json
+
+  - sample_id: 13-22
+    role: positive
+    image: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/processed_hubmap/D11_13_Scan1.er_manual_13-22_Ovary_Central_Inferior_Antimesenteric_Scan1.ome.tiff
+    antibodies: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/extras/antibodies.tsv
+    final_labels: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-22/reviewed_manual_seed_delta_v1/oocyte_labels_rescue_v1_plus_manual_seed_v1.ome.tiff
+    final_mapping: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-22/reviewed_manual_seed_delta_v1/oocyte_labels_rescue_v1_plus_manual_seed_v1_mapping.csv
+    final_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-22/reviewed_manual_seed_delta_v1/oocyte_candidates_rescue_v1_plus_manual_seed_v1.csv
+    profiling_dir: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-22/profiling_reviewed_v1
+    review_exports:
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-22_oocyte_review.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-22_recall_review_1.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-22_manual_seed_mask_review.json
+    provenance_files:
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-22/reviewed_manual_seed_delta_v1/manual_seed_finalize_manifest.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-22/profiling_reviewed_v1/profiling_manifest.json
+
+  - sample_id: 13-23
+    role: positive
+    image: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/processed_hubmap/D11_13_Scan1.er_manual_13-23_Ovary_Central_Superior_Antimesenteric_Scan1.ome.tiff
+    antibodies: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/extras/antibodies.tsv
+    final_labels: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-23/reviewed_manual_seed_survey_v2/oocyte_labels_reviewed_manual_seed_v2.ome.tiff
+    final_mapping: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-23/reviewed_manual_seed_survey_v2/oocyte_labels_reviewed_manual_seed_v2_mapping.csv
+    final_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-23/reviewed_manual_seed_survey_v2/oocyte_candidates_reviewed_manual_seed_v2.csv
+    profiling_dir: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-23/profiling_reviewed_survey_v2
+    review_exports:
+      - "/workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-23_oocyte_review _1.json"
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-23_recall_review_2.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-23_manual_seed_mask_review_1.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-23_recall_manual_boundary_review_1.json
+    provenance_files:
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-23/reviewed_manual_seed_survey_v2/recall_manual_boundary_finalize_manifest.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-23/profiling_reviewed_survey_v2/profiling_manifest.json
+
+  - sample_id: 13-24
+    role: positive
+    image: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/processed_hubmap/D11_13_Scan1.er_manual_13-24_Ovary_Central_Superior_Mesenteric_Scan1.ome.tiff
+    antibodies: /workspaces/1-spatial_frs_analysis/data/Ovary/D11_13/Scan1/extras/antibodies.tsv
+    final_labels: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-24/reviewed_manual_seed_delta_v1/oocyte_labels_rescue_v1_plus_manual_seed_v1.ome.tiff
+    final_mapping: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-24/reviewed_manual_seed_delta_v1/oocyte_labels_rescue_v1_plus_manual_seed_v1_mapping.csv
+    final_candidates: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-24/reviewed_manual_seed_delta_v1/oocyte_candidates_rescue_v1_plus_manual_seed_v1.csv
+    profiling_dir: /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-24/profiling_reviewed_v1
+    review_exports:
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-24_oocyte_review_1.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-24_recall_review.json
+      - /workspaces/1-spatial_frs_analysis/notes/oocytes_detection/reviews/13-24_manual_seed_mask_review.json
+    provenance_files:
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-24/reviewed_manual_seed_delta_v1/manual_seed_finalize_manifest.json
+      - /workspaces/1-spatial_frs_analysis/oocyte-output/d11_d13_panel1/13-24/profiling_reviewed_v1/profiling_manifest.json
